@@ -1,4 +1,4 @@
-import { useMemo, type CSSProperties } from "react";
+import { useMemo, type CSSProperties, type ReactElement } from "react";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import {
@@ -18,9 +18,9 @@ import { useSession } from "../store.js";
  * rule replayed against real rows.
  *
  * Markdown is agent-authored, so it is rendered then sanitised — `marked` is a
- * formatter, not a security boundary. Raw HTML is stripped entirely; a spec that
- * genuinely needs HTML uses the `html` block, which renders in the sandboxed
- * preview frame instead of here.
+ * formatter, not a security boundary. Raw HTML is stripped entirely: there is
+ * no escape hatch for it, because the one that existed (`kind: "html"`) parsed
+ * cleanly and then rendered a fixed notice string.
  */
 export function ContentRenderer({ blocks }: { blocks: ContentBlock[] }) {
   if (!blocks.length) return null;
@@ -33,19 +33,30 @@ export function ContentRenderer({ blocks }: { blocks: ContentBlock[] }) {
   );
 }
 
+/**
+ * One renderer per content kind, keyed by the union — same mapped-Record
+ * exhaustiveness check as CONTROL_INPUTS, and for the same reason: `ReactElement`
+ * rather than `ReactElement | null` means a kind with no renderer is a compile
+ * error instead of a block that silently draws nothing.
+ */
+type BlockRegistry = {
+  [K in ContentBlock["kind"]]: (props: { block: Extract<ContentBlock, { kind: K }> }) => ReactElement;
+};
+
+const BLOCK_RENDERERS: BlockRegistry = {
+  markdown: ({ block }) => (block.bind ? <BoundMarkdown value={block.value} /> : <Markdown value={block.value} />),
+  code: ({ block }) => <Code block={block} />,
+  diff: ({ block }) => <Diff value={block.value} filename={block.filename} />,
+  image: ({ block }) => <ImageBlock block={block} />,
+  sample: ({ block }) => <Sample block={block} />,
+};
+
 function Block({ block }: { block: ContentBlock }) {
-  switch (block.kind) {
-    case "markdown":
-      return block.bind ? <BoundMarkdown value={block.value} /> : <Markdown value={block.value} />;
-    case "code":
-      return <Code block={block} />;
-    case "diff":
-      return <Diff value={block.value} filename={block.filename} />;
-    case "image":
-      return <ImageBlock block={block} />;
-    case "sample":
-      return <Sample block={block} />;
-  }
+  // The one cast, for the same reason as inputFor: TypeScript cannot correlate
+  // a union key with a union of narrowed component types. The registry above is
+  // fully checked, which is where a mistake would be made.
+  const Renderer = BLOCK_RENDERERS[block.kind] as (props: { block: ContentBlock }) => ReactElement;
+  return <Renderer block={block} />;
 }
 
 /**
