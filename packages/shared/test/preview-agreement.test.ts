@@ -217,3 +217,102 @@ describe("declared preview.views", () => {
     expect(shouldAutoPreview(spec)).toBe(false);
   });
 });
+
+/**
+ * `vector` was the one control type no view could draw. A widget whose only
+ * control was a position therefore opened NO preview frame at all, and its two
+ * or three numbers were the entire answer — the exact "a control you cannot see
+ * the effect of" failure this tool exists to prevent.
+ */
+describe("a vector now has somewhere to go", () => {
+  const vector = (over: Record<string, unknown> = {}) => ({
+    id: "origin",
+    label: "Origin",
+    type: "vector",
+    size: 2,
+    default: [0.5, 0.5],
+    ...over,
+  });
+
+  it("opens a frame for a vector-only widget", () => {
+    const spec = build([vector()]);
+    expect(viewsOf(spec)).toEqual(["pad"]);
+    expect(shouldAutoPreview(spec)).toBe(true);
+  });
+
+  it("handles a 3-vector too", () => {
+    const spec = build([vector({ size: 3, default: [0, 0, 0] })]);
+    expect(planPreview(spec).panels[0]?.controls[0]?.id).toBe("origin");
+  });
+
+  it("sits alongside the other panels rather than replacing them", () => {
+    const spec = build([vector(), { id: "tint", label: "Tint", type: "color", default: "#000000" }]);
+    expect(viewsOf(spec)).toEqual(["swatch", "pad", "card"]);
+  });
+});
+
+/**
+ * Three views are reachable only by declaring them, and that is the design.
+ *
+ * Which of two colours is "the start of a ramp", and which of four lengths is
+ * "the padding", are statements of INTENT. Inferring them would mean drawing a
+ * relationship the author never claimed — the same reason a `sample` block has
+ * to carry its `source`.
+ */
+describe("views that are declaration-only", () => {
+  const palette = [
+    { id: "from", label: "From", type: "color", default: "#ef9f27" },
+    { id: "to", label: "To", type: "color", default: "#b0367a" },
+  ];
+
+  it("does not infer a gradient from two unrelated colours", () => {
+    expect(viewsOf(build(palette))).toEqual(["swatch", "card"]);
+  });
+
+  it("draws one when asked", () => {
+    const spec = build(palette, { preview: { views: [{ view: "gradient", controls: ["from", "to"] }] } });
+    expect(viewsOf(spec)).toEqual(["gradient"]);
+  });
+
+  it("refuses a one-stop gradient, which is a swatch", () => {
+    const result = parseSpec({
+      title: "T",
+      controls: palette,
+      preview: { views: [{ view: "gradient", controls: ["from"] }] },
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toMatch(/at least 2 controls/);
+  });
+
+  it("does not infer a box model from lengths that happen to be named padding", () => {
+    const spec = build([
+      { id: "padding", label: "Padding", type: "slider", min: 0, max: 40, default: 12, unit: "px" },
+      { id: "radius", label: "Radius", type: "slider", min: 0, max: 20, default: 6, unit: "px" },
+    ]);
+    expect(viewsOf(spec)).toEqual(["ruler", "card"]);
+  });
+
+  it("draws a box model when asked", () => {
+    const spec = build(
+      [
+        { id: "padding", label: "Padding", type: "slider", min: 0, max: 40, default: 12, unit: "px" },
+        { id: "radius", label: "Radius", type: "slider", min: 0, max: 20, default: 6, unit: "px" },
+      ],
+      { preview: { views: [{ view: "box", controls: ["padding", "radius"] }] } },
+    );
+    expect(viewsOf(spec)).toEqual(["box"]);
+  });
+
+  it("lets shadow mix lengths and a colour, which no inferred bucket can", () => {
+    const spec = build(
+      [
+        { id: "blur", label: "Blur", type: "slider", min: 0, max: 60, default: 12, unit: "px" },
+        { id: "shadow_tint", label: "Shadow tint", type: "color", default: "#00000040".slice(0, 7) },
+      ],
+      { preview: { views: [{ view: "shadow", controls: ["blur", "shadow_tint"] }] } },
+    );
+    expect(viewsOf(spec)).toEqual(["shadow"]);
+    expect(planPreview(spec).panels[0]?.controls.map((c) => c.type)).toEqual(["slider", "color"]);
+  });
+});

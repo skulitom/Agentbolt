@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   controlIsIllustrated,
   isEasingSelect,
-  isPreviewSubject,
   shouldAutoPreview,
 } from "../src/auto-preview.js";
 import { groupControls, parseSpec, type InterfaceSpec } from "../src/spec.js";
@@ -93,8 +92,9 @@ describe("the predicate split", () => {
 
   it("gives the two callers opposite answers for a compare", () => {
     const spec = build([compare]);
+    // The frame does not open for a compare, but the control still counts as
+    // illustrated for ORDERING — the matrix is on the control itself.
     expect(shouldAutoPreview(spec)).toBe(false);
-    expect(isPreviewSubject(spec.controls[0]!)).toBe(false);
     expect(controlIsIllustrated(spec, spec.controls[0]!)).toBe(true);
   });
 
@@ -163,7 +163,7 @@ describe("groupControls visualFirst", () => {
       { id: "tint", label: "Tint", type: "color", default: "#000000", group: "Colour" },
       { id: "gap", label: "Gap", type: "slider", min: 0, max: 20, default: 4, unit: "px", group: "Layout" },
     ]);
-    const ordered = groupControls(spec, { visualFirst: true, isVisual: isPreviewSubject });
+    const ordered = groupControls(spec, { visualFirst: true, isVisual: (c) => controlIsIllustrated(spec, c) });
     expect(ordered.map((g) => g.group)).toEqual(["Colour", "Layout", "Behaviour"]);
   });
 
@@ -181,7 +181,7 @@ describe("groupControls visualFirst", () => {
       { id: "b_flag", label: "B", type: "toggle", default: false, group: "Second non-visual" },
       { id: "tint", label: "Tint", type: "color", default: "#000000", group: "Visual" },
     ]);
-    const ordered = groupControls(spec, { visualFirst: true, isVisual: isPreviewSubject });
+    const ordered = groupControls(spec, { visualFirst: true, isVisual: (c) => controlIsIllustrated(spec, c) });
     expect(ordered.map((g) => g.group)).toEqual(["Visual", "First non-visual", "Second non-visual"]);
   });
 });
@@ -198,9 +198,13 @@ describe("what earns a preview frame", () => {
     ).toBe(true);
   });
 
-  it("does not open a frame for a vector, which the helper cannot draw", () => {
+  it("opens a frame for a vector, now that `pad` can draw one", () => {
+    // This used to assert the opposite, and it was documenting a HOLE rather
+    // than a rule: no view could draw a vector, so a widget whose only control
+    // was a position opened no frame at all and its numbers were the whole
+    // answer. See preview-agreement.test.ts for the panel it gets.
     expect(shouldAutoPreview(build([{ id: "pos", label: "Position", type: "vector", size: 3, default: [1, 2, 3] }]))).toBe(
-      false,
+      true,
     );
   });
 

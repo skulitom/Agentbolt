@@ -51,13 +51,6 @@ export interface ControlBehaviour<C extends Control = Control> {
   clone?(value: ControlValue): ControlValue;
 
   /**
-   * Would the built-in auto-preview have something to DRAW for this control?
-   * Gates whether a preview frame appears at all, so a false positive opens a
-   * pane whose entire content is "Position: 1,2,3".
-   */
-  previewSubject?(control: C): boolean;
-
-  /**
    * Does anything on screen change when this moves? Only orders the controls,
    * which is a weaker question than "can we draw it" — a control can be
    * illustrated by its own renderer without the helper knowing how to draw it.
@@ -161,13 +154,13 @@ function labelFor(options: ReadonlyArray<{ value: string; label?: string | undef
 const num = (value: unknown, fallback: number): number => (typeof value === "number" ? value : fallback);
 
 /**
- * A number the built-in helper has a view for: the ruler draws sizes, typeScale
- * draws type sizes.
+ * A number with a magnitude you can see: a length or a type size.
  *
- * Both halves matter. While only the size half was here, a control named
- * "type_scale" — no unit, no spatial word — landed in the frame's font bucket
- * while the gate said there was nothing to show, so the frame never opened.
- * preview-agreement.test.ts pins the pair.
+ * Used for ORDERING only. Whether a preview frame opens, and what goes in it,
+ * is `planPreview`'s single answer — this registry deliberately no longer has
+ * an opinion on that, because two opinions is how a control named "type_scale"
+ * ended up in the frame's font bucket while the gate said there was nothing to
+ * show and the frame never opened.
  */
 const drawableMagnitude = (control: ControlOfType<"slider"> | ControlOfType<"number">): boolean =>
   isSizeish(control) || isFontish(control);
@@ -189,7 +182,6 @@ export const CONTROLS: Registry = {
   slider: {
     refine: refineNumeric,
     checkValue: checkNumericValue,
-    previewSubject: drawableMagnitude,
     illustrated: drawableMagnitude,
     askDefault: (d) => (num(d["min"], 0) + num(d["max"], 1)) / 2,
     askFixup: (d) => {
@@ -205,7 +197,6 @@ export const CONTROLS: Registry = {
   number: {
     refine: refineNumeric,
     checkValue: checkNumericValue,
-    previewSubject: drawableMagnitude,
     illustrated: drawableMagnitude,
     askDefault: (d) => num(d["min"], 0),
     formatDefault: (c) => String(c.default),
@@ -226,7 +217,6 @@ export const CONTROLS: Registry = {
     checkValue: checkChosenOption,
     // An easing curve is a shape the helper CAN draw (easingCurve): the name
     // "easeOutBack" tells you nothing you can feel, the plotted curve does.
-    previewSubject: isEasingSelect,
     illustrated: isEasingSelect,
     askDefault: (d) => firstOptionValue(d),
     formatDefault: (c) => labelFor(c.options, c.default),
@@ -248,7 +238,6 @@ export const CONTROLS: Registry = {
       typeof value === "string" && HEX_COLOR.test(value)
         ? undefined
         : `expected a hex colour like #ef9f27, got ${describeValue(value)}`,
-    previewSubject: () => true,
     illustrated: () => true,
     askDefault: () => "#888888",
     formatDefault: (c) => c.default,
@@ -287,9 +276,6 @@ export const CONTROLS: Registry = {
       return undefined;
     },
     clone: (value) => [...(value as number[])],
-    // Deliberately NOT a previewSubject: it reads as spatial, but the helper
-    // has no vector view, so claiming it opens a pane whose entire content is
-    // the text "Position: 1,2,3". An empty frame is worse than no frame.
     illustrated: () => true,
     bindRejection: () => ", which is a list, not a string — show the selection with a `sample` block instead",
     // 2 unless 3 was asked for: a 2-vector is the common case (a position, a

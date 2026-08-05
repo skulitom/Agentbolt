@@ -42,6 +42,17 @@ export const PREVIEW_VIEWS = {
     min: 1,
   },
   swatch: { label: "Colours", accepts: ["color"], draws: true, min: 1 },
+  /**
+   * Never inferred, only declared. Two colours in a spec are usually two
+   * unrelated decisions — an accent and a surface — and drawing them as a ramp
+   * would invent a relationship the author never claimed.
+   */
+  gradient: { label: "Gradient", accepts: ["color"], draws: true, min: 2 },
+  /** The one control type no view could draw, so a vector-only spec got no frame. */
+  pad: { label: "Position", accepts: ["vector"], draws: true, min: 1 },
+  /** Declared only: which length is "padding" is intent, not something to guess. */
+  box: { label: "Box model", accepts: ["slider", "number"], draws: true, min: 1 },
+  shadow: { label: "Shadow", accepts: ["slider", "number", "color"], draws: true, min: 1 },
   ruler: { label: "Sizes", accepts: ["slider", "number"], draws: true, min: 1 },
   type: { label: "Type", accepts: ["slider", "number"], draws: true, min: 1 },
   card: { label: "Sample card", accepts: ["color", "slider", "number"], draws: true, min: 0 },
@@ -155,10 +166,15 @@ function inferredPanels(controls) {
   const colours = free.filter((c) => c.type === "color");
   const fonts = free.filter(isFontish);
   const sizes = free.filter((c) => !fonts.includes(c) && isSizeish(c));
+  const vectors = free.filter((c) => c.type === "vector");
 
   if (colours.length) panels.push({ view: "swatch", controls: colours, title: PREVIEW_VIEWS.swatch.label, declared: false });
   if (sizes.length) panels.push({ view: "ruler", controls: sizes, title: PREVIEW_VIEWS.ruler.label, declared: false });
   if (fonts.length) panels.push({ view: "type", controls: fonts, title: PREVIEW_VIEWS.type.label, declared: false });
+  // Inferred because the signal is unambiguous — the TYPE is vector, not a
+  // guess from its name. gradient/box/shadow stay declaration-only for exactly
+  // the opposite reason: which length is "padding" is intent, not a signal.
+  if (vectors.length) panels.push({ view: "pad", controls: vectors, title: PREVIEW_VIEWS.pad.label, declared: false });
 
   const accent = colours[0];
   const radius = sizes.find((c) => /radius/i.test(`${c.id} ${c.label}`));

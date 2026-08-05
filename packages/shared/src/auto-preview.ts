@@ -19,29 +19,23 @@ export { isEasingSelect };
  * redundant preview costs a little space, whereas a missing one means the human
  * is guessing while the UI looks authoritative.
  */
-/**
- * Would the built-in auto-preview actually have something to DRAW for this
- * control? Gates whether a preview frame appears at all.
- *
- * Note what is absent: `vector`. It reads as spatial, but the helper has no
- * vector view, so claiming it is previewable opens a pane whose entire content
- * is the text "Position: 1,2,3". An empty frame is worse than no frame.
- */
-export function isPreviewSubject(control: Control): boolean {
-  return behaviourFor(control).previewSubject?.(control) ?? false;
-}
 
 /**
  * Does anything on screen change when this control moves? Used only for
- * ORDERING controls, which is a weaker question than "can we draw it" — a
- * control can be illustrated by an agent's own preview module, by a `sample`
- * block, by a bound snippet, or by its own renderer, without the built-in
- * helper knowing how to draw a thing.
+ * ORDERING controls, which is a weaker question than "can the preview draw it"
+ * — a control can be illustrated by an agent's own preview module, by a
+ * `sample` block, by a bound snippet, or by its own renderer, without the
+ * built-in helper knowing how to draw a thing.
  *
- * Keeping this separate from isPreviewSubject is what stops "referenced by an
- * effect ⇒ visual" from also opening a preview FRAME: a widget whose only
- * illustrated control is a compare would otherwise ship half a screen of pane
- * containing the string "Retries: 3".
+ * Keeping this separate from the PLAN is what stops "referenced by an effect ⇒
+ * visual" from also opening a preview FRAME: a widget whose only illustrated
+ * control is a compare would otherwise ship half a screen of pane containing
+ * the string "Retries: 3".
+ *
+ * There is deliberately no `isPreviewSubject` beside it any more. That was a
+ * second answer to "would the preview draw this", and a second answer is how a
+ * "type_scale" control ended up in the frame's font bucket while the gate said
+ * there was nothing to show. `planPreview` is the only answer now.
  */
 export function controlIsIllustrated(spec: InterfaceSpec, control: Control): boolean {
   // The per-control half of the answer belongs to the control; the per-block

@@ -330,6 +330,222 @@ export function typeScale({ title = "Type", sample = "The quick brown fox jumps 
   };
 }
 
+/**
+ * A vector as a POSITION, not two numbers.
+ *
+ * The hole this fills: `vector` was the one control type no view could draw, so
+ * a widget whose only control was a position opened no preview frame at all and
+ * its numbers were the entire answer — the exact "a control you cannot see the
+ * effect of" failure the tool exists to prevent.
+ *
+ * A 3-vector shows x/y in the field and z as a depth bar, because a 2D pane
+ * cannot honestly show three axes at once and a fake perspective would imply
+ * precision that is not there.
+ */
+export function pad({ title = "Position" } = {}) {
+  let root;
+  const rows = new Map();
+
+  const createRow = ({ label }) => {
+    const dot = el("div", {
+      style: {
+        position: "absolute", width: "11px", height: "11px", borderRadius: "50%",
+        background: "light-dark(#1c1c1a, #ececee)", border: "2px solid light-dark(#fff, #1c1c1a)",
+        transform: "translate(-50%, -50%)", left: "50%", top: "50%",
+      },
+    });
+    const field = el(
+      "div",
+      {
+        style: {
+          position: "relative", width: "112px", height: "112px", flex: "none", borderRadius: "6px",
+          border: "1px solid rgba(128,128,128,.35)",
+          // A centre cross, so "0,0" and "off to one side" are distinguishable.
+          backgroundImage:
+            "linear-gradient(rgba(128,128,128,.25) 1px, transparent 1px), linear-gradient(90deg, rgba(128,128,128,.25) 1px, transparent 1px)",
+          backgroundSize: "50% 50%", backgroundPosition: "center",
+        },
+      },
+      dot,
+    );
+    const readout = el("div", { class: "aui-mono" });
+    const depthFill = el("div", {
+      style: { height: "100%", width: "0%", background: "light-dark(#1c1c1a, #ececee)", borderRadius: "3px" },
+    });
+    const depth = el("div", {
+      style: {
+        height: "6px", borderRadius: "3px", background: "rgba(128,128,128,.22)", marginTop: "6px", display: "none",
+      },
+    }, depthFill);
+    const side = el("div", { style: { minWidth: "0", flex: "1" } }, el("div", {}, label), readout, depth);
+    return {
+      el: el("div", { style: { display: "flex", alignItems: "center", gap: "12px", padding: "6px 0" } }, field, side),
+      dot, readout, depth, depthFill,
+    };
+  };
+
+  return {
+    mount(container) {
+      ensureStyles(container);
+      root = el("div", { class: "aui-section" }, el("div", { class: "aui-label" }, title), el("div"));
+      container.append(root);
+    },
+    update(entries, meta) {
+      const animate = meta?.source === "agent";
+      for (const { row, entry, isNew } of syncRows(rows, root.lastChild, entries, createRow)) {
+        const axes = Array.isArray(entry.value) ? entry.value.map(Number) : [];
+        // Without declared bounds a unit square is the only honest assumption,
+        // and it is what a vector without min/max almost always means.
+        const min = Number.isFinite(entry.min) ? entry.min : 0;
+        const max = Number.isFinite(entry.max) ? entry.max : 1;
+        const frac = (n) => Math.max(0, Math.min(1, ((Number(n) || 0) - min) / (max - min || 1)));
+
+        row.dot.style.transition = agentTransition(animate && !isNew, "left", "top");
+        row.dot.style.left = `${frac(axes[0]) * 100}%`;
+        // Screen y grows downward; a position control does not.
+        row.dot.style.top = `${(1 - frac(axes[1])) * 100}%`;
+
+        const is3d = axes.length > 2;
+        row.depth.style.display = is3d ? "block" : "none";
+        if (is3d) {
+          row.depthFill.style.transition = agentTransition(animate && !isNew, "width");
+          row.depthFill.style.width = `${frac(axes[2]) * 100}%`;
+        }
+        row.readout.textContent = axes.map((n) => round(n)).join(", ") + (entry.unit ?? "");
+      }
+    },
+  };
+}
+
+/**
+ * Colours as a RAMP rather than as separate chips.
+ *
+ * Deliberately never inferred. Two colours in a spec are usually two unrelated
+ * decisions — an accent and a surface — and drawing them as a gradient would
+ * invent a relationship the author never claimed. Declaring `gradient` is how
+ * you say they ARE a ramp.
+ */
+export function gradient({ title = "Gradient" } = {}) {
+  let root;
+  let bar;
+  let stops;
+  return {
+    mount(container) {
+      ensureStyles(container);
+      bar = el("div", {
+        style: { height: "42px", borderRadius: "6px", border: "1px solid rgba(128,128,128,.35)" },
+      });
+      stops = el("div", { class: "aui-mono", style: { display: "flex", justifyContent: "space-between", marginTop: "6px" } });
+      root = el("div", { class: "aui-section" }, el("div", { class: "aui-label" }, title), bar, stops);
+      container.append(root);
+    },
+    update(entries, meta) {
+      const colours = entries.map((e) => String(e.value));
+      // One colour is not a ramp; render it flat rather than as a broken gradient.
+      const css = colours.length > 1 ? `linear-gradient(90deg, ${colours.join(", ")})` : (colours[0] ?? "transparent");
+      bar.style.transition = agentTransition(meta?.source === "agent", "background");
+      bar.style.background = css;
+      stops.replaceChildren(...colours.map((c) => el("span", {}, c)));
+    },
+  };
+}
+
+/**
+ * The box model: padding, radius and border seen as a shape.
+ *
+ * A ruler tells you 12px is smaller than 20px. It cannot tell you whether 12px
+ * of padding looks cramped, which is the actual question. Roles are matched by
+ * name from whatever controls the panel was given, so a declared panel can name
+ * them in any order.
+ */
+export function box({ title = "Box model" } = {}) {
+  let root;
+  let outer;
+  let inner;
+  let readout;
+  return {
+    mount(container) {
+      ensureStyles(container);
+      inner = el(
+        "div",
+        {
+          style: {
+            background: "light-dark(#fff, #26262b)", border: "1px dashed rgba(128,128,128,.5)",
+            display: "grid", placeItems: "center", minHeight: "34px", fontSize: "12px",
+          },
+        },
+        "content",
+      );
+      outer = el("div", {
+        style: {
+          background: "light-dark(#efefe9, #1c1c1a)", border: "1px solid rgba(128,128,128,.35)",
+        },
+      }, inner);
+      readout = el("div", { class: "aui-mono", style: { marginTop: "6px" } });
+      root = el("div", { class: "aui-section" }, el("div", { class: "aui-label" }, title), outer, readout);
+      container.append(root);
+    },
+    update(entries, meta) {
+      const find = (re) => entries.find((e) => re.test(e.label) || re.test(String(e.id ?? "")));
+      const padding = find(/pad/i);
+      const radius = find(/radius|round|corner/i);
+      const border = find(/border|stroke|outline/i);
+      const px = (entry, fallback) => (entry ? Number(entry.value) || 0 : fallback);
+
+      const t = agentTransition(meta?.source === "agent", "padding", "border-radius", "border-width");
+      outer.style.transition = t;
+      inner.style.transition = t;
+      outer.style.padding = `${px(padding, 12)}px`;
+      outer.style.borderRadius = `${px(radius, 0)}px`;
+      outer.style.borderWidth = `${px(border, 1)}px`;
+      // The inner corner is the outer one minus the padding, which is what makes
+      // a large radius on a small box read as wrong at a glance.
+      inner.style.borderRadius = `${Math.max(0, px(radius, 0) - px(padding, 12))}px`;
+      readout.textContent = entries.map((e) => `${e.label}: ${round(e.value)}${e.unit ?? "px"}`).join("   ");
+    },
+  };
+}
+
+/**
+ * Elevation. Offset, blur, spread and colour composed into one shadow, because
+ * four numbers describe a shadow and none of them describes it alone.
+ */
+export function shadow({ title = "Shadow" } = {}) {
+  let root;
+  let plate;
+  let readout;
+  return {
+    mount(container) {
+      ensureStyles(container);
+      plate = el("div", {
+        style: {
+          width: "60%", minWidth: "120px", height: "56px", margin: "10px auto 18px",
+          borderRadius: "8px", background: "light-dark(#fff, #2c2c33)",
+          border: "1px solid rgba(128,128,128,.28)",
+        },
+      });
+      readout = el("div", { class: "aui-mono" });
+      root = el("div", { class: "aui-section" }, el("div", { class: "aui-label" }, title), plate, readout);
+      container.append(root);
+    },
+    update(entries, meta) {
+      const find = (re) => entries.find((e) => re.test(e.label) || re.test(String(e.id ?? "")));
+      const num = (entry, fallback) => (entry ? Number(entry.value) || 0 : fallback);
+      const colour = entries.find((e) => /^#[0-9a-f]{6}$/i.test(String(e.value)));
+
+      const x = num(find(/x|horizontal/i), 0);
+      const y = num(find(/y|vertical|offset|drop/i), 4);
+      const blur = num(find(/blur|soft/i), 12);
+      const spread = num(find(/spread|grow/i), 0);
+      const tint = colour ? String(colour.value) : "#00000040";
+
+      plate.style.transition = agentTransition(meta?.source === "agent", "box-shadow");
+      plate.style.boxShadow = `${x}px ${y}px ${blur}px ${spread}px ${tint}`;
+      readout.textContent = `${round(x)} ${round(y)} ${round(blur)} ${round(spread)}  ${tint}`;
+    },
+  };
+}
+
 /** A representative widget card, restyled by the values. */
 export function card({ title = "Sample card", heading = "A widget", subtitle = "styled with your settings" } = {}) {
   let root;
@@ -537,6 +753,9 @@ export function stateLine({ title = "Settings" } = {}) {
 /** The standard payload: one entry per control, with its declared range. */
 const entriesFor = (panel, values) =>
   panel.controls.map((c) => ({
+    // `id` rides along because the role-matching views (box, shadow) look for
+    // "padding"/"blur"/"x" and an author may have put that in either place.
+    id: c.id,
     label: c.label,
     // min/max travel with the value: without the declared range the ruler has
     // nothing honest to scale against.
@@ -572,6 +791,10 @@ export const VIEW_IMPLS = {
     },
   },
   swatch: { create: (panel) => swatchGrid({ title: panel.title }), payload: entriesFor },
+  gradient: { create: (panel) => gradient({ title: panel.title }), payload: entriesFor },
+  pad: { create: (panel) => pad({ title: panel.title }), payload: entriesFor },
+  box: { create: (panel) => box({ title: panel.title }), payload: entriesFor },
+  shadow: { create: (panel) => shadow({ title: panel.title }), payload: entriesFor },
   ruler: { create: (panel) => ruler({ title: panel.title }), payload: entriesFor },
   type: { create: (panel) => typeScale({ title: panel.title }), payload: entriesFor },
   card: {
@@ -626,4 +849,4 @@ export function autoPreview(spec) {
   };
 }
 
-export default { swatchGrid, ruler, typeScale, card, easingCurve, stateLine, autoPreview };
+export default { swatchGrid, ruler, typeScale, card, easingCurve, stateLine, pad, gradient, box, shadow, autoPreview };
