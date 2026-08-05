@@ -1,11 +1,14 @@
 import { z } from "zod";
 import {
+  CONTROLS,
+  CONTROL_TYPES,
   Control,
   ContentBlock,
   InterfaceSpec,
   PreviewOptions,
   formatSpecError,
   type Action,
+  type ControlType,
   type InterfaceSpecInput,
 } from "./spec.js";
 
@@ -20,14 +23,19 @@ import {
  * inflated here so the renderer and the event pipeline only ever see one shape.
  */
 
-/** A forgiving field shorthand: everything except `id` and `type` is optional. */
-const FieldShorthand = z.looseObject({
+/**
+ * A forgiving field shorthand: everything except `id` and `type` is optional.
+ *
+ * Exported because `ui_ask`'s MCP input schema is built from it — that is what
+ * lets the agent see the real field shape instead of `z.unknown()`.
+ */
+export const FieldShorthand = z.looseObject({
   id: z.string(),
-  // A new control type is invisible to `ui_ask` until it is listed here — the
-  // enum rejects it before inflateField ever sees it.
-  type: z
-    .enum(["slider", "number", "select", "toggle", "color", "text", "vector", "compare", "multiselect"])
-    .optional(),
+  // DERIVED from the registry, not restated. This enum used to be a hand-copied
+  // list, and a control type missing from it was invisible to `ui_ask`: the
+  // enum rejected the call before inflateField ever saw it, with an error about
+  // the type rather than about the enum.
+  type: z.enum(CONTROL_TYPES as [ControlType, ...ControlType[]]).optional(),
   label: z.string().optional(),
   default: z.unknown().optional(),
   options: z.array(z.union([z.string(), z.looseObject({ value: z.string(), label: z.string().optional() })])).optional(),
@@ -120,66 +128,27 @@ function inflateField(field: z.infer<typeof FieldShorthand>): unknown {
   const base: Record<string, unknown> = { ...raw, id: field.id, label, type };
   if (options) base["options"] = options;
 
-  if (base["default"] === undefined) {
-    switch (type) {
-      case "text":
-        base["default"] = "";
-        break;
-      case "toggle":
-        base["default"] = false;
-        break;
-      case "color":
-        base["default"] = "#888888";
-        break;
-      case "select":
-        base["default"] = options?.[0]?.value ?? "";
-        break;
-      case "slider": {
-        const min = typeof raw["min"] === "number" ? raw["min"] : 0;
-        const max = typeof raw["max"] === "number" ? raw["max"] : 1;
-        base["default"] = (min + max) / 2;
-        break;
-      }
-      case "number":
-        base["default"] = typeof raw["min"] === "number" ? raw["min"] : 0;
-        break;
-      case "vector": {
-        const size = raw["size"] === 3 ? 3 : 2;
-        base["size"] = size;
-        base["default"] = Array.from({ length: size }, () => 0);
-        break;
-      }
-      case "compare":
-        base["default"] = options?.[0]?.value ?? "";
-        break;
-      // Nothing pre-checked is the only defensible guess: `default` on a
-      // multiselect is a PROPOSAL, and inventing one would put words in the
-      // agent's mouth that `touched` would then report back as a decision.
-      case "multiselect":
-        base["default"] = [];
-        break;
-    }
-  }
-
-  // A slider without bounds is the single most common authoring slip; give it
-  // usable ones rather than rejecting the whole call.
-  if (type === "slider") {
-    if (typeof base["min"] !== "number") base["min"] = 0;
-    if (typeof base["max"] !== "number") base["max"] = 1;
-  }
-
-  // A vector inferred from `default: [x, y]` carries its arity in the default,
-  // so derive `size` rather than making the author repeat it.
-  if (type === "vector" && base["size"] !== 2 && base["size"] !== 3) {
-    const fromDefault = Array.isArray(base["default"]) ? base["default"].length : 0;
-    base["size"] = fromDefault === 3 ? 3 : 2;
-    if (!Array.isArray(base["default"])) base["default"] = [0, 0];
-  }
+  // What a type's default should be, and what else it needs to be parseable,
+  // are the type's own business. These were two switches here — the second of
+  // which (slider bounds, vector arity) a new type would have had to be
+  // remembered in, with the symptom being a schema error rather than a hint.
+  const behaviour = CONTROLS[type];
+  if (base["default"] === undefined) base["default"] = behaviour.askDefault(base);
+  behaviour.askFixup?.(base);
 
   return base;
 }
 
-function inferType(field: z.infer<typeof FieldShorthand>): string {
+/**
+ * Returns a `ControlType`, not a string, so a type this function invents that
+ * the registry has never heard of is a compile error rather than a lookup that
+ * silently yields undefined.
+ *
+ * Stays hand-written rather than becoming another registry field: it is
+ * genuinely ORDER-dependent — options first, then string-array, then the
+ * primitives — so it is a short ordered rule list, not a per-type map.
+ */
+function inferType(field: z.infer<typeof FieldShorthand>): ControlType {
   const value = field.default;
   // An array of STRINGS is a selection, an array of numbers is a position. The
   // distinction has to be made here or every multiselect shorthand arrives as a

@@ -1,9 +1,7 @@
-import { collectPlaceholders } from "./bind.js";
-import { parseSampleRule } from "./sample.js";
-import type { InterfaceSpec } from "./spec.js";
+import { behaviourFor, contentBehaviourFor, type Control, type InterfaceSpec } from "./spec.js";
 // The vocabulary the preview frame reads too, so both origins answer "is this
 // spatial / a duration / an easing picker" the same way. See vocab.js.
-import { isEasingSelect, isFontish, isSizeish } from "./vocab.js";
+import { isEasingSelect } from "./vocab.js";
 
 export { isEasingSelect };
 
@@ -28,22 +26,8 @@ export { isEasingSelect };
  * vector view, so claiming it is previewable opens a pane whose entire content
  * is the text "Position: 1,2,3". An empty frame is worse than no frame.
  */
-export function isPreviewSubject(control: InterfaceSpec["controls"][number]): boolean {
-  if (control.type === "color") return true;
-  // The same predicates the frame buckets with, not a second copy of their
-  // regexes: "does a frame appear" and "does this land in a bucket" have to
-  // agree, or the pane opens saying it has nothing to show.
-  if (isSizeish(control)) return true;
-  // A type size the helper draws with typeScale. This was missing while the
-  // two sides only shared regexes rather than predicates: a control named
-  // "type_scale" carries no unit and no spatial word, so it landed in the
-  // frame's font bucket while the gate said there was nothing to show — the
-  // frame simply never opened. preview-agreement.test.ts pins the pair now.
-  if (isFontish(control)) return true;
-  // An easing curve is a shape the helper CAN draw (easingCurve): the name
-  // "easeOutBack" tells you nothing you can feel, the plotted curve does.
-  if (isEasingSelect(control)) return true;
-  return false;
+export function isPreviewSubject(control: Control): boolean {
+  return behaviourFor(control).previewSubject?.(control) ?? false;
 }
 
 /**
@@ -58,21 +42,15 @@ export function isPreviewSubject(control: InterfaceSpec["controls"][number]): bo
  * illustrated control is a compare would otherwise ship half a screen of pane
  * containing the string "Retries: 3".
  */
-export function controlIsIllustrated(spec: InterfaceSpec, control: InterfaceSpec["controls"][number]): boolean {
-  if (isPreviewSubject(control)) return true;
-  // A vector has no built-in view, but an authored module usually draws it.
-  if (control.type === "vector") return true;
-  // These two ARE their own illustration: the matrix and the running total are
-  // on the control itself.
-  if (control.type === "compare") return true;
-  if (control.type === "multiselect") return control.options.some((option) => option.weight !== undefined);
+export function controlIsIllustrated(spec: InterfaceSpec, control: Control): boolean {
+  // The per-control half of the answer belongs to the control; the per-block
+  // half belongs to the block. Both used to be if-chains here that every new
+  // type and kind had to be remembered in.
+  if (behaviourFor(control).illustrated?.(control)) return true;
 
   return spec.content.some((block) => {
-    if (block.kind === "sample") return parseSampleRule(block.rule)?.control === control.id;
-    if ((block.kind === "markdown" || block.kind === "code") && block.bind) {
-      return collectPlaceholders(block.value).some((placeholder) => placeholder.id === control.id);
-    }
-    return false;
+    const illustrates = contentBehaviourFor(block).illustrates?.(block);
+    return illustrates?.includes(control.id) ?? false;
   });
 }
 

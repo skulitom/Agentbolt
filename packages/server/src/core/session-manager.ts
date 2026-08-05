@@ -2,6 +2,7 @@ import path from "node:path";
 import fsp from "node:fs/promises";
 import { customAlphabet } from "nanoid";
 import {
+  contentBehaviourFor,
   type ClientMessage,
   type ContentBlock,
   type InterfaceSpec,
@@ -80,7 +81,11 @@ function quickChoicesFor(session: Session): SessionSummary["quickChoices"] {
   // question was asked visually in the first place and must not be skipped past.
   // A BOUND markdown block is one of those: it is prose that changes as you
   // type, which is a thing to look at rather than a thing to read past.
-  const needsLookingAt = spec.content.some((block) => block.kind !== "markdown" || block.bind);
+  //
+  // Asked of the block rather than decided here: this used to be an inline
+  // `kind !== "markdown" || block.bind`, a fourth independent answer to "is
+  // this visual" that a new content kind would have had to be remembered in.
+  const needsLookingAt = spec.content.some((block) => contentBehaviourFor(block).needsLookingAt(block));
   if (!spec.actions.length || spec.controls.length > 0 || needsLookingAt) return [];
   return spec.actions.map((action) => ({ id: action.id, label: action.label, style: action.style }));
 }
@@ -206,12 +211,19 @@ export class SessionManager {
   }
 
   /**
-   * Copies `image.path` blocks into the session's assets dir and rewrites them
-   * to a served URL. Anything unreadable degrades to a caption rather than
-   * failing the whole widget — a missing screenshot should not block a question.
+   * Copies blocks that name a local file into the session's assets dir and
+   * rewrites them to a served URL. Anything unreadable degrades to a caption
+   * rather than failing the whole widget — a missing screenshot should not
+   * block a question.
+   *
+   * Which blocks carry a local path is asked of the content registry, not
+   * hand-coded as `kind === "image" && block.path`. That inline test was the
+   * kind of site a second path-carrying kind gets silently left out of, and the
+   * symptom would be an asset that is simply never copied.
    */
   async #materializeAssets(spec: InterfaceSpec, dir: string, sessionId: string): Promise<InterfaceSpec> {
-    if (!spec.content.some((block) => block.kind === "image" && block.path)) return spec;
+    const localPathOf = (block: ContentBlock): string | undefined => contentBehaviourFor(block).localPath?.(block);
+    if (!spec.content.some((block) => localPathOf(block))) return spec;
 
     const assetsDir = path.join(dir, "assets");
     await ensureDir(assetsDir);
@@ -219,20 +231,20 @@ export class SessionManager {
     const content: ContentBlock[] = [];
     let index = 0;
     for (const block of spec.content) {
-      if (block.kind !== "image" || !block.path) {
+      const local = localPathOf(block);
+      if (!local) {
         content.push(block);
         continue;
       }
-      const source = path.resolve(block.path);
+      const source = path.resolve(local);
       const ext = path.extname(source).toLowerCase() || ".png";
       const name = `${index++}${ext}`;
       try {
         await fsp.copyFile(source, path.join(assetsDir, name));
         // Served from the session's own asset route, never from an arbitrary path.
-        const rewritten: ContentBlock = { kind: "image", path: `/s/${sessionId}/assets/${name}` };
-        if (block.alt !== undefined) rewritten.alt = block.alt;
-        if (block.caption !== undefined) rewritten.caption = block.caption;
-        content.push(rewritten);
+        const url = `/s/${sessionId}/assets/${name}`;
+        const rewritten = contentBehaviourFor(block).withLocalPath?.(block, url);
+        content.push(rewritten ?? block);
       } catch (error) {
         log.warn("could not read image for content block", { path: source, error: String(error) });
         content.push({
