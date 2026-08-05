@@ -29,14 +29,14 @@
  * - No top-level DOM/matchMedia access: the file must import cleanly in Node,
  *   where its pure cores (cubicBezier, springStep) are unit-tested
  *   (packages/ui/test/motion.test.ts).
- * - `durations` hand-mirrors the shell's --t-* tokens in styles.css. The frame
+ * - `durations` hand-mirrors the shell's --t-* tokens in styles/tokens-and-base.css. The frame
  *   is a different origin and inherits no CSS variables, so a copy is the only
  *   option — the same precedent as SIZE_HINTS in shared/auto-preview.ts.
  */
 
 /* ---------------------------------------------------------------- tokens */
 
-/** Mirrors --t-fast / --t-quick / --t-gentle in packages/ui/src/styles.css. */
+/** Mirrors --t-fast / --t-quick / --t-gentle in packages/ui/src/styles/tokens-and-base.css. */
 export const durations = { fast: 90, quick: 140, gentle: 220 };
 
 /* ---------------------------------------------------------------- easings */

@@ -87,6 +87,16 @@ three, and you should stop rationing them.
 | Pick up an answer | `ui_wait` (blocks efficiently) or `ui_get_state` (snapshot) |
 | Fix or change a live widget | `ui_update` |
 | Keep a widget worth having again | `ui_save` |
+| Tidy up when you are done with one | `ui_close` |
+| Look up the exact fields of a control or block | `ui_schema` |
+
+`ui_create` and `ui_ask` advertise the *shape* of a spec and the list of control
+types, not every field of every type — carrying the full schema would cost you
+thousands of tokens on every request instead of once, when you need it. So when
+you are reaching for something structured — a `compare`'s axes, a `sample`'s
+rows, a slider's bounds — call `ui_schema({ of: "control", type: "compare" })`
+rather than guessing and reading the rejection. `of` also takes `"content"`,
+`"spec"` and `"preview-module"`.
 
 ## The normal shape
 

@@ -5,7 +5,7 @@
 // the demos double as real test cases.
 //
 // This one tunes the shell's own visual tokens. Whatever you send back gets
-// applied to packages/ui/src/styles.css.
+// applied to packages/ui/src/styles/.
 //
 //   node packages/server/examples/demo.mjs
 //

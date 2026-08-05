@@ -10,8 +10,8 @@
 //
 //   node packages/server/examples/motion-demo.mjs
 //
-// Whatever you send back belongs in packages/ui/src/styles.css (and mirrored
-// in packages/ui/public/agentui/motion.js — see the header there).
+// Whatever you send back belongs in packages/ui/src/styles/tokens-and-base.css
+// (and mirrored in packages/ui/public/agentui/motion.js — see the header there).
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -133,7 +133,7 @@ setInterval(async () => {
   if (body.output) {
     finished = true;
     process.stderr.write(`\n  FINALIZED ${JSON.stringify(body.output.values, null, 2)}\n`);
-    process.stderr.write("  Apply: --t-fast/--t-quick/--t-gentle in packages/ui/src/styles.css,\n");
+    process.stderr.write("  Apply: --t-fast/--t-quick/--t-gentle in packages/ui/src/styles/tokens-and-base.css,\n");
     process.stderr.write("  and keep packages/ui/public/agentui/motion.js `durations` in step.\n\n");
   }
 }, 1500);
