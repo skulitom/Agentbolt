@@ -86,6 +86,11 @@ describe("mcp surface", () => {
 
     // The library shortlist is folded into this description at startup.
     expect(create?.description).toMatch(/ui_library/);
+
+    // The preview import surface lives in the previewModule field description,
+    // because bare MCP clients never load the skill file. "agentui" appearing
+    // here is what tells such a client the motion helpers exist at all.
+    expect(JSON.stringify(create?.inputSchema)).toMatch(/agentui/);
   });
 
   it("creates a session, returns structured content, and writes files to disk", async () => {

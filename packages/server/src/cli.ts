@@ -1,6 +1,7 @@
 // `agentui <command>` — register the MCP server with the coding agents on this
 // machine. The MCP server itself is `agentui-mcp`, launched by the agent.
 import { apply, installSkill, plan, renderPlan, serverConfig } from "./install/install.js";
+import { renderDiagnosis, runDoctor } from "./install/doctor.js";
 import { allTargets } from "./install/targets.js";
 
 const argv = process.argv.slice(2);
@@ -21,6 +22,7 @@ function usage(): void {
       "Usage:",
       "  agentui install [--dry-run] [--only=id,id]   register with detected agents",
       "  agentui uninstall [--dry-run]                remove the registration",
+      "  agentui doctor                               check it actually works, before you rely on it",
       "  agentui status                               show where it is registered",
       "",
       "Agent ids: " + allTargets().map((t) => t.id).join(", "),
@@ -68,6 +70,25 @@ async function main(): Promise<void> {
         if (changed) write("Restart any running agents so they pick up the new server.");
       }
       process.exitCode = failed ? 1 : 0;
+      break;
+    }
+
+    case "doctor": {
+      write("");
+      write("Checking AgentUI the way your agents actually launch it…");
+      write("");
+      const results = await runDoctor();
+      write(renderDiagnosis(results));
+      write("");
+
+      const failures = results.filter((r) => !r.ok);
+      if (failures.length === 0) {
+        write("All good. If an agent still cannot see the tools, restart it — MCP servers are");
+        write("loaded at startup, so a fresh install is invisible to an already-running client.");
+      } else {
+        write(`${failures.length} problem(s) found.`);
+      }
+      process.exitCode = failures.length ? 1 : 0;
       break;
     }
 

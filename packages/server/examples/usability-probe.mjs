@@ -46,17 +46,77 @@ async function simulateInboxOpen(origin) {
   await fetch(`${origin}/api/sessions`).catch(() => {});
 }
 
+// q1 and q2 are the two questions this tool was worst at, asked the way the
+// skill now says to ask them.
+//
+// The old q1 was "Keep files / Delete them" — two buttons over a policy nobody
+// can hold in their head. The old q2 was a bare 1..48h slider, which drew a bar
+// that was 100% wide at every value. Both are the same mistake: asking about a
+// number instead of about the things the number applies to. Both become a
+// `sample`: the rule, replayed against rows on this machine, with the line
+// moving as you drag. The rows below are ILLUSTRATIVE and say so in `source` —
+// a probe cannot read your sessions, and inventing them silently is exactly the
+// failure the field exists to make visible.
+
 // First question opens a tab (nothing is open yet). The probe then keeps the
 // inbox "open" the way a real user would, and the next two must NOT get tabs.
 await ask("q1: a judgement call", {
-  question: "Should ui_close also delete the session directory by default?",
-  options: ["Keep files", "Delete them"],
+  question: "Should ui_close delete the session directory?",
+  details:
+    '"Always" and "never" are the ends of one dial: *delete when the session is older than N days*. ' +
+    "`ui_get_state` returns nothing afterwards; there is no undo.",
+  content: [
+    {
+      kind: "sample",
+      label: "Session directories on this machine",
+      source: "illustrative — a probe cannot read your ~/.agentui/sessions",
+      rule: "age_d > keep_days",
+      verdict: ["deleted on close", "kept"],
+      field: "age_d",
+      unit: "d",
+      total: { field: "kb", unit: " kB", label: "reclaimed" },
+      rows: [
+        { label: "muzzle-flash", age_d: 0.01, kb: 96, note: "you adjusted this 20 min ago" },
+        { label: "theme-preview", age_d: 0.2, kb: 140 },
+        { label: "changelog approval", age_d: 1.1, kb: 88 },
+        { label: "three.js demo", age_d: 8, kb: 4180, note: "holds assets/shot.png" },
+        { label: "usability probe", age_d: 23, kb: 72 },
+      ],
+    },
+  ],
+  fields: [{ id: "keep_days", type: "slider", label: "Keep for", min: 0, max: 30, step: 1, default: 7, unit: "d" }],
+  options: ["Use this TTL", "Never delete", "Always delete on close"],
+  // keep_days carries a unit, so without this a bar would spawn beside a table
+  // that already says more than the bar could.
+  preview: { auto: false },
 });
 await simulateInboxOpen(new URL(timings[0].url).origin);
 
 await ask("q2: a numeric constant", {
-  question: "How long before a session counts as stale?",
-  fields: [{ id: "hours", type: "slider", min: 1, max: 48, default: 6, unit: "h" }],
+  question: 'When does a session stop counting as "waiting for you"?',
+  details:
+    "Staleness only changes presentation — a stale session is still open and still answerable (`core/staleness.ts`). " +
+    "Drag until the line falls where you'd want it.",
+  content: [
+    {
+      kind: "sample",
+      label: "Your open sessions, by time since last touch",
+      source: "illustrative — replace with `stat` on your own sessions dir",
+      rule: "idle_h > stale_hours",
+      verdict: ["marked stale", "stays listed"],
+      field: "idle_h",
+      unit: "h",
+      rows: [
+        { label: "muzzle-flash", idle_h: 0.33, note: "you were dragging this before lunch" },
+        { label: "theme-preview", idle_h: 5.2 },
+        { label: "shader params", idle_h: 6.8 },
+        { label: "changelog approval", idle_h: 27 },
+        { label: "last week's three.js demo", idle_h: 190 },
+      ],
+    },
+  ],
+  fields: [{ id: "stale_hours", type: "slider", label: "Stale after", min: 1, max: 48, step: 1, default: 4, unit: "h" }],
+  preview: { auto: false },
 });
 await ask("q3: approve a change", {
   question: "Apply this to the changelog?",

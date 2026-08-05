@@ -2,11 +2,11 @@ import http from "node:http";
 import path from "node:path";
 import express, { type Express } from "express";
 import { projectName, webRoot } from "../core/paths.js";
-import { HOST, listenOnAvailablePair } from "../core/ports.js";
+import { HOST, candidateOriginsAllProjects, listenOnAvailablePair } from "../core/ports.js";
 import type { SessionManager } from "../core/session-manager.js";
 import type { Library } from "../core/library.js";
 import { createPreviewApp } from "./preview.js";
-import { crossOriginWriteGuard, hostGuard, peerCors } from "./security.js";
+import { crossOriginWriteGuard, hostGuard, peerCors, trustOwnOrigins } from "./security.js";
 import { log } from "../log.js";
 
 export interface WebServer {
@@ -50,6 +50,43 @@ export async function startWebServer(
 
   // Peer discovery: neighbouring instances answer this so one dashboard can
   // show sessions from every project you have an agent running in.
+  /**
+   * Peers: the other AgentUI instances on this machine, one per project with an
+   * agent running.
+   *
+   * Probing happens here rather than in the browser so the page needs no
+   * cross-origin permission, and so a project whose dashboard you are NOT
+   * looking at can still surface a waiting question. Each instance's port is
+   * derived from its project path, so the candidate list is known without any
+   * registry or discovery protocol.
+   */
+  app.get("/api/peers", async (_req, res) => {
+    const mine = previewPortRef.value - 1;
+    const candidates = candidateOriginsAllProjects()
+      .filter((origin) => origin.startsWith("http://"))
+      .map((origin) => Number(new URL(origin).port))
+      .filter((port) => port % 2 === 0 && port !== mine);
+
+    const peers = await Promise.all(
+      candidates.map(async (port) => {
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 250);
+          const response = await fetch(`http://${HOST}:${port}/api/ping`, { signal: controller.signal });
+          clearTimeout(timer);
+          if (!response.ok) return undefined;
+          const body = (await response.json()) as { app?: string; project?: string; pending?: number };
+          if (body.app !== "agentui") return undefined;
+          return { port, project: body.project ?? "?", pending: body.pending ?? 0, url: `http://${HOST}:${port}` };
+        } catch {
+          return undefined; // Nothing there, which is the common case.
+        }
+      }),
+    );
+
+    res.json({ peers: peers.filter(Boolean) });
+  });
+
   app.get("/api/ping", peerCors, (_req, res) => {
     res.json({
       app: "agentui",
@@ -82,6 +119,30 @@ export async function startWebServer(
   app.post("/api/sessions/stale/close", async (_req, res) => {
     const closed = await sessions.closeStale();
     res.json({ closed, count: closed.length });
+  });
+
+  /**
+   * Dismiss one session by hand — the per-row control on the dashboard, and the
+   * quiet button on a session page.
+   *
+   * "Clear all" only ever reached the leftovers the *server* had judged stale,
+   * which left the two rows a person most wants gone with no way out: a question
+   * you have decided not to answer, and a finished one you have already read.
+   * Dismissing is a close, so the tabs go read-only and any parked ui_wait is
+   * released with the reason on the event — an agent is never left waiting on a
+   * row that is no longer on screen.
+   */
+  app.post("/api/session/:id/dismiss", async (req, res) => {
+    const sessionId = String(req.params["id"]);
+    // Optional to the last: a dismissal that demanded a justification would just
+    // become a dismissal people avoid making.
+    const note = typeof req.body?.note === "string" ? req.body.note : undefined;
+    const { dismissed, wasWaiting } = await sessions.dismiss(sessionId, note);
+    if (!dismissed) {
+      res.status(404).json({ error: "no such session" });
+      return;
+    }
+    res.json({ ok: true, sessionId, wasWaiting });
   });
 
   /**
@@ -221,6 +282,9 @@ export async function startWebServer(
 
   const { shellPort, previewPort } = await listenOnAvailablePair(server, previewServer);
   previewPortRef.value = previewPort;
+  // Whatever we actually bound is by definition our own origin, even if
+  // AGENT_UI_PORT put us outside the derived range.
+  trustOwnOrigins(shellPort, previewPort);
   const origin = `http://${HOST}:${shellPort}`;
   const previewOrigin = `http://${HOST}:${previewPort}`;
 

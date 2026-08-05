@@ -11,6 +11,7 @@
       {
         "imports": {
           "agentui": "/agentui/preview.js",
+          "agentui/motion": "/agentui/motion.js",
           "three": "/vendor/three/three.module.js",
           "three/addons/": "/vendor/three/addons/"
         }
@@ -55,6 +56,8 @@
 
       let mod = null;
       let lastValues = {};
+      let lastSource = "user";
+      let batchHadUser = false;
       let frame = 0;
 
       // The frame has an opaque-free but still cross-origin relationship to the
@@ -95,7 +98,8 @@
             values: lastValues,
             emit: (name, data) => post({ type: "preview_event", name, data }),
           });
-          if (typeof mod.update === "function") mod.update(lastValues);
+          // First paint is "user": it must apply instantly, never animate in.
+          if (typeof mod.update === "function") mod.update(lastValues, { source: "user" });
           post({ type: "ready" });
         } catch (err) {
           mod = null;
@@ -117,9 +121,16 @@
         if (fallbackTimer) clearTimeout(fallbackTimer);
         frame = 0;
         fallbackTimer = 0;
+        // USER WINS within a coalesced batch: if any frame this window came
+        // from a live gesture, the whole batch is delivered as "user".
+        // Downgrading an agent frame merely skips one animation; upgrading a
+        // user frame would animate under the finger, the one forbidden thing.
+        // Values themselves stay last-write-wins, exactly as before.
+        const source = batchHadUser ? "user" : lastSource;
+        batchHadUser = false;
         if (!mod || typeof mod.update !== "function") return;
         try {
-          mod.update(lastValues);
+          mod.update(lastValues, { source });
         } catch (err) {
           showError(err, "update");
         }
@@ -138,6 +149,10 @@
           void load(msg.spec, msg.values);
         } else if (msg.type === "values") {
           lastValues = msg.values ?? {};
+          // A missing source (older parent) counts as "user": tracking 1:1 is
+          // the safe default, animating under a finger is the failure mode.
+          lastSource = msg.source ?? "user";
+          if (lastSource === "user") batchHadUser = true;
           scheduleUpdate();
         } else if (msg.type === "dispose") {
           try {

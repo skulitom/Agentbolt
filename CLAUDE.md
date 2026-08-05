@@ -13,7 +13,7 @@ human with sliders, forms, diffs and live previews instead of guessing.
 
 ```bash
 pnpm build     # shared -> ui -> server (vendors three.js, copies the shell into server/web)
-pnpm test      # 81 tests; the server suite runs against the real built binary over stdio
+pnpm test      # 255 tests; the server suite runs against the real built binary over stdio
 pnpm typecheck
 ```
 
@@ -35,3 +35,20 @@ about this project, so building the tool and using it are the same activity.
   `ui_wait`, one slider drag wakes the agent hundreds of times.
 - **`touched` is replaced, not merged.** Clearing a flag is how a user says "no
   opinion here" after poking a control.
+- **Previews animate only agent-sourced changes.** `update(values, meta)` gets
+  `meta.source`; `"user"` frames must track 1:1 — animating under a live drag
+  is the forbidden failure. The shell's motion tokens (`--t-*` in styles.css)
+  are hand-mirrored in `packages/ui/public/agentui/motion.js`; change both.
+- **A visual must encode something the agent went and got.** `sample`, `compare`
+  and `bind` render in the SHELL, not the frame, and read local values — live at
+  60fps, nothing on the wire. `sample.source` is required on purpose: a table of
+  invented numbers is worse than a sentence, and the field is what makes that
+  visible instead of asking anyone to remember.
+- **Closing has no message of its own.** A tab learns a session ended from the
+  relayed `closed` *event* — nothing sends a `closed` frame — so anything that
+  ends a session (`ui_close`, the user dismissing it) reaches the browser only
+  through `store.ts`'s event case. Miss it and the page keeps offering controls
+  the server has already stopped accepting.
+- **A new control type is invisible until it is in `FieldShorthand`'s enum**
+  (`shared/src/presets.ts`) — `ui_ask` rejects the whole call otherwise, with an
+  error about the type rather than about the enum.

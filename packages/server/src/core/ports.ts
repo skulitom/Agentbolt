@@ -1,4 +1,5 @@
 import net from "node:net";
+import { dataDir } from "./paths.js";
 import { log } from "../log.js";
 
 /**
@@ -12,9 +13,45 @@ import { log } from "../log.js";
  */
 export type PortPolicy = "scan" | "pinned";
 
-export const DEFAULT_PORT = 4517;
-export const PORT_SCAN_END = 4536;
 export const HOST = "127.0.0.1";
+
+/**
+ * Ports are DERIVED FROM THE PROJECT, not handed out first-come-first-served.
+ *
+ * With a scan-from-a-fixed-base policy, the port a project gets depends on what
+ * else happened to be running when it started — so the URL moves between
+ * sessions and the inbox can never be bookmarked or pinned. Hashing the project
+ * path instead means a given project always lands on the same pair, and the
+ * inbox becomes a fixed address you can keep open.
+ *
+ * Slots are even so that a project's (P, P+1) shell/preview pair can never
+ * overlap another project's pair. Scanning still exists, but only as a
+ * genuine-collision fallback.
+ */
+export const PORT_BASE = 4520;
+export const PORT_SLOTS = 120; // 4520–4758, stepping by 2
+export const PORT_SCAN_END = PORT_BASE + PORT_SLOTS * 2;
+
+/** Kept for anyone with AGENT_UI_PORT unset and no project (rare). */
+export const DEFAULT_PORT = PORT_BASE;
+
+/** FNV-1a. Small, stable across runs and platforms — which is the whole point. */
+function hashString(value: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash >>> 0;
+}
+
+/**
+ * The port this project should get. Case-folded because Windows paths vary in
+ * case between launchers and the same project must not hash two ways.
+ */
+export function derivedPort(projectKey: string): number {
+  return PORT_BASE + (hashString(projectKey.toLowerCase()) % PORT_SLOTS) * 2;
+}
 
 export function portPolicy(): PortPolicy {
   return process.env["AGENT_UI_PORT_POLICY"] === "pinned" ? "pinned" : "scan";
@@ -23,7 +60,10 @@ export function portPolicy(): PortPolicy {
 export function preferredPort(): number {
   const raw = process.env["AGENT_UI_PORT"];
   const parsed = raw ? Number.parseInt(raw, 10) : NaN;
-  return Number.isInteger(parsed) && parsed > 0 && parsed < 65536 ? parsed : DEFAULT_PORT;
+  if (Number.isInteger(parsed) && parsed > 0 && parsed < 65536) return parsed;
+  // dataDir() already resolved which directory this instance belongs to,
+  // including the home-folder fallback, so it is the honest project identity.
+  return derivedPort(dataDir());
 }
 
 /** Every origin this instance could possibly serve from, under the current policy. */
@@ -38,11 +78,26 @@ export function candidateOrigins(): string[] {
 export function candidatePorts(): number[] {
   const first = preferredPort();
   if (portPolicy() === "pinned") return [first];
+
+  // The derived port first, then every other even slot — wrapping, so a project
+  // whose slot is taken lands somewhere deterministic rather than restarting the
+  // search from the bottom of the range and colliding with whoever is there.
   const ports = [first];
-  for (let port = DEFAULT_PORT + 1; port <= PORT_SCAN_END; port++) {
-    if (port !== first) ports.push(port);
+  for (let i = 1; i < PORT_SLOTS; i++) {
+    const slot = PORT_BASE + (((first - PORT_BASE) / 2 + i) % PORT_SLOTS) * 2;
+    if (slot !== first) ports.push(slot);
   }
   return ports;
+}
+
+/** Every origin ANY project on this machine could serve from. */
+export function candidateOriginsAllProjects(): string[] {
+  const origins: string[] = [];
+  for (let i = 0; i < PORT_SLOTS; i++) {
+    const shell = PORT_BASE + i * 2;
+    origins.push(`http://${HOST}:${shell}`, `http://${HOST}:${shell + 1}`);
+  }
+  return origins;
 }
 
 function tryListen(server: net.Server | import("node:http").Server, port: number): Promise<boolean> {

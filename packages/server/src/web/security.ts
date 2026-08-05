@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
-import { HOST, candidateOrigins } from "../core/ports.js";
+import { HOST, candidateOriginsAllProjects } from "../core/ports.js";
 import { log } from "../log.js";
 
 /**
@@ -36,8 +36,20 @@ export function isAllowedHostHeader(hostHeader: string | undefined): boolean {
   return Boolean(hostname && ALLOWED_HOSTNAMES.has(hostname));
 }
 
-/** Every origin one of our own pages could be served from, under the port policy. */
-const TRUSTED_ORIGINS = new Set(candidateOrigins().filter((origin) => origin.startsWith("http://")));
+/**
+ * Every origin one of our own pages could be served from.
+ *
+ * Seeded with the derived port range that covers every project on this machine,
+ * and extended at bind time with the ports this instance actually took. That
+ * second part is load-bearing: AGENT_UI_PORT can put us outside the derived
+ * range entirely, and without it the guard would reject writes from our OWN
+ * page — a self-inflicted 403 that would look like a mysterious UI failure.
+ */
+const TRUSTED_ORIGINS = new Set(candidateOriginsAllProjects());
+
+export function trustOwnOrigins(...ports: number[]): void {
+  for (const port of ports) TRUSTED_ORIGINS.add(`http://${HOST}:${port}`);
+}
 
 /**
  * CORS for peer discovery only: one AgentUI instance's dashboard fetching

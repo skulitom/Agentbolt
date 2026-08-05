@@ -142,6 +142,128 @@ describe("cost of asking", () => {
     expect(structured.output?.choice).toBe("do_it");
   }, 20_000);
 
+  /**
+   * Dismissing.
+   *
+   * Answering used to be the only way a row could leave the inbox, which meant
+   * the questions you had decided against were exactly the ones that stayed —
+   * and a list whose top item is something you are ignoring is a list you stop
+   * reading. Dismissal has to end the session for real (or an agent keeps
+   * waiting on a row nobody can see) and has to say WHY, so "the user declined"
+   * is not delivered as the agent's own ui_close.
+   */
+  it("dismissing an open question wakes a parked ui_wait and says it was declined", async () => {
+    const asked = await client.callTool({
+      name: "ui_ask",
+      arguments: { question: "Rename the module?", options: ["Rename", "Leave it"] },
+    });
+    const { sessionId } = asked.structuredContent as { sessionId: string };
+
+    const waiting = client.callTool({ name: "ui_wait", arguments: { sessionId, timeoutMs: 8000 } });
+
+    const response = await fetch(`${origin}/api/session/${sessionId}/dismiss`, { method: "POST" });
+    expect(await response.json()).toMatchObject({ ok: true, wasWaiting: true });
+
+    const woken = await waiting;
+    const structured = woken.structuredContent as { reason: string; events: Array<Record<string, unknown>> };
+    expect(structured.reason).toBe("closed");
+    // The distinction the agent acts on: declined, not merely closed.
+    expect(askedNote(woken)).toContain("dismissed");
+    expect(structured.events.some((e) => e["type"] === "closed")).toBe(true);
+  }, 20_000);
+
+  /**
+   * The reason box.
+   *
+   * "Not now", "wrong question" and "I already did it" are three different
+   * instructions, and none of them is a button the agent thought to offer — so
+   * the sentence the user types on the way out is worth more than the dismissal
+   * itself. It rides on the `closed` event rather than arriving as a comment,
+   * which is what makes it survive the narrowest wake filter there is: an agent
+   * waiting only on `finalize` gets handed only finalize-group events, and a
+   * separate comment event would be dropped on precisely the wake it explains.
+   */
+  it("carries the user's reason through to an agent waiting only on finalize", async () => {
+    const asked = await client.callTool({
+      name: "ui_ask",
+      arguments: { question: "Drop the legacy exporter?", options: ["Drop it", "Keep"] },
+    });
+    const { sessionId } = asked.structuredContent as { sessionId: string };
+
+    const waiting = client.callTool({
+      name: "ui_wait",
+      arguments: { sessionId, wakeOn: ["finalize"], timeoutMs: 8000 },
+    });
+
+    await fetch(`${origin}/api/session/${sessionId}/dismiss`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ note: "mid-release, ask me on Monday" }),
+    });
+
+    const woken = await waiting;
+    expect(askedNote(woken)).toContain("mid-release, ask me on Monday");
+    const { events } = woken.structuredContent as {
+      events: Array<{ type: string; payload?: { reason?: string; note?: string } }>;
+    };
+    const closed = events.find((event) => event.type === "closed");
+    expect(closed?.payload).toMatchObject({ reason: "dismissed", note: "mid-release, ask me on Monday" });
+  }, 20_000);
+
+  it("stays a dismissal when no reason is given", async () => {
+    const asked = await client.callTool({ name: "ui_ask", arguments: { question: "Quiet one?", options: ["Ok"] } });
+    const { sessionId } = asked.structuredContent as { sessionId: string };
+
+    const waiting = client.callTool({ name: "ui_wait", arguments: { sessionId, timeoutMs: 8000 } });
+    await fetch(`${origin}/api/session/${sessionId}/dismiss`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      // Whitespace is not a reason; it must not reach the agent as one.
+      body: JSON.stringify({ note: "   " }),
+    });
+
+    const { events } = (await waiting).structuredContent as {
+      events: Array<{ type: string; payload?: Record<string, unknown> }>;
+    };
+    const closed = events.find((event) => event.type === "closed");
+    expect(closed?.payload).toEqual({ reason: "dismissed" });
+  }, 20_000);
+
+  it("takes the dismissed row out of the list, permanently", async () => {
+    const asked = await client.callTool({ name: "ui_ask", arguments: { question: "Gone?", options: ["Yes"] } });
+    const { sessionId } = asked.structuredContent as { sessionId: string };
+
+    await fetch(`${origin}/api/session/${sessionId}/dismiss`, { method: "POST" });
+
+    const body = (await (await fetch(`${origin}/api/sessions`)).json()) as {
+      sessions: Array<{ sessionId: string }>;
+    };
+    expect(body.sessions.map((s) => s.sessionId)).not.toContain(sessionId);
+  });
+
+  /**
+   * A finished session has already handed over its answer, so clearing its row
+   * is tidying rather than refusal — and must not be reported to the agent as a
+   * question the user turned down.
+   */
+  it("clearing a finished row is not reported as a refusal", async () => {
+    const asked = await client.callTool({ name: "ui_ask", arguments: { question: "Done?", options: ["Ok"] } });
+    const { sessionId } = asked.structuredContent as { sessionId: string };
+    await fetch(`${origin}/api/session/${sessionId}/answer`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ actionId: "ok" }),
+    });
+
+    const dismissed = await fetch(`${origin}/api/session/${sessionId}/dismiss`, { method: "POST" });
+    expect(await dismissed.json()).toMatchObject({ ok: true, wasWaiting: false });
+  });
+
+  it("404s a dismissal of something that is not there", async () => {
+    const response = await fetch(`${origin}/api/session/nosuchsession/dismiss`, { method: "POST" });
+    expect(response.status).toBe(404);
+  });
+
   it("rejects an action the widget does not declare", async () => {
     const asked = await client.callTool({ name: "ui_ask", arguments: { question: "Q?", options: ["Only"] } });
     const { sessionId } = asked.structuredContent as { sessionId: string };

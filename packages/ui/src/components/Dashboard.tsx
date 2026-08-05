@@ -24,6 +24,10 @@ interface SessionRow {
  * heading and kept out of the count, because a "7 waiting" badge that is mostly
  * last week's demos is a badge nobody reads. The server decides what counts as
  * stale, so this and ui_get_state can never disagree about it.
+ *
+ * Staleness is the server's guess, though, and every row also gets a dismiss
+ * control because the user's own judgement outranks it: a question you have
+ * decided not to answer is stale the moment you decide, not six hours later.
  */
 export function Dashboard() {
   const [project, setProject] = useState<string>("");
@@ -104,7 +108,7 @@ export function Dashboard() {
         </p>
       ) : null}
 
-      <SessionList rows={waiting} onAnswered={() => void load()} />
+      <SessionList rows={waiting} onChanged={() => void load()} />
 
       {stale.length ? (
         <details className="stale-group">
@@ -118,39 +122,151 @@ export function Dashboard() {
           <button type="button" className="subtle" disabled={clearing} onClick={() => void clearStale()}>
             {clearing ? "Clearing…" : "Clear all"}
           </button>
-          <SessionList rows={stale} />
+          <SessionList rows={stale} onChanged={() => void load()} />
         </details>
       ) : null}
 
       {finished.length ? (
         <>
           <h2 className="group-title">Finished</h2>
-          <SessionList rows={finished} />
+          <SessionList rows={finished} onChanged={() => void load()} />
         </>
       ) : null}
+
+      <Peers />
     </div>
   );
 }
 
-function SessionList({ rows, onAnswered }: { rows: SessionRow[]; onAnswered?: () => void }) {
+/**
+ * Other projects with an agent running.
+ *
+ * Each project gets its own server on its own derived port, so without this the
+ * only way to learn that another repo has a question waiting is to remember it
+ * does and go looking. Shown only when there is something to show.
+ */
+function Peers() {
+  const [peers, setPeers] = useState<Array<{ port: number; project: string; pending: number; url: string }>>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const body = (await (await fetch("/api/peers")).json()) as { peers: typeof peers };
+        if (!cancelled) setPeers(body.peers ?? []);
+      } catch {
+        // Peers are a bonus; never let their absence disturb the page.
+      }
+    };
+    void load();
+    const timer = window.setInterval(load, 10_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  if (!peers.length) return null;
+
+  return (
+    <>
+      <h2 className="group-title">Other projects</h2>
+      <ul className="session-list">
+        {peers.map((peer) => (
+          <li key={peer.port}>
+            <a href={peer.url}>
+              <span className={`dot dot-${peer.pending ? "open" : "closed"}`} aria-hidden="true" />
+              <span className="row-title">{peer.project}</span>
+              <span className="row-meta">
+                {peer.pending ? `${peer.pending} waiting` : "nothing waiting"}
+              </span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+function SessionList({ rows, onChanged }: { rows: SessionRow[]; onChanged?: () => void }) {
   if (!rows.length) return null;
   return (
     <ul className="session-list">
       {rows.map((row) => (
         <li key={row.sessionId}>
-          <a href={row.url}>
-            <span className={`dot dot-${dotFor(row)}`} aria-hidden="true" />
-            <span className="row-title">{row.title}</span>
-            <span className="row-meta">{row.stale ? `idle ${row.idleLabel}` : row.status}</span>
-          </a>
+          <div className="session-row">
+            <a href={row.url}>
+              <span className={`dot dot-${dotFor(row)}`} aria-hidden="true" />
+              <span className="row-title">{row.title}</span>
+              <span className="row-meta">{row.stale ? `idle ${row.idleLabel}` : row.status}</span>
+            </a>
+            <Dismiss row={row} onDismissed={onChanged} />
+          </div>
           {/* Answerable in place. Most questions are a single choice, and making
               those cost a page navigation is what stops an agent asking at all. */}
           {row.quickChoices?.length ? (
-            <QuickAnswer row={row} onAnswered={onAnswered} />
+            <QuickAnswer row={row} onAnswered={onChanged} />
           ) : null}
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * "Not this one." Every row gets it, because until now the only way out of the
+ * inbox was to answer — and a question you have decided not to answer is exactly
+ * the row that sits there longest, teaching you to stop reading the list.
+ *
+ * An unanswered question asks twice. Dismissing it tells the agent the question
+ * was declined and releases whatever was waiting on it, and that is not
+ * something a mis-aimed click on a dense list should be able to do. A finished
+ * row has already given up its answer, so removing it costs nothing and takes
+ * one click.
+ */
+function Dismiss({ row, onDismissed }: { row: SessionRow; onDismissed?: () => void }) {
+  const unanswered = row.status === "active";
+  const [armed, setArmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function dismiss() {
+    setBusy(true);
+    try {
+      await fetch(`/api/session/${encodeURIComponent(row.sessionId)}/dismiss`, { method: "POST" });
+      onDismissed?.();
+    } finally {
+      setBusy(false);
+      setArmed(false);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      className={`row-dismiss${armed ? " armed" : ""}`}
+      disabled={busy}
+      // Looking away is a change of mind, so it disarms rather than staying
+      // primed for a click you make ten minutes later on a different row.
+      onBlur={() => setArmed(false)}
+      onMouseLeave={() => setArmed(false)}
+      onClick={() => {
+        if (unanswered && !armed) {
+          setArmed(true);
+          return;
+        }
+        void dismiss();
+      }}
+      aria-label={
+        armed ? `Confirm dismissing "${row.title}"` : `Dismiss "${row.title}"`
+      }
+      title={
+        unanswered
+          ? "Dismiss — the agent is told you chose not to answer"
+          : "Remove from this list"
+      }
+    >
+      {busy ? "…" : armed ? "Dismiss?" : "×"}
+    </button>
   );
 }
 

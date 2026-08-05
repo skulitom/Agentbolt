@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { NextFunction, Request, Response } from "express";
-import { crossOriginWriteGuard, isAllowedHostHeader } from "../src/web/security.js";
+import { crossOriginWriteGuard, isAllowedHostHeader, trustOwnOrigins } from "../src/web/security.js";
+import { PORT_BASE } from "../src/core/ports.js";
 
 process.env["AGENT_UI_LOG_LEVEL"] = "silent";
 
@@ -45,12 +46,22 @@ function run(method: string, origin?: string): { status: number | undefined; pas
 
 describe("crossOriginWriteGuard", () => {
   it("allows writes from our own pages", () => {
-    const { passed } = run("POST", "http://127.0.0.1:4517");
+    const { passed } = run("POST", `http://127.0.0.1:${PORT_BASE}`);
     expect(passed).toBe(true);
   });
 
-  it("allows any port in the scan range, since the shell may have moved", () => {
-    const { passed } = run("POST", "http://127.0.0.1:4523");
+  /**
+   * AGENT_UI_PORT can bind us outside the derived range. The guard must still
+   * accept our own page, or the shell would 403 against its own server.
+   */
+  it("trusts a port this instance actually bound, even outside the derived range", () => {
+    expect(run("POST", "http://127.0.0.1:4517").passed).toBe(false);
+    trustOwnOrigins(4517);
+    expect(run("POST", "http://127.0.0.1:4517").passed).toBe(true);
+  });
+
+  it("allows any port in the derived range, since the shell may have moved", () => {
+    const { passed } = run("POST", `http://127.0.0.1:${PORT_BASE + 6}`);
     expect(passed).toBe(true);
   });
 

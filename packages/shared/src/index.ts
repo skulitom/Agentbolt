@@ -8,4 +8,6 @@ export * from "./ws-protocol.js";
 export * from "./preview-protocol.js";
 export * from "./presets.js";
 export * from "./auto-preview.js";
+export * from "./bind.js";
+export * from "./sample.js";
 export * from "./library.js";

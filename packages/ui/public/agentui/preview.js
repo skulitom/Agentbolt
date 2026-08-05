@@ -10,7 +10,20 @@
  *
  * Plain ES module, no build step: it is served as a static asset to the preview
  * origin and must run in the browser exactly as written.
+ *
+ * Animation policy, in one line: animate ONLY agent-sourced changes
+ * (meta.source === "agent") on rows that already exist — never under the
+ * user's finger (drags track 1:1), never on first paint. Rows are therefore
+ * persistent and keyed (syncRows below): the previous rebuild-everything
+ * approach made CSS transitions dead on arrival, because a freshly-inserted
+ * node has no prior computed style to animate from — the ".06s linear" width
+ * transition this file carried for a while never once fired.
  */
+
+import { spring, tween, resolveEasing, prefersReducedMotion, durations } from "./motion.js";
+
+/** Motion utilities ride along, so `import { spring } from "agentui"` works too. */
+export * from "./motion.js";
 
 /* --------------------------------------------------------------- utilities */
 
@@ -81,6 +94,53 @@ function contrastRatio(a, b) {
   return (x + 0.05) / (y + 0.05);
 }
 
+/**
+ * Keyed row reconciliation — the precondition for animating anything here.
+ * Rows are keyed by label+unit (+occurrence, so duplicate labels cannot eat
+ * each other) and mutated in place across updates. A row's first appearance
+ * applies its values instantly; a removed entry removes its row and stops its
+ * animations; surviving rows are reordered to match entry order.
+ */
+function syncRows(rows, container, entries, createRow) {
+  const seen = new Set();
+  const counts = new Map();
+  const out = [];
+  entries.forEach((entry, index) => {
+    const base = `${entry.label}\u0000${entry.unit ?? ""}`;
+    const n = counts.get(base) ?? 0;
+    counts.set(base, n + 1);
+    const key = n ? `${base}\u0000${n}` : base;
+    seen.add(key);
+    let row = rows.get(key);
+    const isNew = !row;
+    if (isNew) {
+      row = createRow(entry);
+      rows.set(key, row);
+    }
+    const at = container.children[index] ?? null;
+    if (at !== row.el) container.insertBefore(row.el, at);
+    out.push({ row, entry, isNew });
+  });
+  for (const [key, row] of rows) {
+    if (!seen.has(key)) {
+      row.dispose?.();
+      row.el.remove();
+      rows.delete(key);
+    }
+  }
+  return out;
+}
+
+/**
+ * A CSS transition toggled per-frame: on for agent-sourced jumps, "none" for
+ * live drags and first paint. Used for colours and font sizes, where the
+ * compositor interpolates better than any JS loop would.
+ */
+function agentTransition(animate, ...props) {
+  if (!animate || prefersReducedMotion()) return "none";
+  return props.map((p) => `${p} ${durations.gentle}ms cubic-bezier(0.2, 0, 0, 1)`).join(", ");
+}
+
 /* ----------------------------------------------------------------- helpers */
 
 /**
@@ -89,46 +149,50 @@ function contrastRatio(a, b) {
  */
 export function swatchGrid({ title = "Colours" } = {}) {
   let root;
+  const rows = new Map();
+
+  const createRow = ({ label }) => {
+    const swatch = el("div", {
+      style: {
+        width: "44px", height: "30px", borderRadius: "6px",
+        border: "1px solid rgba(128,128,128,.35)", flex: "none",
+      },
+    });
+    const hex = el("div", { class: "aui-mono" });
+    const badge = el("div", {
+      style: { padding: "4px 10px", borderRadius: "5px", fontSize: "12px", flex: "none" },
+    });
+    const rowEl = el(
+      "div",
+      { style: { display: "flex", alignItems: "center", gap: "10px", padding: "5px 0" } },
+      swatch,
+      el("div", { style: { minWidth: "0", flex: "1" } }, el("div", {}, label), hex),
+      badge,
+    );
+    return { el: rowEl, swatch, hex, badge };
+  };
+
   return {
     mount(container) {
       ensureStyles(container);
       root = el("div", { class: "aui-section" }, el("div", { class: "aui-label" }, title), el("div"));
       container.append(root);
     },
-    update(entries) {
-      const grid = root.lastChild;
-      grid.replaceChildren(
-        ...entries.map(({ label, value }) => {
-          const fg = readableOn(value);
-          const ratio = contrastRatio(value, fg);
-          return el(
-            "div",
-            { style: { display: "flex", alignItems: "center", gap: "10px", padding: "5px 0" } },
-            el("div", {
-              style: {
-                width: "44px", height: "30px", borderRadius: "6px", background: String(value),
-                border: "1px solid rgba(128,128,128,.35)", flex: "none",
-              },
-            }),
-            el(
-              "div",
-              { style: { minWidth: "0", flex: "1" } },
-              el("div", {}, label),
-              el("div", { class: "aui-mono" }, String(value)),
-            ),
-            el(
-              "div",
-              {
-                style: {
-                  background: String(value), color: fg, padding: "4px 10px", borderRadius: "5px",
-                  fontSize: "12px", flex: "none",
-                },
-              },
-              `Aa ${ratio.toFixed(1)}:1`,
-            ),
-          );
-        }),
-      );
+    update(entries, meta) {
+      const animate = meta?.source === "agent";
+      for (const { row, entry, isNew } of syncRows(rows, root.lastChild, entries, createRow)) {
+        const value = String(entry.value);
+        const fg = readableOn(value);
+        // Agent pushes crossfade; drags and first paint write directly.
+        const t = agentTransition(animate && !isNew, "background");
+        row.swatch.style.transition = t;
+        row.badge.style.transition = t;
+        row.swatch.style.background = value;
+        row.badge.style.background = value;
+        row.badge.style.color = fg;
+        row.badge.textContent = `Aa ${contrastRatio(value, fg).toFixed(1)}:1`;
+        row.hex.textContent = value;
+      }
     },
   };
 }
@@ -140,44 +204,92 @@ export function swatchGrid({ title = "Colours" } = {}) {
  */
 export function ruler({ title = "Sizes" } = {}) {
   let root;
+  const rows = new Map();
+
+  // Bar width AND numeric readout are driven by one spring per row, so an
+  // agent-pushed value glides while the number counts up alongside it. On
+  // settle the spring delivers the exact target, so the readout ends on the
+  // real number rather than a float one epsilon away.
+  const paint = (row, value) => {
+    row.readout.textContent = `${round(value)}${row.unit}`;
+    if (row.span) {
+      const pct = Math.max(2, Math.min(100, ((value - row.span.min) / (row.span.max - row.span.min)) * 100));
+      row.fill.style.width = `${pct}%`;
+    }
+  };
+
+  const createRow = (entry) => {
+    const readout = el("span", { class: "aui-mono" });
+    const fill = el("div", {
+      style: { height: "100%", borderRadius: "4px", width: "0%", background: "light-dark(#888780, #6f6f78)" },
+    });
+    const track = el(
+      "div",
+      { style: { height: "8px", marginTop: "3px", borderRadius: "4px", background: "light-dark(#eeeeea, #2a2a30)" } },
+      fill,
+    );
+    const ceiling = el("div", {
+      class: "aui-mono",
+      style: { fontSize: "10px", marginTop: "2px", textAlign: "right" },
+    });
+    const rowEl = el(
+      "div",
+      { style: { padding: "4px 0" } },
+      el(
+        "div",
+        { style: { display: "flex", justifyContent: "space-between", fontSize: "12px" } },
+        el("span", {}, entry.label),
+        readout,
+      ),
+      track,
+      ceiling,
+    );
+    const row = { el: rowEl, readout, track, fill, ceiling, span: null, unit: entry.unit ?? "" };
+    row.spring = spring(0, { onUpdate: (x) => paint(row, x) });
+    row.dispose = () => row.spring.stop();
+    return row;
+  };
+
   return {
     mount(container) {
       ensureStyles(container);
       root = el("div", { class: "aui-section" }, el("div", { class: "aui-label" }, title), el("div"));
       container.append(root);
     },
-    update(entries) {
-      // Scale within each unit, never across them. Sharing one scale between a
-      // 4000ms duration and a 12px radius crushes every pixel value to a stub
-      // and makes the bars actively misleading.
-      const maxByUnit = new Map();
-      for (const entry of entries) {
-        const unit = entry.unit ?? "";
-        maxByUnit.set(unit, Math.max(maxByUnit.get(unit) ?? 1, Number(entry.value) || 0));
-      }
+    update(entries, meta) {
+      // Scale against the control's DECLARED RANGE, not against the other
+      // values on screen.
+      //
+      // Scaling by the observed maximum looks reasonable and is a lie: with a
+      // single entry the max IS the value, so the bar sits at 100% no matter
+      // what you drag it to. That is the precise failure this tool exists to
+      // prevent — a picture that looks informative and encodes nothing — and it
+      // shipped here for a while. A control with no declared bounds gets no bar
+      // at all, because there is nothing honest to draw.
+      const spanFor = (entry) => {
+        if (typeof entry.min === "number" && typeof entry.max === "number" && entry.max > entry.min) {
+          return { min: entry.min, max: entry.max };
+        }
+        const peers = entries.filter((e) => (e.unit ?? "") === (entry.unit ?? ""));
+        if (peers.length < 2) return null; // nothing to compare against
+        return { min: 0, max: Math.max(...peers.map((e) => Number(e.value) || 0)) };
+      };
 
-      root.lastChild.replaceChildren(
-        ...entries.map(({ label, value, unit }) =>
-          el(
-            "div",
-            { style: { padding: "4px 0" } },
-            el(
-              "div",
-              { style: { display: "flex", justifyContent: "space-between", fontSize: "12px" } },
-              el("span", {}, label),
-              el("span", { class: "aui-mono" }, `${round(value)}${unit ?? ""}`),
-            ),
-            el("div", {
-              style: {
-                height: "8px", marginTop: "3px", borderRadius: "4px",
-                background: "light-dark(#e4e4df, #34343a)",
-                width: `${Math.max(2, ((Number(value) || 0) / (maxByUnit.get(unit ?? "") || 1)) * 100)}%`,
-                transition: "width .06s linear",
-              },
-            }),
-          ),
-        ),
-      );
+      const animate = meta?.source === "agent";
+      for (const { row, entry, isNew } of syncRows(rows, root.lastChild, entries, createRow)) {
+        row.unit = entry.unit ?? "";
+        row.span = spanFor(entry);
+        const hasBar = row.span !== null;
+        row.track.style.display = hasBar ? "" : "none";
+        row.ceiling.style.display = hasBar ? "" : "none";
+        // The ceiling, so the bar is readable as a proportion of something.
+        // Written from the target, not the spring: the scale is context, and
+        // context sliding around mid-animation would be noise.
+        if (hasBar) row.ceiling.textContent = `of ${round(row.span.max)}${row.unit}`;
+        const value = Number(entry.value) || 0;
+        if (!isNew && animate) row.spring.set(value);
+        else row.spring.jump(value);
+      }
     },
   };
 }
@@ -185,29 +297,33 @@ export function ruler({ title = "Sizes" } = {}) {
 /** Type specimen — the only honest way to judge a font size. */
 export function typeScale({ title = "Type", sample = "The quick brown fox jumps over the lazy dog" } = {}) {
   let root;
+  const rows = new Map();
+
+  const createRow = () => {
+    const meta = el("div", { class: "aui-mono" });
+    const sampleEl = el("div", { style: { lineHeight: "1.45" } }, sample);
+    return { el: el("div", { style: { padding: "5px 0" } }, meta, sampleEl), meta, sample: sampleEl };
+  };
+
   return {
     mount(container) {
       ensureStyles(container);
       root = el("div", { class: "aui-section" }, el("div", { class: "aui-label" }, title), el("div"));
       container.append(root);
     },
-    update(entries) {
-      root.lastChild.replaceChildren(
-        ...entries.map(({ label, value, unit }) =>
-          el(
-            "div",
-            { style: { padding: "5px 0" } },
-            el("div", { class: "aui-mono" }, `${label} · ${round(value)}${unit ?? "px"}`),
-            el("div", { style: { fontSize: `${Number(value) || 14}px`, lineHeight: "1.45" } }, sample),
-          ),
-        ),
-      );
+    update(entries, meta) {
+      const animate = meta?.source === "agent";
+      for (const { row, entry, isNew } of syncRows(rows, root.lastChild, entries, createRow)) {
+        row.meta.textContent = `${entry.label} · ${round(entry.value)}${entry.unit ?? "px"}`;
+        row.sample.style.transition = agentTransition(animate && !isNew, "font-size");
+        row.sample.style.fontSize = `${Number(entry.value) || 14}px`;
+      }
     },
   };
 }
 
 /** A representative widget card, restyled by the values. */
-export function card({ title = "In context" } = {}) {
+export function card({ title = "Sample card", heading = "A widget", subtitle = "styled with your settings" } = {}) {
   let root;
   let box;
   return {
@@ -222,8 +338,11 @@ export function card({ title = "In context" } = {}) {
             padding: "14px", display: "flex", flexDirection: "column", gap: "10px",
           },
         },
-        el("div", { style: { fontWeight: "500" } }, "Approve the auth refactor?"),
-        el("div", { class: "aui-muted", style: { fontSize: "12px" } }, "rendered with your current settings"),
+        // Titled from the widget itself. A card headed "In context" showing a
+        // question the user never asked is not their context — it is a stock
+        // photo, and it teaches them to distrust the whole pane.
+        el("div", { style: { fontWeight: "500" } }, heading),
+        el("div", { class: "aui-muted", style: { fontSize: "12px" } }, subtitle),
         el("div", { "data-slot": "bar", style: { height: "6px", borderRadius: "3px" } }),
         el(
           "div",
@@ -235,14 +354,23 @@ export function card({ title = "In context" } = {}) {
       root = el("div", { class: "aui-section" }, el("div", { class: "aui-label" }, title), box);
       container.append(root);
     },
-    update({ accent, radius, fontSize, padding }) {
+    update({ accent, radius, fontSize, padding }, meta) {
+      const animate = meta?.source === "agent";
+      box.style.transition = agentTransition(animate, "border-radius", "font-size", "padding");
+      const primary = box.querySelector('[data-slot="primary"]');
+      const bar = box.querySelector('[data-slot="bar"]');
+      primary.style.transition = agentTransition(animate, "background", "border-radius");
+      bar.style.transition = agentTransition(animate, "background");
       if (accent) {
-        box.querySelector('[data-slot="primary"]').style.background = accent;
-        box.querySelector('[data-slot="bar"]').style.background = accent;
+        primary.style.background = accent;
+        bar.style.background = accent;
       }
       if (radius !== undefined) {
         box.style.borderRadius = `${radius}px`;
-        for (const b of box.querySelectorAll("button")) b.style.borderRadius = `${Math.min(radius, 10)}px`;
+        for (const b of box.querySelectorAll("button")) {
+          if (b !== primary) b.style.transition = agentTransition(animate, "border-radius");
+          b.style.borderRadius = `${Math.min(radius, 10)}px`;
+        }
       }
       if (fontSize !== undefined) box.style.fontSize = `${fontSize}px`;
       if (padding !== undefined) box.style.padding = `${padding}px`;
@@ -250,11 +378,155 @@ export function card({ title = "In context" } = {}) {
   };
 }
 
+/**
+ * An easing curve plotted, plus a dot that replays it at the REAL duration.
+ * The plot shows the shape; the replay shows the feel — a curve alone cannot
+ * convey 150ms vs 800ms, and "easeOutBack" as a word conveys nothing at all.
+ *
+ * update({ easing, duration, delay }, meta) — durations in ms. The replay
+ * restarts only when one of the three actually changed, so dragging an
+ * unrelated control does not interrupt the loop. Under prefers-reduced-motion
+ * the dot parks at the end and only the static curve communicates.
+ */
+export function easingCurve({ title = "Motion" } = {}) {
+  let root;
+  let path;
+  let dot;
+  let readout;
+  let replay = null;
+  let delayTimer = 0;
+  let restTimer = 0;
+  let current = null;
+
+  // PAD absorbs overshoot: back/elastic curves exceed 1 and the plot must
+  // show that rather than clip it — the overshoot IS the information.
+  const W = 100;
+  const H = 64;
+  const PAD = 12;
+
+  function stopReplay() {
+    replay?.stop();
+    replay = null;
+    clearTimeout(delayTimer);
+    clearTimeout(restTimer);
+    delayTimer = 0;
+    restTimer = 0;
+  }
+
+  function drawCurve() {
+    const fn = resolveEasing(current.easing);
+    const pts = [];
+    for (let i = 0; i <= 60; i++) {
+      const t = i / 60;
+      pts.push(`${i ? "L" : "M"}${((t * W)).toFixed(1)} ${(H - PAD - fn(t) * (H - 2 * PAD)).toFixed(1)}`);
+    }
+    path.setAttribute("d", pts.join(""));
+  }
+
+  function play() {
+    stopReplay();
+    if (prefersReducedMotion()) {
+      dot.style.left = "100%";
+      return;
+    }
+    dot.style.left = "0%";
+    delayTimer = setTimeout(() => {
+      replay = tween({
+        from: 0,
+        to: 1,
+        duration: Math.max(1, current.duration),
+        easing: current.easing,
+        // No clamp: an overshooting curve carries the dot past the end and
+        // back, which is exactly what choosing that curve means.
+        onUpdate: (p) => {
+          dot.style.left = `${p * 100}%`;
+        },
+        onComplete: () => {
+          restTimer = setTimeout(play, 700);
+        },
+      });
+    }, Math.min(Math.max(0, current.delay || 0), 2000));
+  }
+
+  return {
+    mount(container) {
+      ensureStyles(container);
+      const plot = el("div");
+      plot.innerHTML =
+        `<svg viewBox="0 0 ${W} ${H}" style="display:block;width:100%;height:80px" preserveAspectRatio="none">` +
+        `<line x1="0" y1="${H - PAD}" x2="${W}" y2="${H - PAD}" stroke="light-dark(#e4e4df, #34343a)" stroke-width="1"/>` +
+        `<line x1="0" y1="${PAD}" x2="${W}" y2="${PAD}" stroke="light-dark(#e4e4df, #34343a)" stroke-width="1" stroke-dasharray="2 3"/>` +
+        `<path fill="none" stroke="light-dark(#185fa5, #85b7eb)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>` +
+        `</svg>`;
+      path = plot.querySelector("path");
+      dot = el("div", {
+        style: {
+          position: "absolute", left: "0%", top: "50%", width: "10px", height: "10px",
+          borderRadius: "50%", transform: "translate(-50%, -50%)",
+          background: "light-dark(#185fa5, #85b7eb)",
+        },
+      });
+      const track = el(
+        "div",
+        {
+          style: {
+            position: "relative", height: "4px", borderRadius: "2px", margin: "10px 5px 8px",
+            background: "light-dark(#eeeeea, #2a2a30)",
+          },
+        },
+        dot,
+      );
+      readout = el("div", { class: "aui-mono" });
+      root = el(
+        "div",
+        { class: "aui-section" },
+        el("div", { class: "aui-label" }, title),
+        plot,
+        track,
+        readout,
+      );
+      container.append(root);
+    },
+    update({ easing = "ease-out", duration = 300, delay = 0 } = {}) {
+      const changed =
+        !current || current.easing !== easing || current.duration !== duration || current.delay !== delay;
+      current = { easing, duration, delay };
+      if (!changed) return;
+      drawCurve();
+      readout.textContent =
+        `${easing} · ${round(duration)}ms` + (delay ? ` (+${round(delay)}ms delay)` : "");
+      play();
+    },
+  };
+}
+
 /* ------------------------------------------------------------ autoPreview */
 
 const COLOUR_HINTS = /colou?r|tint|accent|hue|shade|background|foreground/i;
-const SIZE_HINTS = /width|height|size|radius|spacing|gap|padding|margin|length|distance|offset|duration|delay/i;
+// MUST match SIZE_HINTS in packages/shared/src/auto-preview.ts — that decides
+// whether a frame exists, this decides what goes in it. A test asserts they match.
+const SIZE_HINTS = /width|height|size|radius|spacing|gap|padding|margin|length|distance|offset/i;
 const FONT_HINTS = /font|type|text.*size|size.*text/i;
+
+// MUST match EASING_NAME_HINT / EASING_OPTION in packages/shared/src/auto-preview.ts,
+// same contract as SIZE_HINTS above. A test asserts they match.
+const EASING_NAME_HINT = /(^|[_\s-])(easing|ease|curve|timing)([_\s-]|$)/i;
+const EASING_OPTION = /^(none|instant|linear|ease|spring|bounce|elastic|back|overshoot|anticipate|cubic-bezier\(.+\)|ease[-_]?[a-z]+([-_]?(in|out|back|bounce|elastic))*|[a-z]+[-_]?(in|out)([-_]?(back|bounce|elastic|quad|cubic|expo|sine|circ))?)$/i;
+
+function isEasingSelect(c) {
+  return (
+    c.type === "select" &&
+    EASING_NAME_HINT.test(`${c.id} ${c.label}`) &&
+    (c.options?.length ?? 0) >= 2 &&
+    c.options.every((o) => EASING_OPTION.test(String(o.value).trim()))
+  );
+}
+
+const DURATION_HINT = /(^|[_\s-])(duration|delay)([_\s-]|$)/i;
+const DELAY_HINT = /(^|[_\s-])delay([_\s-]|$)/i;
+const isDurationish = (c) =>
+  (c.type === "slider" || c.type === "number") &&
+  (c.unit === "ms" || c.unit === "s" || DURATION_HINT.test(`${c.id} ${c.label}`));
 
 /**
  * Picks a preview for a spec that did not bring its own.
@@ -267,18 +539,39 @@ const FONT_HINTS = /font|type|text.*size|size.*text/i;
 export function autoPreview(spec) {
   const controls = spec?.controls ?? [];
 
+  // Motion trio: an easing select claims the first duration and the first
+  // delay control it can find. Claimed controls leave the ruler and state
+  // buckets — the replay IS the duration's visualization, and a bar for the
+  // same number would say less, twice. Additional easing selects fall through
+  // to the state line (one curve per widget for now).
+  const easingSelect = controls.find(isEasingSelect);
+  const durationCtl = easingSelect
+    ? controls.find((c) => isDurationish(c) && !DELAY_HINT.test(`${c.id} ${c.label}`))
+    : undefined;
+  const delayCtl = easingSelect
+    ? controls.find((c) => isDurationish(c) && DELAY_HINT.test(`${c.id} ${c.label}`))
+    : undefined;
+  const motion = [easingSelect, durationCtl, delayCtl].filter(Boolean);
+
   const colours = controls.filter((c) => c.type === "color");
   const fonts = controls.filter(
-    (c) => (c.type === "slider" || c.type === "number") && FONT_HINTS.test(`${c.id} ${c.label}`),
+    (c) => (c.type === "slider" || c.type === "number") && !motion.includes(c) && FONT_HINTS.test(`${c.id} ${c.label}`),
   );
   const sizes = controls.filter(
     (c) =>
       (c.type === "slider" || c.type === "number") &&
+      !motion.includes(c) &&
       !fonts.includes(c) &&
       (c.unit || SIZE_HINTS.test(`${c.id} ${c.label}`)),
   );
+  // `text`, `compare` and `multiselect` are left out of the state line for one
+  // reason: they are already illustrated in the SHELL, by the input itself, the
+  // matrix, or the running total. Echoing them here says the same thing twice
+  // and says it worse — an array flattened to "a.ts,b.ts" is not a summary.
+  const SELF_SHOWN = new Set(["text", "compare", "multiselect"]);
   const others = controls.filter(
-    (c) => !colours.includes(c) && !fonts.includes(c) && !sizes.includes(c) && c.type !== "text",
+    (c) =>
+      !colours.includes(c) && !fonts.includes(c) && !sizes.includes(c) && !motion.includes(c) && !SELF_SHOWN.has(c.type),
   );
 
   const parts = [];
@@ -290,6 +583,7 @@ export function autoPreview(spec) {
   const radius = sizes.find((c) => /radius/i.test(`${c.id} ${c.label}`));
   const showCard = Boolean(accent || radius || fonts.length);
 
+  let motionView;
   let cardView;
   let stateLine;
 
@@ -299,10 +593,17 @@ export function autoPreview(spec) {
       const wrap = el("div", { class: "aui" });
       container.append(wrap);
 
+      // Motion first: when a widget has an easing picker, the feel of the
+      // motion is what the widget is ABOUT, so it leads.
+      if (easingSelect) {
+        motionView = easingCurve({ title: "Motion" });
+        motionView.mount(wrap);
+      }
+
       for (const part of parts) part.view.mount(wrap);
 
       if (showCard) {
-        cardView = card({ title: "In context" });
+        cardView = card({ title: "Sample card", heading: spec?.title ?? "A widget" });
         cardView.mount(wrap);
       }
 
@@ -311,23 +612,47 @@ export function autoPreview(spec) {
         wrap.append(stateLine);
       }
 
-      if (!parts.length && !showCard && !others.length) {
+      if (!motionView && !parts.length && !showCard && !others.length) {
         wrap.append(el("div", { class: "aui-muted" }, "Nothing here has a visual effect to preview."));
       }
     },
 
-    update(values) {
+    update(values, meta) {
+      if (motionView) {
+        const num = (c) => Number(values[c.id] ?? c.default);
+        const toMs = (c) => (c.unit === "s" ? num(c) * 1000 : num(c));
+        motionView.update(
+          {
+            easing: String(values[easingSelect.id] ?? easingSelect.default),
+            duration: durationCtl ? toMs(durationCtl) : 300,
+            delay: delayCtl ? toMs(delayCtl) : 0,
+          },
+          meta,
+        );
+      }
       for (const part of parts) {
         part.view.update(
-          part.controls.map((c) => ({ label: c.label, value: values[c.id] ?? c.default, unit: c.unit })),
+          // min/max travel with the value: without the declared range the ruler
+          // has nothing honest to scale against.
+          part.controls.map((c) => ({
+            label: c.label,
+            value: values[c.id] ?? c.default,
+            unit: c.unit,
+            min: c.min,
+            max: c.max,
+          })),
+          meta,
         );
       }
       if (cardView) {
-        cardView.update({
-          accent: accent ? values[accent.id] ?? accent.default : undefined,
-          radius: radius ? Number(values[radius.id] ?? radius.default) : undefined,
-          fontSize: fonts[0] ? Number(values[fonts[0].id] ?? fonts[0].default) : undefined,
-        });
+        cardView.update(
+          {
+            accent: accent ? values[accent.id] ?? accent.default : undefined,
+            radius: radius ? Number(values[radius.id] ?? radius.default) : undefined,
+            fontSize: fonts[0] ? Number(values[fonts[0].id] ?? fonts[0].default) : undefined,
+          },
+          meta,
+        );
       }
       if (stateLine) {
         stateLine.lastChild.textContent = others
@@ -338,4 +663,4 @@ export function autoPreview(spec) {
   };
 }
 
-export default { swatchGrid, ruler, typeScale, card, autoPreview };
+export default { swatchGrid, ruler, typeScale, card, easingCurve, autoPreview };

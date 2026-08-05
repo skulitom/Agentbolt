@@ -82,8 +82,19 @@ export function summarizeEvent(event: SessionEvent): string {
       return `#${event.seq} preview event ${String(payload["name"] ?? "")}: ${JSON.stringify(payload["data"] ?? null)}`;
     case "finalized":
       return `#${event.seq} finalized`;
-    case "closed":
-      return `#${event.seq} session closed`;
+    // A close the user performed themselves is not the same news as one the
+    // agent asked for: "dismissed" means the question was seen and declined, and
+    // re-asking it is the wrong move. The reason is only ever set for a session
+    // that was still open, so this never overstates what happened.
+    case "closed": {
+      // The note is the whole reason the box is offered, so it is never
+      // summarised away — a dismissal that says why is more useful than most
+      // answers.
+      const note = typeof payload["note"] === "string" && payload["note"] ? `: ${JSON.stringify(payload["note"])}` : "";
+      return payload["reason"] === "dismissed"
+        ? `#${event.seq} dismissed by the user${note}`
+        : `#${event.seq} session closed${note}`;
+    }
     case "spec_updated":
       return `#${event.seq} widget updated (revision ${String(payload["revision"] ?? "?")})`;
     case "client_connected":

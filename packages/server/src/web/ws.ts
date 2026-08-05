@@ -3,11 +3,11 @@ import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket } from "ws";
 import { ClientMessage, WS_PATH, type ServerMessage, type SessionEvent } from "@agentui/shared";
 import type { Outbound, SessionManager } from "../core/session-manager.js";
-import { candidateOrigins } from "../core/ports.js";
+import { candidateOriginsAllProjects } from "../core/ports.js";
 import { isAllowedHostHeader } from "./security.js";
 import { log } from "../log.js";
 
-const ALLOWED_ORIGINS = new Set(candidateOrigins().filter((origin) => origin.startsWith("http://")));
+const ALLOWED_ORIGINS = new Set(candidateOriginsAllProjects());
 
 interface Client {
   socket: WebSocket;

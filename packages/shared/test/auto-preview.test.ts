@@ -1,9 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { controlHasVisual, shouldAutoPreview } from "../src/auto-preview.js";
+import {
+  EASING_NAME_HINT_SOURCE,
+  EASING_OPTION_SOURCE,
+  SIZE_HINTS_SOURCE,
+  controlHasVisual,
+  controlIsIllustrated,
+  isEasingSelect,
+  isPreviewSubject,
+  shouldAutoPreview,
+} from "../src/auto-preview.js";
 import { groupControls, parseSpec, type InterfaceSpec } from "../src/spec.js";
 
 function build(controls: unknown[]): InterfaceSpec {
-  const parsed = parseSpec({ title: "T", controls });
+  return buildSpec({ title: "T", controls });
+}
+
+function buildSpec(input: Record<string, unknown>): InterfaceSpec {
+  const parsed = parseSpec(input);
   if (!parsed.ok) throw new Error(parsed.message);
   return parsed.spec;
 }
@@ -24,8 +37,8 @@ describe("shouldAutoPreview", () => {
     ).toBe(true);
   });
 
-  it("previews dimension-like names even without a unit", () => {
-    for (const id of ["content_width", "corner_radius", "gap", "padding", "offset", "duration"]) {
+  it("previews spatial names even without a unit", () => {
+    for (const id of ["content_width", "corner_radius", "gap", "padding", "offset"]) {
       expect(shouldAutoPreview(build([{ id, label: id, type: "slider", min: 0, max: 10, default: 1 }]))).toBe(true);
     }
   });
@@ -60,6 +73,93 @@ describe("shouldAutoPreview", () => {
   });
 });
 
+/**
+ * Two questions that sound like one: "can the built-in helper DRAW this?" gates
+ * the frame; "does anything on screen change when this moves?" only orders the
+ * controls. Without the split, teaching the second one about compare and sample
+ * would open a half-screen preview pane whose entire content is "Retries: 3".
+ */
+describe("the predicate split", () => {
+  const compare = {
+    id: "approach",
+    label: "Approach",
+    type: "compare",
+    axes: [
+      { id: "files", label: "Files", kind: "text" },
+      { id: "wire", label: "Wire", kind: "bool", better: "low" },
+    ],
+    options: [
+      { value: "poll", cells: { files: "2", wire: false } },
+      { value: "push", cells: { files: "5", wire: true } },
+    ],
+    default: "poll",
+  };
+
+  it("gives the two callers opposite answers for a compare", () => {
+    const spec = build([compare]);
+    expect(shouldAutoPreview(spec)).toBe(false);
+    expect(isPreviewSubject(spec.controls[0]!)).toBe(false);
+    expect(controlIsIllustrated(spec, spec.controls[0]!)).toBe(true);
+  });
+
+  it("counts a control a `sample` rule points at, without opening a frame for it", () => {
+    const spec = buildSpec({
+      title: "T",
+      content: [
+        {
+          kind: "sample",
+          label: "Sessions",
+          source: "read just now",
+          rule: "idle_h > stale_hours",
+          rows: [{ label: "a", idle_h: 1 }, { label: "b", idle_h: 9 }],
+        },
+      ],
+      controls: [
+        { id: "stale_hours", label: "Stale after", type: "number", default: 4 },
+        { id: "note", label: "Note", type: "text", default: "" },
+      ],
+    });
+    expect(shouldAutoPreview(spec)).toBe(false);
+    expect(controlIsIllustrated(spec, spec.controls[0]!)).toBe(true);
+    expect(controlIsIllustrated(spec, spec.controls[1]!)).toBe(false);
+  });
+
+  it("counts the text control a bound block renders — the one type that never got a preview", () => {
+    const spec = buildSpec({
+      title: "T",
+      content: [
+        { kind: "code", bind: true, value: 'import "{{pkg}}"' },
+        { kind: "markdown", value: "unbound {{other}} stays literal" },
+      ],
+      controls: [
+        { id: "pkg", label: "Package", type: "text", default: "agentui" },
+        { id: "other", label: "Other", type: "text", default: "" },
+      ],
+    });
+    expect(shouldAutoPreview(spec)).toBe(false);
+    expect(controlIsIllustrated(spec, spec.controls[0]!)).toBe(true);
+    // Braces in an UNBOUND block illustrate nothing, because nothing substitutes.
+    expect(controlIsIllustrated(spec, spec.controls[1]!)).toBe(false);
+  });
+
+  it("counts a multiselect only when its weights are something measured", () => {
+    const withWeights = build([
+      {
+        id: "files",
+        label: "Files",
+        type: "multiselect",
+        options: [{ value: "a", weight: 180 }, { value: "b", weight: 240 }],
+        default: [],
+      },
+    ]);
+    const without = build([
+      { id: "files", label: "Files", type: "multiselect", options: [{ value: "a" }, { value: "b" }], default: [] },
+    ]);
+    expect(controlIsIllustrated(withWeights, withWeights.controls[0]!)).toBe(true);
+    expect(controlIsIllustrated(without, without.controls[0]!)).toBe(false);
+  });
+});
+
 describe("groupControls visualFirst", () => {
   it("sinks groups the preview cannot illustrate below ones it can", () => {
     const spec = build([
@@ -87,5 +187,120 @@ describe("groupControls visualFirst", () => {
     ]);
     const ordered = groupControls(spec, { visualFirst: true, isVisual: controlHasVisual });
     expect(ordered.map((g) => g.group)).toEqual(["Visual", "First non-visual", "Second non-visual"]);
+  });
+});
+
+describe("hint regexes stay in sync", () => {
+  /**
+   * SIZE_HINTS lives twice: in shared (deciding whether a preview frame exists)
+   * and in the browser helper (deciding what goes inside it). Drift means a pane
+   * opens with nothing in it, which is the exact "looks informative, says
+   * nothing" failure the tool exists to avoid.
+   */
+  it("shared and the browser helper use the same SIZE_HINTS", async () => {
+    const fs = await import("node:fs");
+    const url = await import("node:url");
+    const path = await import("node:path");
+    const here = path.dirname(url.fileURLToPath(import.meta.url));
+    const helper = fs.readFileSync(
+      path.resolve(here, "..", "..", "ui", "public", "agentui", "preview.js"),
+      "utf8",
+    );
+    const match = /^const SIZE_HINTS = \/(.+)\/i;$/m.exec(helper);
+    expect(match, "SIZE_HINTS not found in preview.js").toBeTruthy();
+    expect(match![1]).toBe(SIZE_HINTS_SOURCE);
+  });
+
+  it("no longer claims a duration is a length", () => {
+    // Time is not spatial; a bar for "400ms" was a category error. An explicit
+    // unit still qualifies, because that is a declaration rather than a guess.
+    expect(shouldAutoPreview(build([{ id: "retry_delay", label: "Retry delay", type: "number", default: 400 }]))).toBe(
+      false,
+    );
+    expect(
+      shouldAutoPreview(build([{ id: "retry_delay", label: "Retry delay", type: "number", default: 400, unit: "ms" }])),
+    ).toBe(true);
+  });
+
+  it("does not open a frame for a vector, which the helper cannot draw", () => {
+    expect(shouldAutoPreview(build([{ id: "pos", label: "Position", type: "vector", size: 3, default: [1, 2, 3] }]))).toBe(
+      false,
+    );
+  });
+
+  it("lets an agent decline the generated preview outright", () => {
+    const spec = parseSpec({
+      title: "T",
+      preview: { auto: false },
+      controls: [{ id: "gap", label: "Gap", type: "slider", min: 0, max: 10, default: 2, unit: "px" }],
+    });
+    if (!spec.ok) throw new Error(spec.message);
+    expect(shouldAutoPreview(spec.spec)).toBe(false);
+  });
+});
+
+/**
+ * Easing detection is deliberately two-factor: the control must be NAMED like
+ * an easing choice AND every option must be easing vocabulary. A false
+ * positive draws a meaningless curve over a real select; a miss just leaves
+ * the state line, which is the acceptable failure.
+ */
+describe("isEasingSelect", () => {
+  const easing = (over: Record<string, unknown> = {}) => ({
+    id: "easing",
+    label: "Easing",
+    type: "select",
+    default: "linear",
+    options: [{ value: "linear" }, { value: "ease-out" }, { value: "spring" }],
+    ...over,
+  });
+  const first = (controls: unknown[]) => build(controls).controls[0]!;
+
+  it("detects a named select whose options are all easing vocabulary", () => {
+    expect(isEasingSelect(first([easing()]))).toBe(true);
+  });
+
+  it("accepts cubic-bezier literals and camelCase names", () => {
+    const control = first([
+      easing({ default: "easeOutBack", options: [{ value: "easeOutBack" }, { value: "cubic-bezier(0.2, 0, 0, 1)" }] }),
+    ]);
+    expect(isEasingSelect(control)).toBe(true);
+  });
+
+  it("rejects an easing-named select with non-easing options", () => {
+    expect(isEasingSelect(first([easing({ default: "fast", options: [{ value: "fast" }, { value: "slow" }] })]))).toBe(
+      false,
+    );
+  });
+
+  it("rejects easing vocabulary under a non-easing name", () => {
+    expect(isEasingSelect(first([easing({ id: "mode", label: "Mode" })]))).toBe(false);
+  });
+
+  it("rejects a single-option select — nothing to choose is nothing to plot", () => {
+    expect(isEasingSelect(first([easing({ options: [{ value: "linear" }] })]))).toBe(false);
+  });
+
+  it("earns a preview frame on its own, because easingCurve can draw it", () => {
+    expect(shouldAutoPreview(build([easing()]))).toBe(true);
+  });
+
+  it("shared and the browser helper use the same easing regexes", async () => {
+    // Same contract as SIZE_HINTS above: shared decides whether a frame
+    // exists, the helper decides what goes inside it.
+    const fs = await import("node:fs");
+    const url = await import("node:url");
+    const path = await import("node:path");
+    const here = path.dirname(url.fileURLToPath(import.meta.url));
+    const helper = fs.readFileSync(
+      path.resolve(here, "..", "..", "ui", "public", "agentui", "preview.js"),
+      "utf8",
+    );
+    const nameHint = /^const EASING_NAME_HINT = \/(.+)\/i;$/m.exec(helper);
+    expect(nameHint, "EASING_NAME_HINT not found in preview.js").toBeTruthy();
+    expect(nameHint![1]).toBe(EASING_NAME_HINT_SOURCE);
+    const option = /^const EASING_OPTION = \/(.+)\/i;$/m.exec(helper);
+    expect(option, "EASING_OPTION not found in preview.js").toBeTruthy();
+    expect(option![1]).toBe(EASING_OPTION_SOURCE);
   });
 });

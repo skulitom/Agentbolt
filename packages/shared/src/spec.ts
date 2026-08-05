@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { collectPlaceholders, isBindTransform } from "./bind.js";
+import { RULE_SHAPE, parseSampleRule } from "./sample.js";
 
 /**
  * The Interface Spec: the JSON an agent authors to describe a widget.
@@ -90,6 +92,86 @@ export const VectorControl = z.strictObject({
   labels: z.array(z.string()).optional(),
 });
 
+/**
+ * A select whose options each carry a column: the same axes, answered for every
+ * candidate.
+ *
+ * The VALUE is still `options[].value`, a plain string, so nothing downstream —
+ * ControlValue, normalizeValues, state.json, the ws protocol — learns a new
+ * shape. What the extra schema buys is validation: every option must fill every
+ * axis. Prose lets an agent write two sentences about approach A's performance
+ * and none about B's; a matrix has a hole where B's cell goes, and the parser
+ * refuses to ship the hole. That forced parallelism is the entire point.
+ */
+export const CompareControl = z.strictObject({
+  ...controlBase,
+  type: z.literal("compare"),
+  axes: z
+    .array(
+      z.strictObject({
+        id: idField,
+        label: z.string().min(1),
+        kind: z.enum(["text", "bool", "code", "scale"]).default("text"),
+        /** Required when kind is "scale": the ordered vocabulary, worst first. */
+        scale: z.array(z.string()).min(2, "a scale needs at least two steps").optional(),
+        /**
+         * Which end wins. "none" is the default and is load-bearing: the tool
+         * has to be able to say "these differ and neither is better" rather than
+         * colouring in a winner it has not earned.
+         */
+        better: z.enum(["low", "high", "none"]).default("none"),
+        /**
+         * Generates this axis's cells from the option value: "npm i {}". Four
+         * templates instead of sixteen hand-written cells, and the cells cannot
+         * drift out of parallel.
+         */
+        template: z.string().optional(),
+      }),
+    )
+    .min(2, "a compare with one axis is a select — use that instead"),
+  options: z
+    .array(
+      z.strictObject({
+        value: z.string().min(1),
+        label: z.string().optional(),
+        summary: z.string().optional(),
+        /** Keyed by axis id. Every non-template axis must be present. */
+        cells: z.record(z.string(), z.union([z.string(), z.boolean()])).default({}),
+      }),
+    )
+    .min(2, "a compare needs at least two options"),
+  default: z.string(),
+});
+
+/**
+ * A subset of a known set, with a live total.
+ *
+ * The one control the union genuinely lacked, and the one that serves a
+ * permanent family of questions: which files, which tests, which clients, which
+ * packages. It is also the release that teaches ControlValue about `string[]`.
+ *
+ * `weight` is something MEASURED — lines from `wc -l`, kB from `du`. With no
+ * weights this is a checkbox list that says "2 of 3 selected", which is honest
+ * degradation; the docs must not oversell it as a chart.
+ */
+export const MultiSelectControl = z.strictObject({
+  ...controlBase,
+  type: z.literal("multiselect"),
+  options: z
+    .array(
+      z.strictObject({
+        value: z.string().min(1),
+        label: z.string().optional(),
+        note: z.string().optional(),
+        weight: z.number().optional(),
+      }),
+    )
+    .min(2, "a multiselect with one option is a toggle — use that instead"),
+  /** Unit for the summed weights: "lines", " kB", "s". */
+  weightUnit: z.string().optional(),
+  default: z.array(z.string()),
+});
+
 export const Control = z.discriminatedUnion("type", [
   SliderControl,
   NumberControl,
@@ -98,6 +180,8 @@ export const Control = z.discriminatedUnion("type", [
   ColorControl,
   TextControl,
   VectorControl,
+  CompareControl,
+  MultiSelectControl,
 ]);
 
 export type Control = z.infer<typeof Control>;
@@ -108,9 +192,47 @@ export type ControlType = Control["type"];
  * and ask about it — a diff, a screenshot it just took, a block of prose.
  */
 export const ContentBlock = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("markdown"), value: z.string() }),
-  z.strictObject({ kind: z.literal("code"), value: z.string(), language: z.string().optional() }),
+  /** `bind` substitutes `{{control_id}}` live — see bind.ts for the rules. */
+  z.strictObject({ kind: z.literal("markdown"), value: z.string(), bind: z.boolean().default(false) }),
+  z.strictObject({
+    kind: z.literal("code"),
+    value: z.string(),
+    language: z.string().optional(),
+    filename: z.string().optional(),
+    bind: z.boolean().default(false),
+  }),
   z.strictObject({ kind: z.literal("diff"), value: z.string(), filename: z.string().optional() }),
+  /**
+   * A rule replayed against rows the reader recognises.
+   *
+   * `source` is REQUIRED and always rendered, because the failure this block
+   * exists to prevent is a convincing table of numbers the agent made up. An
+   * agent that has to type "illustrative — I have not read your machine" will
+   * usually go and read it instead, and a human who sees that string discounts
+   * correctly. Same move as `touched`: make the weak case visible rather than
+   * asking anyone to remember it.
+   */
+  z.strictObject({
+    kind: z.literal("sample"),
+    label: z.string().min(1),
+    /** A path, a command, or the formula. The provenance gate. */
+    source: z.string().min(1),
+    /** Exactly "<row_field> <op> <control_id>". Not an expression language. */
+    rule: z.string(),
+    /** [when the rule holds, when it does not]. */
+    verdict: z.tuple([z.string(), z.string()]).optional(),
+    /** Numeric field to sort by and show. Defaults to the rule's field. */
+    field: z.string().optional(),
+    unit: z.string().optional(),
+    /** Live sum over matching rows. */
+    total: z
+      .strictObject({ field: z.string(), unit: z.string().optional(), label: z.string().optional() })
+      .optional(),
+    rows: z
+      .array(z.looseObject({ label: z.string().min(1), note: z.string().optional() }))
+      .min(2, "with fewer than two rows you have a sentence, not a table")
+      .max(60),
+  }),
   z.strictObject({
     kind: z.literal("image"),
     /** Absolute local path; the server copies it into the session's assets dir. */
@@ -139,6 +261,23 @@ export const Action = z.strictObject({
 
 export type Action = z.infer<typeof Action>;
 
+/**
+ * Named rather than inline so `ui_ask` can accept the same object: a shorthand
+ * question with a `sample` block and a slider that carries a unit needs to be
+ * able to decline the generated frame, or it gets a bar redrawing what the
+ * table already said.
+ */
+export const PreviewOptions = z.strictObject({
+  height: z.number().int().min(120).max(1200).default(400),
+  /**
+   * Set false to decline the generated preview. For a widget whose values
+   * genuinely have nothing to show, an empty frame is worse than none — and the
+   * alternative workaround (dropping `unit`) would corrupt the data to fix the
+   * presentation.
+   */
+  auto: z.boolean().default(true),
+});
+
 export const InterfaceSpec = z
   .strictObject({
     schemaVersion: z.literal(1).default(1),
@@ -155,11 +294,7 @@ export const InterfaceSpec = z
         label: z.string().optional(),
       })
       .default({ enabled: true }),
-    preview: z
-      .strictObject({
-        height: z.number().int().min(120).max(1200).default(400),
-      })
-      .optional(),
+    preview: PreviewOptions.optional(),
     layout: z
       .strictObject({
         columns: z.union([z.literal(1), z.literal(2)]).default(1),
@@ -241,6 +376,9 @@ export const InterfaceSpec = z
           });
         }
       }
+
+      if (control.type === "compare") checkCompare(control, index, ctx);
+      if (control.type === "multiselect") checkMultiSelect(control, index, ctx);
     });
 
     const actionIds = new Set<string>();
@@ -255,6 +393,7 @@ export const InterfaceSpec = z
       actionIds.add(action.id);
     });
 
+    const controlsById = new Map(spec.controls.map((control) => [control.id, control]));
     spec.content.forEach((block, index) => {
       if (block.kind === "image" && !block.path && !block.dataUri) {
         ctx.addIssue({
@@ -263,21 +402,284 @@ export const InterfaceSpec = z
           message: "an image block needs either `path` (absolute local path) or `dataUri`",
         });
       }
+      if (block.kind === "sample") checkSample(block, index, controlsById, ctx);
+      if ((block.kind === "markdown" || block.kind === "code") && block.bind) {
+        checkBoundBlock(block.value, index, controlsById, ctx);
+      }
     });
   });
+
+/** Structural, so these helpers do not depend on zod's internal ctx type. */
+interface Ctx {
+  addIssue(issue: { code: "custom"; path: Array<string | number>; message: string }): void;
+}
+
+/**
+ * The forced-parallelism check. A missing cell is not a nicety: it is the exact
+ * place where prose would have let the agent argue one side and go quiet on the
+ * other, so it is reported per option, per axis, by name.
+ */
+function checkCompare(control: z.infer<typeof CompareControl>, index: number, ctx: Ctx): void {
+  const at = (...rest: Array<string | number>) => ["controls", index, ...rest];
+
+  const axisIds = new Set<string>();
+  control.axes.forEach((axis, a) => {
+    if (axisIds.has(axis.id)) {
+      ctx.addIssue({ code: "custom", path: at("axes", a, "id"), message: `duplicate axis id "${axis.id}"` });
+    }
+    axisIds.add(axis.id);
+    if (axis.kind === "scale" && !axis.scale) {
+      ctx.addIssue({
+        code: "custom",
+        path: at("axes", a, "scale"),
+        message: 'a "scale" axis needs its `scale`, worst first — e.g. ["S", "M", "L"]',
+      });
+    }
+    if (axis.kind !== "scale" && axis.scale) {
+      ctx.addIssue({
+        code: "custom",
+        path: at("axes", a, "kind"),
+        message: '`scale` only means something on kind: "scale"',
+      });
+    }
+  });
+
+  const values = new Set<string>();
+  control.options.forEach((option, o) => {
+    if (values.has(option.value)) {
+      ctx.addIssue({ code: "custom", path: at("options", o, "value"), message: `duplicate option value "${option.value}"` });
+    }
+    values.add(option.value);
+
+    for (const [cellId, cell] of Object.entries(option.cells)) {
+      const axis = control.axes.find((x) => x.id === cellId);
+      if (!axis) {
+        ctx.addIssue({
+          code: "custom",
+          path: at("options", o, "cells", cellId),
+          message: `no axis with id "${cellId}" (declared: ${[...axisIds].join(", ")})`,
+        });
+        continue;
+      }
+      if (axis.template !== undefined) {
+        ctx.addIssue({
+          code: "custom",
+          path: at("options", o, "cells", cellId),
+          message: `axis "${cellId}" generates its cells from \`template\`; remove this one or drop the template`,
+        });
+        continue;
+      }
+      if (typeof cell === "boolean" && axis.kind !== "bool") {
+        ctx.addIssue({
+          code: "custom",
+          path: at("options", o, "cells", cellId),
+          message: `axis "${cellId}" is kind "${axis.kind}", so its cells are strings`,
+        });
+      }
+      if (axis.kind === "bool" && typeof cell !== "boolean") {
+        ctx.addIssue({
+          code: "custom",
+          path: at("options", o, "cells", cellId),
+          message: `axis "${cellId}" is kind "bool", so its cells are true or false`,
+        });
+      }
+      if (axis.kind === "scale" && axis.scale && typeof cell === "string" && !axis.scale.includes(cell)) {
+        ctx.addIssue({
+          code: "custom",
+          path: at("options", o, "cells", cellId),
+          message: `"${cell}" is not one of axis "${cellId}"'s scale (${axis.scale.join(", ")})`,
+        });
+      }
+    }
+
+    for (const axis of control.axes) {
+      if (axis.template === undefined && !(axis.id in option.cells)) {
+        ctx.addIssue({
+          code: "custom",
+          path: at("options", o, "cells"),
+          message: `missing cell for axis "${axis.id}" — every option answers every axis, or the comparison has a hole in it`,
+        });
+      }
+    }
+  });
+
+  if (!values.has(control.default)) {
+    ctx.addIssue({
+      code: "custom",
+      path: at("default"),
+      message: `default "${control.default}" is not one of the options (${[...values].join(", ")})`,
+    });
+  }
+}
+
+function checkMultiSelect(control: z.infer<typeof MultiSelectControl>, index: number, ctx: Ctx): void {
+  const values = new Set<string>();
+  control.options.forEach((option, o) => {
+    if (values.has(option.value)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["controls", index, "options", o, "value"],
+        message: `duplicate option value "${option.value}"`,
+      });
+    }
+    values.add(option.value);
+  });
+
+  const chosen = new Set<string>();
+  control.default.forEach((value, d) => {
+    if (!values.has(value)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["controls", index, "default", d],
+        message: `"${value}" is not one of the options (${[...values].join(", ")})`,
+      });
+    }
+    if (chosen.has(value)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["controls", index, "default", d],
+        message: `"${value}" is selected twice`,
+      });
+    }
+    chosen.add(value);
+  });
+}
+
+/**
+ * Everything a `sample` claims is checked here, against the rows themselves —
+ * a rule naming a field no row carries, or a `>` over something that is not a
+ * number, is a per-path error at parse time rather than a NaN on screen.
+ */
+function checkSample(
+  block: Extract<z.infer<typeof ContentBlock>, { kind: "sample" }>,
+  index: number,
+  controlsById: Map<string, z.infer<typeof Control>>,
+  ctx: Ctx,
+): void {
+  const at = (...rest: Array<string | number>) => ["content", index, ...rest];
+  const rule = parseSampleRule(block.rule);
+  if (!rule) {
+    ctx.addIssue({ code: "custom", path: at("rule"), message: `${RULE_SHAPE} — got "${block.rule}"` });
+    return;
+  }
+
+  const control = controlsById.get(rule.control);
+  if (!control) {
+    const ids = [...controlsById.keys()];
+    ctx.addIssue({
+      code: "custom",
+      path: at("rule"),
+      message: `"${rule.control}" is not a declared control id (${ids.length ? ids.join(", ") : "this widget has no controls"}); the right-hand side of a rule is always a control`,
+    });
+  } else if (rule.ordering && control.type !== "slider" && control.type !== "number") {
+    ctx.addIssue({
+      code: "custom",
+      path: at("rule"),
+      message: `"${rule.op}" compares numbers, but "${rule.control}" is a ${control.type} — use == or != to match it as a string`,
+    });
+  }
+
+  const rows = block.rows as Array<Record<string, unknown>>;
+  const requireField = (field: string, where: string, numeric: boolean): void => {
+    rows.forEach((row, r) => {
+      const value = row[field];
+      if (value === undefined) {
+        ctx.addIssue({
+          code: "custom",
+          path: at("rows", r),
+          message: `no "${field}" on this row, but ${where} names it`,
+        });
+        return;
+      }
+      if (numeric && !Number.isFinite(Number(value))) {
+        ctx.addIssue({
+          code: "custom",
+          path: at("rows", r, field),
+          message: `${where} needs a number here, got ${JSON.stringify(value)}`,
+        });
+      }
+    });
+  };
+
+  requireField(rule.field, "`rule`", rule.ordering);
+  // An explicit `field` is declared as the numeric column to sort by and show;
+  // when it is omitted the rule's own field does that job and is already checked.
+  if (block.field !== undefined && block.field !== rule.field) requireField(block.field, "`field`", true);
+  if (block.total) requireField(block.total.field, "`total.field`", true);
+}
+
+/**
+ * Placeholder validation runs in ONE direction only: inside a bound block, a
+ * `{{name}}` that is not a declared control is an error. Braces in an UNBOUND
+ * block are left entirely alone — erroring on those would make a widget about a
+ * Helm chart or a GitHub Action unauthorable.
+ */
+function checkBoundBlock(
+  value: string,
+  index: number,
+  controlsById: Map<string, z.infer<typeof Control>>,
+  ctx: Ctx,
+): void {
+  for (const placeholder of collectPlaceholders(value)) {
+    const path = ["content", index, "value"];
+    if (placeholder.transform !== undefined && !isBindTransform(placeholder.transform)) {
+      ctx.addIssue({
+        code: "custom",
+        path,
+        message: `${placeholder.raw}: unknown transform ":${placeholder.transform}" (pascal, camel, kebab)`,
+      });
+      continue;
+    }
+    const control = controlsById.get(placeholder.id);
+    if (!control) {
+      const ids = [...controlsById.keys()];
+      ctx.addIssue({
+        code: "custom",
+        path,
+        message: `${placeholder.raw} names no control (declared: ${ids.length ? ids.join(", ") : "none"}). Drop \`bind\` if the braces are meant literally.`,
+      });
+      continue;
+    }
+    if (control.type === "toggle") {
+      ctx.addIssue({
+        code: "custom",
+        path,
+        message: `${placeholder.raw} is a toggle, and "true" is not what you want in the text — use a select whose option VALUES are the alternative lines, and bind that`,
+      });
+    }
+    if (control.type === "multiselect" || control.type === "vector") {
+      ctx.addIssue({
+        code: "custom",
+        path,
+        message: `${placeholder.raw} is a ${control.type}, which is a list, not a string — show the selection with a \`sample\` block instead`,
+      });
+    }
+  }
+}
 
 /** What an agent writes (defaults still optional). */
 export type InterfaceSpecInput = z.input<typeof InterfaceSpec>;
 /** What the rest of the system sees (defaults filled in). */
 export type InterfaceSpec = z.output<typeof InterfaceSpec>;
 
-export type ControlValue = string | number | boolean | number[];
+export type ControlValue = string | number | boolean | number[] | string[];
 export type Values = Record<string, ControlValue>;
+
+/**
+ * Array-valued controls — `vector` and now `multiselect` — must be COPIED, or a
+ * caller that mutates its values mutates the spec's defaults with it.
+ */
+function cloneValue(control: Control, value: ControlValue): ControlValue {
+  if (!Array.isArray(value)) return value;
+  if (control.type === "vector") return [...(value as number[])];
+  if (control.type === "multiselect") return [...(value as string[])];
+  return value;
+}
 
 export function defaultsFromSpec(spec: InterfaceSpec): Values {
   const values: Values = {};
   for (const control of spec.controls) {
-    values[control.id] = control.type === "vector" ? [...control.default] : control.default;
+    values[control.id] = cloneValue(control, control.default);
   }
   return values;
 }
@@ -369,13 +771,33 @@ export function validateValuesAgainstSpec(spec: InterfaceSpec, values: unknown):
           problems.push({ id: control.id, message: `expected a string, got ${describe(value)}` });
         }
         break;
-      case "select": {
+      // A compare's value IS a select's value: one option value, a plain string.
+      // That is the whole cost argument for the control, and it holds here.
+      case "select":
+      case "compare": {
         const allowed = control.options.map((o) => o.value);
         if (typeof value !== "string" || !allowed.includes(value)) {
           problems.push({
             id: control.id,
             message: `expected one of ${allowed.join(", ")}, got ${describe(value)}`,
           });
+        }
+        break;
+      }
+      case "multiselect": {
+        const allowed = control.options.map((o) => o.value);
+        if (!Array.isArray(value) || value.some((v) => typeof v !== "string")) {
+          problems.push({ id: control.id, message: `expected an array of option values, got ${describe(value)}` });
+          break;
+        }
+        const unknown = value.filter((v) => !allowed.includes(v as string));
+        if (unknown.length) {
+          problems.push({
+            id: control.id,
+            message: `not options of this control: ${unknown.join(", ")} (allowed: ${allowed.join(", ")})`,
+          });
+        } else if (new Set(value).size !== value.length) {
+          problems.push({ id: control.id, message: "the same option is selected more than once" });
         }
         break;
       }
@@ -408,7 +830,7 @@ export function normalizeValues(spec: InterfaceSpec, values: Values): Values {
     const incoming = values[control.id];
     if (incoming === undefined) continue;
     if (validateValuesAgainstSpec(spec, { [control.id]: incoming }).length === 0) {
-      out[control.id] = control.type === "vector" ? [...(incoming as number[])] : incoming;
+      out[control.id] = cloneValue(control, incoming);
     }
   }
   return out;

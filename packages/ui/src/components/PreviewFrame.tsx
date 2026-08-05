@@ -26,9 +26,15 @@ export function PreviewFrame({ sessionId, previewOrigin }: { sessionId: string; 
   // Values change every frame during a drag; push them straight through so the
   // preview is live at 60fps. This is tier 1 of the three-tier debounce and is
   // deliberately NOT throttled — nothing leaves the browser here.
+  //
+  // `source` rides along so the frame can animate agent pushes but track user
+  // drags 1:1. Read via getState() at post time rather than subscribed: the
+  // store writes it in the same set() as `values`, so it is always the source
+  // of exactly this values object, and subscribing would only add a render.
   useEffect(() => {
     if (!ready) return;
-    iframeRef.current?.contentWindow?.postMessage({ type: "values", values }, "*");
+    const source = useSession.getState().valuesSource;
+    iframeRef.current?.contentWindow?.postMessage({ type: "values", values, source }, "*");
   }, [values, ready]);
 
   useEffect(() => {
@@ -83,6 +89,7 @@ export function PreviewFrame({ sessionId, previewOrigin }: { sessionId: string; 
         src={`${previewOrigin}/preview.html?s=${encodeURIComponent(sessionId)}&r=${revision}`}
         sandbox="allow-scripts allow-same-origin"
         style={{ height }}
+        data-ready={ready}
       />
       {previewError ? (
         <div className="preview-error">

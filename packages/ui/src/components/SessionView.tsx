@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { controlHasVisual, groupControls } from "@agentui/shared";
+import { controlIsIllustrated, groupControls } from "@agentui/shared";
 import { useSession } from "../store.js";
 import { ControlRenderer } from "./ControlRenderer.js";
 import { ContentRenderer } from "./ContentRenderer.js";
@@ -8,6 +8,7 @@ import { HomeLink } from "./HomeLink.js";
 
 export function SessionView() {
   const spec = useSession((s) => s.spec);
+  const revision = useSession((s) => s.revision);
   const status = useSession((s) => s.status);
   const connection = useSession((s) => s.connection);
   const choice = useSession((s) => s.choice);
@@ -24,14 +25,31 @@ export function SessionView() {
   const [comment, setComment] = useState("");
   const [confirming, setConfirming] = useState(false);
   const done = status !== "active";
+  const mainRef = useRef<HTMLDivElement>(null);
+  const seenRevision = useRef<number | null>(null);
 
   useTabAttention(spec?.title, status);
 
-  // With a preview on screen, controls it can illustrate come first and the rest
-  // sink below them — your call, over my assumption that they should just sit
-  // wherever the agent put them.
+  // A re-authored spec swaps content in place — deliberately no remount, which
+  // would reset scroll and open <details> state — so a brief settle fade is
+  // what makes the swap legible at all. Skips the first revision seen: initial
+  // load is not a change. 220ms mirrors --t-gentle in styles.css.
+  useEffect(() => {
+    if (seenRevision.current !== null && revision !== seenRevision.current) {
+      if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        mainRef.current?.animate({ opacity: [0.6, 1] }, { duration: 220, easing: "ease-out" });
+      }
+    }
+    seenRevision.current = revision;
+  }, [revision]);
+
+  // With a preview on screen, controls that illustrate something come first and
+  // the rest sink below them — your call, over my assumption that they should
+  // just sit wherever the agent put them. "Illustrates something" is broader
+  // than "the preview frame can draw it": a control referenced by a `sample`
+  // rule or a bound snippet changes the screen too, just not in the frame.
   const groups = useMemo(
-    () => (spec ? groupControls(spec, { visualFirst: hasPreview, isVisual: controlHasVisual }) : []),
+    () => (spec ? groupControls(spec, { visualFirst: hasPreview, isVisual: (c) => controlIsIllustrated(spec, c) }) : []),
     [spec, hasPreview],
   );
 
@@ -67,7 +85,7 @@ export function SessionView() {
         </aside>
       ) : null}
 
-      <div className="session-main">
+      <div className="session-main" ref={mainRef}>
       <ContentRenderer blocks={spec.content} />
 
       {groups.map(({ group, controls }) => (
@@ -114,6 +132,7 @@ export function SessionView() {
 
         {!done ? (
           <span className="buttons">
+            {sessionId ? <DismissSelf sessionId={sessionId} /> : null}
             {touchedCount > 0 ? (
               <button type="button" className="subtle" onClick={resetAll} title="Put every control back to what the agent suggested">
                 Reset all
@@ -167,6 +186,89 @@ export function SessionView() {
       </footer>
       </div>
     </div>
+  );
+}
+
+/**
+ * "I am not going to answer this."
+ *
+ * The dashboard's dismiss control is the one people reach for, but the decision
+ * is usually made here — you open the question, read it, and want out. Without
+ * this the only exits are answering something you do not mean or closing the
+ * tab, and closing the tab leaves the agent still waiting.
+ *
+ * Two-step, because it releases whatever is parked on this session. The step in
+ * between carries an optional reason, and that box is worth more than the
+ * dismissal itself: "not now", "wrong question", "I already did this" each send
+ * the agent somewhere different, and none of them was a button it thought to
+ * offer. Optional to the last, though — a dismissal that demanded a
+ * justification would just become one people avoid making.
+ *
+ * The reply needs no handling: dismissing appends a `closed` event, which the
+ * socket relays back and the store turns into the read-only end state.
+ */
+function DismissSelf({ sessionId }: { sessionId: string }) {
+  const [armed, setArmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+
+  function dismiss() {
+    setBusy(true);
+    void fetch(`/api/session/${encodeURIComponent(sessionId)}/dismiss`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ note: note.trim() }),
+    }).finally(() => setBusy(false));
+  }
+
+  if (!armed) {
+    return (
+      <button
+        type="button"
+        className="subtle"
+        onClick={() => setArmed(true)}
+        title="Close this without answering — the agent is told you chose not to"
+      >
+        Dismiss
+      </button>
+    );
+  }
+
+  return (
+    <>
+      <input
+        type="text"
+        className="dismiss-note"
+        // The reason is the point of the step, so the cursor starts in it —
+        // the buttons are a Tab away either side.
+        autoFocus
+        maxLength={500}
+        placeholder="Why? (optional)"
+        aria-label="Reason for dismissing, optional"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") dismiss();
+          if (e.key === "Escape") {
+            setNote("");
+            setArmed(false);
+          }
+        }}
+      />
+      <button
+        type="button"
+        className="subtle"
+        onClick={() => {
+          setNote("");
+          setArmed(false);
+        }}
+      >
+        Keep
+      </button>
+      <button type="button" className="btn-danger" disabled={busy} onClick={dismiss}>
+        {busy ? "…" : note.trim() ? "Dismiss with reason" : "Dismiss without answering"}
+      </button>
+    </>
   );
 }
 

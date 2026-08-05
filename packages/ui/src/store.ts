@@ -24,6 +24,27 @@ interface SessionStore {
    */
   touched: Set<string>;
 
+  /**
+   * Who wrote `values` last, read by PreviewFrame at post time so the preview
+   * can animate agent pushes while user drags track 1:1 under the finger.
+   *
+   * The distinction is GESTURE vs JUMP, not literally who acted: reset is a
+   * click, the pointer is nowhere near the control, and animating the revert
+   * is desirable — so reset counts as "agent" alongside init, spec_updated and
+   * values_pushed. Written in the same set() as every values write, never on
+   * its own, so the pair can never be observed torn.
+   */
+  valuesSource: "user" | "agent";
+
+  /**
+   * Presentation-only trail of the last values_pushed: pushSeq bumps once per
+   * push and pushedIds carries which controls actually changed, so their cards
+   * can flash. Deliberately NOT part of the value pipeline — nothing here
+   * touches `touched` or generates interim traffic.
+   */
+  pushSeq: number;
+  pushedIds: ReadonlySet<string>;
+
   attach(transport: SessionTransport, sessionId: string): void;
   applyServerMessage(message: ServerMessage): void;
   setLocalValue(id: string, value: Values[string]): void;
@@ -84,6 +105,9 @@ export const useSession = create<SessionStore>((set, get) => {
     transport: undefined,
     sentCount: 0,
     touched: new Set<string>(),
+    valuesSource: "agent",
+    pushSeq: 0,
+    pushedIds: new Set<string>(),
 
     attach(transport, sessionId) {
       set({ transport, sessionId });
@@ -97,6 +121,7 @@ export const useSession = create<SessionStore>((set, get) => {
           set({
             spec: message.spec,
             values: message.values as Values,
+            valuesSource: "agent",
             // Server is authoritative, so a reconnect or a second tab restores
             // which controls were genuinely engaged with.
             touched: new Set(message.touched ?? []),
@@ -113,13 +138,21 @@ export const useSession = create<SessionStore>((set, get) => {
           set({
             spec: message.spec,
             values: message.values as Values,
+            valuesSource: "agent",
             revision: message.revision,
             hasPreview: message.hasPreview,
             previewError: undefined,
           });
           break;
         case "values_pushed":
-          set({ values: message.values as Values });
+          set((state) => {
+            const next = message.values as Values;
+            const pushedIds = new Set<string>();
+            for (const [id, value] of Object.entries(next)) {
+              if (!sameValue(state.values[id], value)) pushedIds.add(id);
+            }
+            return { values: next, valuesSource: "agent", pushSeq: state.pushSeq + 1, pushedIds };
+          });
           break;
         case "finalized":
           set({ status: "finalized", choice: message.choice });
@@ -128,7 +161,12 @@ export const useSession = create<SessionStore>((set, get) => {
           set({ status: "closed" });
           break;
         case "event":
-          set({ lastEventSeq: message.event.seq });
+          // Closing is server-side only — ui_close, or the user dismissing this
+          // widget from the dashboard — so the relayed event is the only word a
+          // tab ever gets about it. Without this the page would keep offering
+          // controls that the server has already stopped accepting.
+          if (message.event.type === "closed") set({ status: "closed", lastEventSeq: message.event.seq });
+          else set({ lastEventSeq: message.event.seq });
           break;
         case "error":
         case "pong":
@@ -140,6 +178,7 @@ export const useSession = create<SessionStore>((set, get) => {
       if (get().status !== "active") return;
       set((state) => ({
         values: { ...state.values, [id]: value },
+        valuesSource: "user",
         touched: new Set(state.touched).add(id),
       }));
       scheduleInterim();
@@ -153,7 +192,7 @@ export const useSession = create<SessionStore>((set, get) => {
       set((state) => {
         const touched = new Set(state.touched);
         touched.delete(id);
-        return { values: { ...state.values, [id]: recommended }, touched };
+        return { values: { ...state.values, [id]: recommended }, valuesSource: "agent", touched };
       });
       get().commit();
     },
@@ -161,7 +200,7 @@ export const useSession = create<SessionStore>((set, get) => {
     resetAll() {
       const { spec, status } = get();
       if (!spec || status !== "active") return;
-      set({ values: defaultsFromSpec(spec), touched: new Set() });
+      set({ values: defaultsFromSpec(spec), valuesSource: "agent", touched: new Set() });
       get().commit();
     },
 
@@ -202,6 +241,15 @@ export const useSession = create<SessionStore>((set, get) => {
     },
   };
 });
+
+/** Value equality for push-diffing; vectors arrive as fresh arrays every time. */
+function sameValue(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((x, i) => Object.is(x, b[i]));
+  }
+  return false;
+}
 
 /** Session id from /s/<id>; undefined on the dashboard and library routes. */
 export function sessionIdFromPath(pathname = window.location.pathname): string | undefined {

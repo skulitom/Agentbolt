@@ -3,6 +3,7 @@ import {
   Control,
   ContentBlock,
   InterfaceSpec,
+  PreviewOptions,
   formatSpecError,
   type Action,
   type InterfaceSpecInput,
@@ -22,7 +23,11 @@ import {
 /** A forgiving field shorthand: everything except `id` and `type` is optional. */
 const FieldShorthand = z.looseObject({
   id: z.string(),
-  type: z.enum(["slider", "number", "select", "toggle", "color", "text", "vector"]).optional(),
+  // A new control type is invisible to `ui_ask` until it is listed here — the
+  // enum rejects it before inflateField ever sees it.
+  type: z
+    .enum(["slider", "number", "select", "toggle", "color", "text", "vector", "compare", "multiselect"])
+    .optional(),
   label: z.string().optional(),
   default: z.unknown().optional(),
   options: z.array(z.union([z.string(), z.looseObject({ value: z.string(), label: z.string().optional() })])).optional(),
@@ -55,6 +60,8 @@ export const AskInput = z.strictObject({
   timeoutMs: z.number().int().positive().max(3_600_000).optional(),
   /** Whether the free-text comment box is shown. Default true. */
   allowComment: z.boolean().default(true),
+  /** `{ auto: false }` declines the generated preview — see PreviewOptions. */
+  preview: PreviewOptions.optional(),
 });
 
 export type AskInput = z.infer<typeof AskInput>;
@@ -75,7 +82,9 @@ function titleize(id: string): string {
 function normalizeContent(content: AskInput["content"]): ContentBlock[] {
   if (content === undefined) return [];
   const list = Array.isArray(content) ? content : [content];
-  return list.map((block) => (typeof block === "string" ? { kind: "markdown" as const, value: block } : block));
+  return list.map((block) =>
+    typeof block === "string" ? { kind: "markdown" as const, value: block, bind: false } : block,
+  );
 }
 
 function normalizeOptions(options: AskInput["options"]): Action[] {
@@ -137,6 +146,15 @@ function inflateField(field: z.infer<typeof FieldShorthand>): unknown {
         base["default"] = Array.from({ length: size }, () => 0);
         break;
       }
+      case "compare":
+        base["default"] = options?.[0]?.value ?? "";
+        break;
+      // Nothing pre-checked is the only defensible guess: `default` on a
+      // multiselect is a PROPOSAL, and inventing one would put words in the
+      // agent's mouth that `touched` would then report back as a decision.
+      case "multiselect":
+        base["default"] = [];
+        break;
     }
   }
 
@@ -159,11 +177,15 @@ function inflateField(field: z.infer<typeof FieldShorthand>): unknown {
 }
 
 function inferType(field: z.infer<typeof FieldShorthand>): string {
-  if (field.options?.length) return "select";
   const value = field.default;
+  // An array of STRINGS is a selection, an array of numbers is a position. The
+  // distinction has to be made here or every multiselect shorthand arrives as a
+  // vector and fails with a message about arity.
+  const chosen = Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === "string");
+  if (field.options?.length) return chosen ? "multiselect" : "select";
   if (typeof value === "boolean") return "toggle";
   if (typeof value === "number") return "number";
-  if (Array.isArray(value)) return "vector";
+  if (Array.isArray(value)) return chosen ? "multiselect" : "vector";
   if (typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value)) return "color";
   return "text";
 }
@@ -189,6 +211,7 @@ export function compileAsk(input: AskInput): CompiledAsk {
   const heading: ContentBlock = {
     kind: "markdown",
     value: input.details ? `**${input.question}**\n\n${input.details}` : `**${input.question}**`,
+    bind: false,
   };
 
   const spec: InterfaceSpecInput = {
@@ -201,6 +224,7 @@ export function compileAsk(input: AskInput): CompiledAsk {
     actions: actions.length ? actions : [{ id: "submit", label: controls.length ? "Submit" : "OK", style: "primary" }],
     comment: { enabled: input.allowComment },
   };
+  if (input.preview) spec.preview = input.preview;
 
   return { spec, hasChoices: actions.length > 0 };
 }

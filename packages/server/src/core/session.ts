@@ -17,6 +17,31 @@ import { EventLog } from "./event-log.js";
 import { DebouncedJsonWriter, readJson, writeFileAtomic, writeJsonAtomic } from "./storage.js";
 import { log } from "../log.js";
 
+/**
+ * Why a session ended, when it did not simply end.
+ *
+ * "dismissed": the user closed an unanswered question themselves.
+ * "cleared":   the user tidied away a session that was already finished.
+ */
+export type SessionCloseReason = "dismissed" | "cleared";
+
+export interface SessionCloseDetails {
+  reason?: SessionCloseReason | undefined;
+  /**
+   * What the user typed on their way out, when they bothered to say.
+   *
+   * Rides on the `closed` event rather than becoming a comment, and that is the
+   * load-bearing part: a ui_wait parked with `wakeOn: ["finalize"]` filters the
+   * events it is handed, so a separate comment event would be dropped on
+   * exactly the wake it explains. One event, delivered under every filter that
+   * delivers the close itself.
+   */
+  note?: string | undefined;
+}
+
+/** Long enough for a sentence of reasoning; short enough not to be a document. */
+export const CLOSE_NOTE_MAX = 500;
+
 export interface SessionInit {
   sessionId: string;
   dir: string;
@@ -255,10 +280,21 @@ export class Session {
     return output;
   }
 
-  async close(): Promise<void> {
+  /**
+   * `reason` is recorded on the `closed` event, which is what a woken ui_wait
+   * reads. "dismissed" is the one that changes an agent's next move — the
+   * question was seen and declined, so re-asking it is wrong — and it is
+   * therefore only ever passed for a session that was still open.
+   */
+  async close(details: SessionCloseDetails = {}): Promise<void> {
     if (this.#status === "closed") return;
     this.#status = "closed";
-    this.events.append("closed");
+    const note = details.note?.trim().slice(0, CLOSE_NOTE_MAX);
+    const payload = {
+      ...(details.reason === undefined ? {} : { reason: details.reason }),
+      ...(note ? { note } : {}),
+    };
+    this.events.append("closed", Object.keys(payload).length ? payload : undefined);
     await this.#stateWriter.flush(this.state());
     this.#stateWriter.dispose();
   }

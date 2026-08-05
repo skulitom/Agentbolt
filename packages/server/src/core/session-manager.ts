@@ -9,7 +9,7 @@ import {
   type SessionStatus,
   type Values,
 } from "@agentui/shared";
-import { Session } from "./session.js";
+import { Session, type SessionCloseDetails } from "./session.js";
 import { dataDir, sessionsDir } from "./paths.js";
 import { ensureDir, ensureSelfIgnoringDir, existsSync } from "./storage.js";
 import { staleAfterMs, stalenessOf } from "./staleness.js";
@@ -78,7 +78,9 @@ function quickChoicesFor(session: Session): SessionSummary["quickChoices"] {
   const spec = session.spec;
   // Prose is fine to show inline; a diff, image or code block is the reason the
   // question was asked visually in the first place and must not be skipped past.
-  const needsLookingAt = spec.content.some((block) => block.kind !== "markdown");
+  // A BOUND markdown block is one of those: it is prose that changes as you
+  // type, which is a thing to look at rather than a thing to read past.
+  const needsLookingAt = spec.content.some((block) => block.kind !== "markdown" || block.bind);
   if (!spec.actions.length || spec.controls.length > 0 || needsLookingAt) return [];
   return spec.actions.map((action) => ({ id: action.id, label: action.label, style: action.style }));
 }
@@ -170,7 +172,9 @@ export class SessionManager {
    */
   async closeStale(): Promise<string[]> {
     const ids = this.stale().map((session) => session.id);
-    for (const id of ids) await this.close(id);
+    // Same act as dismissing one by hand, so it carries the same reason: every
+    // one of these is an open question the user has just declined.
+    for (const id of ids) await this.close(id, false, { reason: "dismissed" });
     if (ids.length) log.info("cleared stale sessions", { cleared: ids.length });
     return ids;
   }
@@ -234,6 +238,7 @@ export class SessionManager {
         content.push({
           kind: "markdown",
           value: `_(image unavailable: ${path.basename(source)})_`,
+          bind: false,
         });
       }
     }
@@ -316,15 +321,39 @@ export class SessionManager {
     return message;
   }
 
-  async close(sessionId: string, deleteFiles = false): Promise<boolean> {
+  async close(sessionId: string, deleteFiles = false, details: SessionCloseDetails = {}): Promise<boolean> {
     const session = this.#sessions.get(sessionId);
     if (!session) return false;
     // close() appends a `closed` event, which is what releases parked waiters —
     // an agent must never be left blocked on a session that no longer exists.
-    await session.close();
+    await session.close(details);
     this.#sessions.delete(sessionId);
     if (deleteFiles) await fsp.rm(session.dir, { recursive: true, force: true }).catch(() => {});
     return true;
+  }
+
+  /**
+   * The user's own "no, not this one" — a single session closed by hand from the
+   * dashboard or from its own page.
+   *
+   * It is a close like any other, so the tabs go read-only and any parked
+   * ui_wait is released rather than left hanging on a row that has vanished.
+   * What differs is what the event carries: declining to answer is real
+   * information, and an agent told only "closed" would have no way to tell it
+   * from its own ui_close and would happily ask again. `note` is the rest of
+   * that information — "not now", "wrong question", "I already did it" each
+   * lead somewhere different, and none of them is a button the agent thought to
+   * offer.
+   */
+  async dismiss(sessionId: string, note?: string): Promise<{ dismissed: boolean; wasWaiting: boolean }> {
+    const session = this.#sessions.get(sessionId);
+    if (!session) return { dismissed: false, wasWaiting: false };
+    // A finished session has already given its answer; removing its row is
+    // tidying, not refusal, and must not be reported as one.
+    const wasWaiting = session.isOpen;
+    await this.close(sessionId, false, { reason: wasWaiting ? "dismissed" : "cleared", note });
+    log.info("session dismissed by the user", { sessionId, wasWaiting, withNote: Boolean(note?.trim()) });
+    return { dismissed: true, wasWaiting };
   }
 
   /**

@@ -60,6 +60,47 @@ describe("compileAsk", () => {
     expect(byId["offset"]).toMatchObject({ type: "vector", size: 2 });
   });
 
+  it("passes the two new control types through shorthand", () => {
+    // A new control type is invisible to ui_ask until it is in FieldShorthand's
+    // enum — easy to miss, and it silently rejects the whole call when missed.
+    const spec = compile({
+      question: "Which?",
+      fields: [
+        {
+          id: "approach",
+          type: "compare",
+          axes: [
+            { id: "files", label: "Files", kind: "text" },
+            { id: "wire", label: "Wire", kind: "bool" },
+          ],
+          options: [
+            { value: "poll", cells: { files: "2", wire: false } },
+            { value: "push", cells: { files: "5", wire: true } },
+          ],
+        },
+        { id: "targets", type: "multiselect", options: ["a", "b"] },
+      ],
+    });
+    const byId = Object.fromEntries(spec.controls.map((c) => [c.id, c]));
+    // No default given: the first option for a compare, and nothing pre-checked
+    // for a multiselect, because a proposal nobody wrote is not a proposal.
+    expect(byId["approach"]).toMatchObject({ type: "compare", default: "poll" });
+    expect(byId["targets"]).toMatchObject({ type: "multiselect", default: [] });
+  });
+
+  it("reads an array of strings as a selection and an array of numbers as a position", () => {
+    const spec = compile({
+      question: "?",
+      fields: [
+        { id: "files", options: ["a", "b", "c"], default: ["a", "c"] },
+        { id: "offset", default: [1, 2] },
+      ],
+    });
+    const byId = Object.fromEntries(spec.controls.map((c) => [c.id, c]));
+    expect(byId["files"]).toMatchObject({ type: "multiselect", default: ["a", "c"] });
+    expect(byId["offset"]).toMatchObject({ type: "vector", size: 2 });
+  });
+
   it("gives a bare slider usable bounds and a midpoint default", () => {
     const spec = compile({ question: "?", fields: [{ id: "gain", type: "slider" }] });
     expect(spec.controls[0]).toMatchObject({ type: "slider", min: 0, max: 1, default: 0.5 });

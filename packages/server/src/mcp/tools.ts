@@ -16,6 +16,7 @@ import {
 import type { AgentUiContext } from "./context.js";
 import type { Session } from "../core/session.js";
 import type { SessionManager, SessionSummary } from "../core/session-manager.js";
+import type { WaitResult } from "../core/waiters.js";
 import { registerLibraryTools } from "./library-tools.js";
 import { broadcastToSession } from "../web/ws.js";
 import { withHeartbeat } from "./heartbeat.js";
@@ -204,6 +205,10 @@ function registerAsk(server: McpServer, ctx: AgentUiContext): void {
           .describe('Buttons. Strings, or {label, style?: "default"|"primary"|"danger"}. Pressing one answers.'),
         fields: z.array(z.unknown()).optional().describe("Controls to fill in. Shorthand allowed; ids are snake_case."),
         content: z.unknown().optional().describe("Something to look at: a markdown string, or content blocks."),
+        preview: z
+          .unknown()
+          .optional()
+          .describe('{ auto: false } declines the generated preview — use it when a sample or compare already shows the effect.'),
         title: z.string().optional(),
         wait: z
           .boolean()
@@ -231,6 +236,7 @@ function registerAsk(server: McpServer, ctx: AgentUiContext): void {
         options: args.options,
         fields: args.fields,
         content: args.content,
+        preview: args.preview,
         title: args.title,
         allowComment: true,
       });
@@ -379,6 +385,22 @@ function registerUpdate(server: McpServer, ctx: AgentUiContext): void {
   );
 }
 
+/**
+ * The first line of a wake-up, which is the part a model actually acts on.
+ *
+ * "Session closed" is true of a dismissal but says nothing about it, and the
+ * difference matters: a widget the agent closed itself is bookkeeping, while a
+ * widget the user dismissed is a decision — re-asking is the wrong response to
+ * exactly one of them.
+ */
+function headline(result: WaitResult): string {
+  if (result.reason !== "closed") return "The user responded";
+  const dismissed = result.events.some(
+    (event) => event.type === "closed" && (event.payload as { reason?: string } | undefined)?.reason === "dismissed",
+  );
+  return dismissed ? "The user dismissed this without answering" : "Session closed";
+}
+
 function registerWait(server: McpServer, ctx: AgentUiContext): void {
   server.registerTool(
     "ui_wait",
@@ -397,6 +419,11 @@ function registerWait(server: McpServer, ctx: AgentUiContext): void {
         "",
         "Slider drags do NOT wake you. Only committed changes, comments, button presses, preview",
         "errors and finishing do.",
+        "",
+        "A 'closed' reason with an event saying the user dismissed it is an ANSWER: they saw the",
+        "question and chose not to answer. Take the decision yourself and say which way you went —",
+        "do not re-ask it. If that event carries a reason they typed, act on the reason: it is the",
+        "thing you did not think to ask about.",
       ].join("\n"),
       inputSchema: {
         sessionId: SESSION_ID.optional().describe("Omit to wake on any open widget."),
@@ -456,7 +483,7 @@ function registerWait(server: McpServer, ctx: AgentUiContext): void {
               `Do something else and check back, or call ui_wait again with sinceSeq: ${result.lastEventSeq}.`,
             ].join("\n")
           : [
-              `${result.reason === "closed" ? "Session closed" : "The user responded"}${result.sessionId ? ` (${result.sessionId})` : ""}:`,
+              `${headline(result)}${result.sessionId ? ` (${result.sessionId})` : ""}:`,
               eventLines(result.events),
               output ? `\nfinal answer: ${describeAnswer(output, session?.title ?? "")}` : "",
               `\ncursor: sinceSeq ${result.lastEventSeq}`,
@@ -492,7 +519,7 @@ function registerCreate(server: McpServer, ctx: AgentUiContext, index: string) {
           .string()
           .optional()
           .describe(
-            'Optional ES module for a live preview: export default { setup({container, spec, values, emit}), update(values), dispose?() }. Only "three" may be imported.',
+            'Optional ES module for a live preview: export default { setup({container, spec, values, emit}), update(values, meta), dispose?() }. meta.source is "user" during live drags (track 1:1, never animate) or "agent" for pushed values (animate the change). Importable: "three" and "agentui" (preview helpers plus spring/tween/easings motion utilities).',
           ),
         values: z.record(z.string(), z.unknown()).optional().describe("Starting values, overriding the spec defaults."),
         // NOT .default(): zod 4's toJSONSchema uses io:"output", under which a
