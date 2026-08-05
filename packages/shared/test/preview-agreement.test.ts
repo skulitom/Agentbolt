@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 // The browser helper, imported under node. Legal because neither preview.js nor
 // motion.js touches the DOM at module scope — see the note at the top of
 // motion.js, which ui/test/motion.test.ts already relies on.
-import { planPreview } from "../../ui/public/agentui/preview.js";
+import { VIEW_IMPLS } from "../../ui/public/agentui/preview.js";
 import { shouldAutoPreview } from "../src/auto-preview.js";
+import { PREVIEW_VIEWS, planPreview } from "../src/preview-plan.js";
 import { parseSpec, type InterfaceSpec } from "../src/spec.js";
 
 function build(controls: unknown[], extra: Record<string, unknown> = {}): InterfaceSpec {
@@ -31,123 +32,94 @@ const easing = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
+const viewsOf = (spec: InterfaceSpec) => planPreview(spec).panels.map((p) => p.view);
+
 /**
- * THE test the regex-scraping ones were a proxy for.
+ * The gate and the contents are now ONE function.
  *
- * Two separate pieces of code answer two halves of one question: `shouldAutoPreview`
- * in shared decides whether a preview frame appears at all, and `planPreview` in
- * the browser helper decides what goes inside it. They used to agree only because
- * their hint regexes were hand-copied and a test compared the regex SOURCE — which
- * says nothing about the decision the regexes feed.
- *
- * Disagreement in one direction opens a half-screen pane reading "Nothing here
- * has a visual effect to preview." In the other, a widget that had something to
- * show never gets a frame. Both are the "looks informative, says nothing"
- * failure this tool exists to avoid, and neither is visible from a unit test of
- * either side alone.
+ * `shouldAutoPreview` (shell) and the frame's panel list used to be separate
+ * implementations that this file compared, and the comparison caught a real
+ * disagreement: a control named "type_scale" landed in the frame's font bucket
+ * while the gate said there was nothing to show, so the frame never opened.
+ * Both sides call `planPreview` now, so what is left to test is the plan itself
+ * — and the one seam that remains, between the vocabulary and its DOM.
  */
-describe("the two halves of the auto-preview decision agree", () => {
-  const cases: Array<{ name: string; spec: InterfaceSpec }> = [
-    { name: "a colour", spec: build([{ id: "tint", label: "Tint", type: "color", default: "#ef9f27" }]) },
-    { name: "a slider with a unit", spec: build([slider({ unit: "px" })]) },
-    { name: "a slider with a unit but an abstract name", spec: build([slider({ id: "amount", label: "Amount", unit: "x" })]) },
-    { name: "a spatial name with no unit", spec: build([slider({ id: "corner_radius", label: "Corner radius" })]) },
-    { name: "gap", spec: build([slider({ id: "gap", label: "Gap" })]) },
-    { name: "padding", spec: build([slider({ id: "padding", label: "Padding" })]) },
-    { name: "offset", spec: build([slider({ id: "offset", label: "Offset" })]) },
-    { name: "a font size", spec: build([slider({ id: "font_size", label: "Font size", unit: "px" })]) },
-    { name: "a type scale by name only", spec: build([slider({ id: "type_scale", label: "Type scale" })]) },
-    { name: "an abstract number", spec: build([{ id: "retries", label: "Retries", type: "number", default: 3 }]) },
-    { name: "a bare duration name", spec: build([{ id: "retry_delay", label: "Retry delay", type: "number", default: 400 }]) },
-    { name: "a duration with a unit", spec: build([slider({ id: "retry_delay", label: "Retry delay", unit: "ms" })]) },
-    { name: "an easing select", spec: build([easing()]) },
-    { name: "an easing select with camelCase names", spec: build([easing({ default: "easeOutBack", options: [{ value: "easeOutBack" }, { value: "cubic-bezier(0.2, 0, 0, 1)" }] })]) },
-    { name: "an easing-named select with non-easing options", spec: build([easing({ default: "fast", options: [{ value: "fast" }, { value: "slow" }] })]) },
-    { name: "easing vocabulary under a non-easing name", spec: build([easing({ id: "mode", label: "Mode" })]) },
-    { name: "the motion trio", spec: build([easing(), slider({ id: "duration", label: "Duration", unit: "ms" }), slider({ id: "delay", label: "Delay", unit: "ms" })]) },
-    { name: "a toggle", spec: build([{ id: "verbose", label: "Verbose", type: "toggle", default: false }]) },
-    { name: "a plain select", spec: build([{ id: "mode", label: "Mode", type: "select", options: [{ value: "a" }, { value: "b" }], default: "a" }]) },
-    { name: "free text", spec: build([{ id: "notes", label: "Notes", type: "text", default: "" }]) },
-    { name: "a vector, which the helper cannot draw", spec: build([{ id: "pos", label: "Position", type: "vector", size: 3, default: [1, 2, 3] }]) },
-    {
-      name: "a multiselect",
-      spec: build([{ id: "files", label: "Files", type: "multiselect", options: [{ value: "a", weight: 1 }, { value: "b", weight: 2 }], default: [] }]),
-    },
-    {
-      name: "a compare",
-      spec: build([
-        {
-          id: "approach",
-          label: "Approach",
-          type: "compare",
-          axes: [
-            { id: "files", label: "Files", kind: "text" },
-            { id: "wire", label: "Wire", kind: "bool", better: "low" },
-          ],
-          options: [
-            { value: "poll", cells: { files: "2", wire: false } },
-            { value: "push", cells: { files: "5", wire: true } },
-          ],
-          default: "poll",
-        },
-      ]),
-    },
-    { name: "a colour beside a toggle", spec: build([{ id: "verbose", label: "Verbose", type: "toggle", default: false }, { id: "tint", label: "Tint", type: "color", default: "#000000" }]) },
-    { name: "nothing at all", spec: build([], { content: [{ kind: "markdown", value: "just prose" }] }) },
+describe("every view in the vocabulary has an implementation", () => {
+  it("PREVIEW_VIEWS and VIEW_IMPLS describe the same set", () => {
+    // A view declared with `draws: true` and no implementation is worse than a
+    // missing view: it opens a frame, and the frame then renders nothing.
+    expect(Object.keys(VIEW_IMPLS).sort()).toEqual(Object.keys(PREVIEW_VIEWS).sort());
+  });
+
+  it("marks exactly the state line as not worth opening a frame for", () => {
+    const notDrawing = Object.keys(PREVIEW_VIEWS).filter((name) => !PREVIEW_VIEWS[name]!.draws);
+    expect(notDrawing).toEqual(["state"]);
+  });
+});
+
+describe("the gate follows the plan", () => {
+  const cases: Array<{ name: string; spec: InterfaceSpec; views: string[] }> = [
+    { name: "a colour", spec: build([{ id: "tint", label: "Tint", type: "color", default: "#ef9f27" }]), views: ["swatch", "card"] },
+    { name: "a slider with a unit", spec: build([slider({ unit: "px" })]), views: ["ruler"] },
+    { name: "a spatial name with no unit", spec: build([slider({ id: "corner_radius", label: "Corner radius" })]), views: ["ruler", "card"] },
+    { name: "a type scale by name only", spec: build([slider({ id: "type_scale", label: "Type scale" })]), views: ["type", "card"] },
+    { name: "an abstract number", spec: build([{ id: "retries", label: "Retries", type: "number", default: 3 }]), views: ["state"] },
+    { name: "a bare duration name", spec: build([{ id: "retry_delay", label: "Retry delay", type: "number", default: 400 }]), views: ["state"] },
+    { name: "an easing select", spec: build([easing()]), views: ["motion"] },
+    { name: "an easing-named select with non-easing options", spec: build([easing({ default: "fast", options: [{ value: "fast" }, { value: "slow" }] })]), views: ["state"] },
+    { name: "a toggle", spec: build([{ id: "verbose", label: "Verbose", type: "toggle", default: false }]), views: ["state"] },
+    { name: "free text", spec: build([{ id: "notes", label: "Notes", type: "text", default: "" }]), views: [] },
+    { name: "nothing at all", spec: build([], { content: [{ kind: "markdown", value: "just prose" }] }), views: [] },
   ];
 
-  for (const { name, spec } of cases) {
-    it(`${name}: a frame opens exactly when there is something to put in it`, () => {
-      const plan = planPreview(spec);
-      // `shouldAutoPreview` is the gate; `plan.drawsSomething` is whether the
-      // helper has anything to draw. Equal, or a pane opens with nothing in it
-      // — or a widget that had something to show never gets a frame.
-      expect(shouldAutoPreview(spec), name).toBe(plan.drawsSomething);
+  for (const { name, spec, views } of cases) {
+    it(`${name} plans ${views.length ? views.join(" + ") : "nothing"}`, () => {
+      expect(viewsOf(spec)).toEqual(views);
+      // The gate is exactly "does any planned view draw", so a plan of only
+      // `state` must not open a frame: a pane whose entire content is
+      // "Retries: 3" is the failure this tool exists to prevent.
+      expect(shouldAutoPreview(spec)).toBe(views.some((v) => PREVIEW_VIEWS[v]!.draws));
     });
   }
 
-  it("does not open a frame that would only contain a state line", () => {
-    // A toggle lands in `others`, which renders as a text line — real content
-    // for a frame that already exists, never a reason to open one.
-    const spec = build([{ id: "verbose", label: "Verbose", type: "toggle", default: false }]);
-    expect(planPreview(spec).others).toHaveLength(1);
-    // Content for a frame, but not a reason to open one.
-    expect(planPreview(spec).empty).toBe(false);
-    expect(planPreview(spec).drawsSomething).toBe(false);
-    expect(shouldAutoPreview(spec)).toBe(false);
-  });
-
-  it("leaves shell-illustrated types out of the state line", () => {
-    // text/compare/multiselect are drawn by the shell's own inputs. Echoing
-    // them in the frame says the same thing twice, and worse.
-    const spec = build([
-      { id: "notes", label: "Notes", type: "text", default: "" },
-      { id: "tint", label: "Tint", type: "color", default: "#000000" },
-    ]);
-    expect(planPreview(spec).others).toHaveLength(0);
-  });
-
-  it("lets the easing select claim the duration and delay controls", () => {
-    const spec = build([
-      easing(),
-      slider({ id: "duration", label: "Duration", unit: "ms" }),
-      slider({ id: "delay", label: "Delay", unit: "ms" }),
-    ]);
-    const plan = planPreview(spec);
-    expect(plan.motion).toHaveLength(3);
-    expect(plan.durationCtl?.id).toBe("duration");
-    expect(plan.delayCtl?.id).toBe("delay");
-    // Claimed controls must leave the ruler: the replay IS the duration's
-    // visualization, and a bar for the same number says less, twice.
-    expect(plan.sizes).toHaveLength(0);
-    expect(plan.others).toHaveLength(0);
-  });
-
   it("honours an agent declining the generated preview, which the plan cannot see", () => {
     // `preview.auto` is the one input to the gate that is NOT a property of the
-    // controls, so this is the one legitimate disagreement.
+    // controls, so this is the one legitimate divergence.
     const spec = build([slider({ id: "gap", label: "Gap", unit: "px" })], { preview: { auto: false } });
     expect(shouldAutoPreview(spec)).toBe(false);
     expect(planPreview(spec).drawsSomething).toBe(true);
+  });
+});
+
+/**
+ * One easing select used to claim the widget's only motion panel, and every
+ * other one fell through to the state line — so a widget tuning both an enter
+ * and an exit transition could show you exactly one of them, which is precisely
+ * the comparison it existed to support.
+ */
+describe("motion groups", () => {
+  const trio = (prefix: string) => [
+    easing({ id: `${prefix}_easing`, label: `${prefix} easing` }),
+    slider({ id: `${prefix}_duration`, label: `${prefix} duration`, unit: "ms" }),
+    slider({ id: `${prefix}_delay`, label: `${prefix} delay`, unit: "ms" }),
+  ];
+
+  it("gives each easing select its own panel", () => {
+    const spec = build([...trio("enter"), ...trio("exit")]);
+    expect(viewsOf(spec)).toEqual(["motion", "motion"]);
+  });
+
+  it("claims a duration and delay per group, so neither is drawn twice", () => {
+    const spec = build([...trio("enter"), ...trio("exit")]);
+    const [first, second] = planPreview(spec).panels;
+    expect(first?.controls.map((c) => c.id)).toEqual(["enter_easing", "enter_duration", "enter_delay"]);
+    expect(second?.controls.map((c) => c.id)).toEqual(["exit_easing", "exit_duration", "exit_delay"]);
+    // A claimed duration must not also appear in the ruler.
+    expect(viewsOf(spec)).not.toContain("ruler");
+  });
+
+  it("leaves an unclaimed duration to the ruler, since nothing is replaying it", () => {
+    const spec = build([slider({ id: "timeout", label: "Timeout", unit: "ms" })]);
+    expect(viewsOf(spec)).toEqual(["ruler"]);
   });
 });

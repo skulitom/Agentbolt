@@ -2,6 +2,7 @@ import { behaviourFor, contentBehaviourFor, type Control, type InterfaceSpec } f
 // The vocabulary the preview frame reads too, so both origins answer "is this
 // spatial / a duration / an easing picker" the same way. See vocab.js.
 import { isEasingSelect } from "./vocab.js";
+import { planPreview } from "./preview-plan.js";
 
 export { isEasingSelect };
 
@@ -58,7 +59,11 @@ export function shouldAutoPreview(spec: InterfaceSpec): boolean {
   // An agent can decline a generated preview outright. Without this the only
   // way to suppress one was to delete `unit`, which the skill rightly forbids.
   if (spec.preview?.auto === false) return false;
-  return spec.controls.some(isPreviewSubject);
+  // Asks the PLAN, rather than answering separately and hoping the two agree.
+  // They did not, once: a "type_scale" control landed in the frame's font
+  // bucket while this said there was nothing to show, so the frame never
+  // opened. Same function now, so that is no longer a thing that can happen.
+  return planPreview(spec).drawsSomething;
 }
 
 /**

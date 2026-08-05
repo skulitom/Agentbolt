@@ -25,15 +25,11 @@ import { spring, tween, resolveEasing, prefersReducedMotion, durations } from ".
 // picker", shared byte-for-byte with the shell via packages/shared/src/vocab.js.
 // Same-origin relative import: this file and vocab.js are both served from
 // /agentui on the preview origin, so it resolves without a bundler.
-import {
-  DELAY_HINT,
-  SELF_SHOWN,
-  isDurationish,
-  isEasingSelect,
-  isFontish,
-  isSizeish,
-  roundForDisplay,
-} from "./vocab.js";
+import { isFontish, roundForDisplay } from "./vocab.js";
+// The plan — which views, in what order, over which controls — is computed in
+// shared and imported here, so the shell's "does a frame open" and this file's
+// "what goes in it" are literally the same answer. See preview-plan.js.
+import { PREVIEW_VIEWS, motionRoles, planPreview } from "./preview-plan.js";
 
 /** Motion utilities ride along, so `import { spring } from "agentui"` works too. */
 export * from "./motion.js";
@@ -515,171 +511,119 @@ export function easingCurve({ title = "Motion" } = {}) {
 /* ------------------------------------------------------------ autoPreview */
 
 /**
- * Sorts a spec's controls into the buckets the generated preview draws.
+ * A compact "everything else" line, for controls no view can draw.
  *
- * Split out of `autoPreview` and exported because this is the only part of the
- * generated preview with a *correctness* question — the rest is DOM. The shell
- * decides whether a preview frame exists at all (`shouldAutoPreview`), this
- * decides what goes inside it, and if the two disagree you get a pane whose
- * entire content is "Nothing here has a visual effect to preview." Nothing in
- * here touches the DOM, so a test can import it under node and check the two
- * answers agree; the regex-scraping test that used to guard this could only
- * compare the hint patterns, not the decision they feed.
- *
- * The rule, from how these widgets are actually used: anything with a MAGNITUDE
- * earns a visual — a colour, a length, a duration. Toggles and selects are
- * self-describing and get a compact state line instead of being forced into a
- * picture that would say nothing.
+ * Deliberately a view like any other, so it goes through the same panel
+ * machinery — and so `PREVIEW_VIEWS.state.draws === false` is the only place
+ * that knows a state line is not a reason to open a frame.
  */
-export function planPreview(spec) {
-  const controls = spec?.controls ?? [];
-
-  // Motion trio: an easing select claims the first duration and the first
-  // delay control it can find. Claimed controls leave the ruler and state
-  // buckets — the replay IS the duration's visualization, and a bar for the
-  // same number would say less, twice. Additional easing selects fall through
-  // to the state line (one curve per widget for now).
-  const easingSelect = controls.find(isEasingSelect);
-  const durationCtl = easingSelect
-    ? controls.find((c) => isDurationish(c) && !DELAY_HINT.test(`${c.id} ${c.label}`))
-    : undefined;
-  const delayCtl = easingSelect
-    ? controls.find((c) => isDurationish(c) && DELAY_HINT.test(`${c.id} ${c.label}`))
-    : undefined;
-  const motion = [easingSelect, durationCtl, delayCtl].filter(Boolean);
-
-  const colours = controls.filter((c) => c.type === "color");
-  const fonts = controls.filter((c) => !motion.includes(c) && isFontish(c));
-  const sizes = controls.filter((c) => !motion.includes(c) && !fonts.includes(c) && isSizeish(c));
-  // `text`, `compare` and `multiselect` are left out of the state line for one
-  // reason: they are already illustrated in the SHELL, by the input itself, the
-  // matrix, or the running total. Echoing them here says the same thing twice
-  // and says it worse — an array flattened to "a.ts,b.ts" is not a summary.
-  const selfShown = new Set(SELF_SHOWN);
-  const others = controls.filter(
-    (c) =>
-      !colours.includes(c) && !fonts.includes(c) && !sizes.includes(c) && !motion.includes(c) && !selfShown.has(c.type),
-  );
-
-  const accent = colours[0];
-  const radius = sizes.find((c) => /radius/i.test(`${c.id} ${c.label}`));
-
+export function stateLine({ title = "Settings" } = {}) {
+  let out;
   return {
-    easingSelect,
-    durationCtl,
-    delayCtl,
-    motion,
-    colours,
-    fonts,
-    sizes,
-    others,
-    accent,
-    radius,
-    showCard: Boolean(accent || radius || fonts.length),
-    /**
-     * Is there anything here the helper can actually DRAW?
-     *
-     * `others` deliberately does not count. It renders as a line of text —
-     * real content for a frame that exists for another reason, never a reason
-     * to open one. A pane containing only "Retries: 3" is the failure this
-     * whole tool is against. This is the value `shouldAutoPreview` must match.
-     */
-    drawsSomething: Boolean(easingSelect) || colours.length > 0 || sizes.length > 0 || fonts.length > 0,
-    /** True when the frame would show its "nothing to preview" notice. */
-    empty: !easingSelect && !colours.length && !sizes.length && !fonts.length && !others.length,
+    mount(container) {
+      ensureStyles(container);
+      const root = el("div", { class: "aui-section" }, el("div", { class: "aui-label" }, title), el("div", { class: "aui-mono" }));
+      out = root.lastChild;
+      container.append(root);
+    },
+    update(entries) {
+      out.textContent = entries.map((e) => `${e.label}: ${round(e.value)}`).join("   ");
+    },
   };
 }
 
+/* ------------------------------------------------------- view registry */
+
+/** The standard payload: one entry per control, with its declared range. */
+const entriesFor = (panel, values) =>
+  panel.controls.map((c) => ({
+    label: c.label,
+    // min/max travel with the value: without the declared range the ruler has
+    // nothing honest to scale against.
+    value: values[c.id] ?? c.default,
+    unit: c.unit,
+    min: c.min,
+    max: c.max,
+  }));
+
 /**
- * Picks a preview for a spec that did not bring its own.
+ * How each view in PREVIEW_VIEWS is built and fed.
+ *
+ * The vocabulary lives in shared (preview-plan.js) because the SHELL has to
+ * reason about it too; the DOM lives here because only the frame has a DOM.
+ * Same split as CONTROLS vs CONTROL_INPUTS, and for the same reason.
+ *
+ * A name in PREVIEW_VIEWS with no entry here is a bug that opens an empty
+ * frame, so preview-agreement.test.ts asserts the two key sets match.
+ */
+export const VIEW_IMPLS = {
+  motion: {
+    create: (panel) => easingCurve({ title: panel.title }),
+    payload: (panel, values) => {
+      const { easing, duration, delay } = motionRoles(panel.controls);
+      const num = (c) => Number(values[c.id] ?? c.default);
+      // Seconds are a legitimate unit for a duration; the curve replays in ms.
+      const toMs = (c) => (c.unit === "s" ? num(c) * 1000 : num(c));
+      return {
+        easing: easing ? String(values[easing.id] ?? easing.default) : "ease-out",
+        duration: duration ? toMs(duration) : 300,
+        delay: delay ? toMs(delay) : 0,
+      };
+    },
+  },
+  swatch: { create: (panel) => swatchGrid({ title: panel.title }), payload: entriesFor },
+  ruler: { create: (panel) => ruler({ title: panel.title }), payload: entriesFor },
+  type: { create: (panel) => typeScale({ title: panel.title }), payload: entriesFor },
+  card: {
+    create: (panel, spec) => card({ title: panel.title, heading: spec?.title ?? "A widget" }),
+    payload: (panel, values) => {
+      const at = (pred) => panel.controls.find(pred);
+      const accent = at((c) => c.type === "color");
+      const radius = at((c) => /radius/i.test(`${c.id} ${c.label}`));
+      const font = at((c) => isFontish(c));
+      const num = (c) => Number(values[c.id] ?? c.default);
+      return {
+        accent: accent ? values[accent.id] ?? accent.default : undefined,
+        radius: radius ? num(radius) : undefined,
+        fontSize: font ? num(font) : undefined,
+      };
+    },
+  },
+  state: { create: (panel) => stateLine({ title: panel.title }), payload: entriesFor },
+};
+
+/**
+ * Builds a preview from a plan.
+ *
+ * Every panel is built the same way, so "two motion groups" and "a declared
+ * arrangement" are not special cases — they are just different plans. This used
+ * to be a fixed sequence of named buckets, which is why there could only ever
+ * be one motion curve per widget.
  */
 export function autoPreview(spec) {
-  const { easingSelect, durationCtl, delayCtl, colours, fonts, sizes, others, accent, radius, showCard } =
-    planPreview(spec);
-
-  const parts = [];
-  if (colours.length) parts.push({ kind: "colours", controls: colours, view: swatchGrid({ title: "Colours" }) });
-  if (sizes.length) parts.push({ kind: "sizes", controls: sizes, view: ruler({ title: "Sizes" }) });
-  if (fonts.length) parts.push({ kind: "fonts", controls: fonts, view: typeScale({ title: "Type" }) });
-
-  let motionView;
-  let cardView;
-  let stateLine;
+  const { panels } = planPreview(spec);
+  const built = panels
+    .map((panel) => ({ panel, impl: VIEW_IMPLS[panel.view] }))
+    // A panel whose view has no implementation is dropped rather than thrown:
+    // a spec authored against a newer build should degrade, not blank the pane.
+    .filter((entry) => entry.impl)
+    .map((entry) => ({ ...entry, view: entry.impl.create(entry.panel, spec) }));
 
   return {
     setup({ container }) {
       ensureStyles(container);
       const wrap = el("div", { class: "aui" });
       container.append(wrap);
-
-      // Motion first: when a widget has an easing picker, the feel of the
-      // motion is what the widget is ABOUT, so it leads.
-      if (easingSelect) {
-        motionView = easingCurve({ title: "Motion" });
-        motionView.mount(wrap);
-      }
-
-      for (const part of parts) part.view.mount(wrap);
-
-      if (showCard) {
-        cardView = card({ title: "Sample card", heading: spec?.title ?? "A widget" });
-        cardView.mount(wrap);
-      }
-
-      if (others.length) {
-        stateLine = el("div", { class: "aui-section" }, el("div", { class: "aui-label" }, "Settings"), el("div", { class: "aui-mono" }));
-        wrap.append(stateLine);
-      }
-
-      if (!motionView && !parts.length && !showCard && !others.length) {
+      for (const { view } of built) view.mount(wrap);
+      if (!built.length) {
         wrap.append(el("div", { class: "aui-muted" }, "Nothing here has a visual effect to preview."));
       }
     },
 
     update(values, meta) {
-      if (motionView) {
-        const num = (c) => Number(values[c.id] ?? c.default);
-        const toMs = (c) => (c.unit === "s" ? num(c) * 1000 : num(c));
-        motionView.update(
-          {
-            easing: String(values[easingSelect.id] ?? easingSelect.default),
-            duration: durationCtl ? toMs(durationCtl) : 300,
-            delay: delayCtl ? toMs(delayCtl) : 0,
-          },
-          meta,
-        );
-      }
-      for (const part of parts) {
-        part.view.update(
-          // min/max travel with the value: without the declared range the ruler
-          // has nothing honest to scale against.
-          part.controls.map((c) => ({
-            label: c.label,
-            value: values[c.id] ?? c.default,
-            unit: c.unit,
-            min: c.min,
-            max: c.max,
-          })),
-          meta,
-        );
-      }
-      if (cardView) {
-        cardView.update(
-          {
-            accent: accent ? values[accent.id] ?? accent.default : undefined,
-            radius: radius ? Number(values[radius.id] ?? radius.default) : undefined,
-            fontSize: fonts[0] ? Number(values[fonts[0].id] ?? fonts[0].default) : undefined,
-          },
-          meta,
-        );
-      }
-      if (stateLine) {
-        stateLine.lastChild.textContent = others
-          .map((c) => `${c.label}: ${round(values[c.id] ?? c.default)}`)
-          .join("   ");
-      }
+      for (const { panel, impl, view } of built) view.update(impl.payload(panel, values), meta);
     },
   };
 }
 
-export default { swatchGrid, ruler, typeScale, card, easingCurve, autoPreview };
+export default { swatchGrid, ruler, typeScale, card, easingCurve, stateLine, autoPreview };

@@ -13,3 +13,4 @@ export * from "./sample.js";
 export * from "./library.js";
 // Plain JS, shared byte-for-byte with the preview origin. See vocab.js.
 export * from "./vocab.js";
+export * from "./preview-plan.js";
