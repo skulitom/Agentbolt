@@ -65,8 +65,12 @@ export function SessionView() {
   // With a preview, side-by-side beats stacking: a wide single column wastes
   // half the screen and pushes the controls below the fold. Narrow viewports
   // fall back to stacked via the media query.
+  //
+  // No `?? "right"` fallback: the schema's default is "right", so an omitted
+  // `preview` and an explicit one now agree. They did not when the field lived
+  // on `layout`, which defaulted to "top".
   const showPreview = hasPreview && Boolean(sessionId) && Boolean(previewOrigin);
-  const split = showPreview && (spec.layout?.previewPosition ?? "right") === "right";
+  const split = showPreview && spec.preview?.position !== "top";
 
   return (
     <div className="session" data-split={split}>

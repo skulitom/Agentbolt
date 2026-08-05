@@ -242,8 +242,6 @@ export const ContentBlock = z.discriminatedUnion("kind", [
     alt: z.string().optional(),
     caption: z.string().optional(),
   }),
-  /** Untrusted: rendered inside the same sandboxed frame as preview modules. */
-  z.strictObject({ kind: z.literal("html"), value: z.string(), height: z.number().int().positive().optional() }),
 ]);
 
 export type ContentBlock = z.infer<typeof ContentBlock>;
@@ -276,6 +274,21 @@ export const PreviewOptions = z.strictObject({
    * presentation.
    */
   auto: z.boolean().default(true),
+  /**
+   * Where the frame sits relative to the controls.
+   *
+   * "right" is the default because a preview you cannot see while dragging is
+   * not a preview: a wide single column wastes half the screen and pushes the
+   * controls below the fold. Narrow viewports fall back to stacked via CSS
+   * regardless. "top" is for a preview that is the point and the controls are
+   * an afterthought.
+   *
+   * This lives on `preview` rather than in a `layout` object of its own —
+   * there is exactly one layout decision in the whole spec, and its previous
+   * home defaulted to "top" while the renderer defaulted to "right", so
+   * declaring any unrelated layout field silently moved the frame.
+   */
+  position: z.enum(["top", "right"]).default("right"),
 });
 
 export const InterfaceSpec = z
@@ -295,12 +308,6 @@ export const InterfaceSpec = z
       })
       .default({ enabled: true }),
     preview: PreviewOptions.optional(),
-    layout: z
-      .strictObject({
-        columns: z.union([z.literal(1), z.literal(2)]).default(1),
-        previewPosition: z.enum(["top", "right"]).default("top"),
-      })
-      .optional(),
   })
   .superRefine((spec, ctx) => {
     if (spec.controls.length === 0 && spec.actions.length === 0 && spec.content.length === 0) {

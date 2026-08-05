@@ -4,6 +4,7 @@ import {
   defaultsFromSpec,
   normalizeValues,
   nowIso,
+  parseSpec,
   shouldAutoPreview,
   AUTO_PREVIEW_MODULE,
   SessionComment,
@@ -331,8 +332,23 @@ export class Session {
   /** Restores a session from disk after an MCP restart. */
   static async hydrate(dir: string, sessionId: string): Promise<Session | undefined> {
     const state = await readJson<SessionState>(path.join(dir, "state.json"));
-    const spec = await readJson<InterfaceSpec>(path.join(dir, "spec.json"));
-    if (!state || !spec) return undefined;
+    const raw = await readJson<unknown>(path.join(dir, "spec.json"));
+    if (!state || !raw) return undefined;
+
+    // PARSED, not cast. spec.json was written by an older build of this server,
+    // which may have used vocabulary this one has since dropped — and every
+    // consumer downstream (the renderer's type dispatch, validateValuesAgainstSpec)
+    // assumes it holds a spec this build understands. Skipping one leftover
+    // session is the mild failure; admitting a spec nothing can render is not.
+    const parsed = parseSpec(raw);
+    if (!parsed.ok) {
+      log.warn("skipping session whose spec this build no longer understands", {
+        session: sessionId,
+        error: parsed.message,
+      });
+      return undefined;
+    }
+    const spec = parsed.spec;
 
     const session = new Session({
       sessionId,

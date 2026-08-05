@@ -3,8 +3,6 @@
  * (asset extraction, thumbnails) and the UI (rendering) need the same view of
  * what a block contains.
  */
-import type { ContentBlock } from "./spec.js";
-
 export interface DiffLine {
   kind: "add" | "del" | "context" | "meta" | "hunk";
   text: string;
@@ -75,11 +73,6 @@ export function diffStats(lines: DiffLine[]): { added: number; removed: number }
     else if (line.kind === "del") removed++;
   }
   return { added, removed };
-}
-
-/** Blocks whose content must be rendered inside the sandbox rather than inline. */
-export function isUntrustedBlock(block: ContentBlock): boolean {
-  return block.kind === "html";
 }
 
 const DATA_URI = /^data:image\/(png|jpeg|jpg|gif|webp|svg\+xml);base64,[a-z0-9+/=]+$/i;

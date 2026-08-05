@@ -106,3 +106,65 @@ describe("restart", () => {
     expect(notifies).toBe(1);
   });
 });
+
+/**
+ * spec.json is written by whichever build created the session, and is read back
+ * by whichever build restarts. When the vocabulary shrinks — `html` blocks and
+ * `layout` both went away — a leftover session on disk holds a spec this build
+ * cannot render. It used to be cast straight through, so it hydrated fine and
+ * then produced a control the renderer had no arm for.
+ */
+describe("hydrating a spec written by an older build", () => {
+  async function writeSessionOnDisk(id: string, spec: unknown): Promise<void> {
+    const dir = path.join(dataDir, "sessions", id);
+    await fsp.mkdir(dir, { recursive: true });
+    await fsp.writeFile(path.join(dir, "spec.json"), JSON.stringify(spec), "utf8");
+    await fsp.writeFile(
+      path.join(dir, "state.json"),
+      JSON.stringify({
+        status: "active",
+        revision: 1,
+        values: {},
+        touched: [],
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString(),
+        lastEventSeq: 0,
+      }),
+      "utf8",
+    );
+  }
+
+  it("skips a session whose spec no longer parses, instead of admitting it", async () => {
+    await writeSessionOnDisk("stale-html", {
+      schemaVersion: 1,
+      title: "Written by an older build",
+      content: [{ kind: "html", value: "<b>gone</b>" }],
+      controls: [],
+      actions: [],
+    });
+
+    const manager = new SessionManager();
+    await manager.hydrate();
+    expect(manager.get("stale-html")).toBeUndefined();
+  });
+
+  it("skips one unparseable session without taking the readable ones with it", async () => {
+    const live = new SessionManager();
+    const good = await live.create({ spec });
+    await settle();
+    await writeSessionOnDisk("stale-layout", {
+      schemaVersion: 1,
+      title: "Also older",
+      content: [{ kind: "markdown", value: "x" }],
+      controls: [],
+      actions: [],
+      layout: { columns: 2, previewPosition: "top" },
+    });
+
+    const manager = new SessionManager();
+    const restored = await manager.hydrate();
+    expect(manager.get("stale-layout")).toBeUndefined();
+    expect(manager.get(good.id)).toBeDefined();
+    expect(restored).toBe(1);
+  });
+});

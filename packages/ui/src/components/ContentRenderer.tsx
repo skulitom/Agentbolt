@@ -45,9 +45,6 @@ function Block({ block }: { block: ContentBlock }) {
       return <ImageBlock block={block} />;
     case "sample":
       return <Sample block={block} />;
-    case "html":
-      // Untrusted: rendered in the sandboxed frame (wired in P4), never inline.
-      return <div className="notice">HTML content renders in the preview frame.</div>;
   }
 }
 

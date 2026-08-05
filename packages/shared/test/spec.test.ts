@@ -487,3 +487,44 @@ describe("validateValuesAgainstSpec", () => {
     expect(normalized["tint"]).toBe("#ff0000");
   });
 });
+
+/**
+ * Three fields that parsed but did nothing.
+ *
+ * `html` blocks validated and then rendered a fixed notice string; `layout.columns`
+ * was read by no one; and `layout.previewPosition` defaulted to "top" while the
+ * only consumer defaulted to "right", so declaring `columns` — the field that did
+ * nothing — silently moved the preview frame. Rejecting them by name is what
+ * turns a silent lie into an error an agent can act on.
+ */
+describe("vocabulary that never worked is now rejected, not silently accepted", () => {
+  it("rejects an html content block and names the kinds that do exist", () => {
+    const message = err({
+      title: "T",
+      content: [{ kind: "html", value: "<b>hi</b>" }],
+    });
+    expect(message).toMatch(/markdown/);
+    expect(message).toMatch(/content/);
+  });
+
+  it("rejects `layout` as an unknown key rather than absorbing it", () => {
+    expect(err({ title: "T", content: [{ kind: "markdown", value: "x" }], layout: { columns: 2 } })).toMatch(
+      /layout/,
+    );
+  });
+
+  it("defaults the preview to the right-hand split, matching what the renderer draws", () => {
+    const spec = ok({ title: "T", content: [{ kind: "markdown", value: "x" }], preview: {} });
+    expect(spec.preview?.position).toBe("right");
+  });
+
+  it("still accepts an explicit stacked preview", () => {
+    const spec = ok({ title: "T", content: [{ kind: "markdown", value: "x" }], preview: { position: "top" } });
+    expect(spec.preview?.position).toBe("top");
+  });
+
+  it("leaves preview undefined when it was never mentioned, so the renderer picks the default", () => {
+    const spec = ok({ title: "T", content: [{ kind: "markdown", value: "x" }] });
+    expect(spec.preview).toBeUndefined();
+  });
+});
