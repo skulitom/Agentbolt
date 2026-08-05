@@ -52,6 +52,24 @@ export const PreviewToParent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ready") }),
   z.object({ type: z.literal("preview_event"), name: z.string(), data: z.unknown().optional() }),
   z.object({ type: z.literal("preview_error"), message: z.string(), stack: z.string().optional() }),
+  /**
+   * The preview asking to CHANGE a value — a dragged point, a moved stop.
+   *
+   * This is the frame's only write, and it is deliberately not a separate
+   * pipeline: the parent replays it through the same `setLocalValue`/`commit`
+   * a real input goes through. That is what keeps the invariants true for free
+   * — the change counts as `touched`, it is sourced "user" so nothing animates
+   * under the finger, drag frames stay interim and only the release commits,
+   * and a finished session refuses it like any other input.
+   *
+   * `commit: true` marks the end of a gesture (pointerup). Without it the
+   * change is treated as drag noise, which is exactly what it is.
+   */
+  z.object({
+    type: z.literal("set_values"),
+    values: z.record(z.string(), z.unknown()),
+    commit: z.boolean().optional(),
+  }),
 ]);
 export type PreviewToParent = z.infer<typeof PreviewToParent>;
 
@@ -63,7 +81,13 @@ export const PREVIEW_IMPORTS = ["three", "three/addons/", "agentui", "agentui/mo
  * fields (tick time, viewport…) never break existing two-arg modules.
  */
 export const PREVIEW_MODULE_CONTRACT = `export default {
-  setup({ container, spec, values, emit }) { /* build into container */ },
+  setup({ container, spec, values, emit, setValues }) { /* build into container */ },
   update(values, meta) { /* every change, ~60fps during drags; meta.source is "user" (track 1:1) or "agent" (animate the change) */ },
   dispose() { /* optional cleanup */ },
-};`;
+};
+
+// setValues makes a preview INTERACTIVE — drag a point, move a stop:
+//   setValues({ origin: [x, y] });                 // during a gesture
+//   setValues({ origin: [x, y] }, { commit: true }); // on release
+// It goes through the same path as a real input, so the change is marked as
+// deliberately set by the user and only the committed one wakes the agent.`;

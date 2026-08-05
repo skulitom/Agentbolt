@@ -13,8 +13,19 @@ export interface PreviewView {
   update(payload: unknown, meta?: { source?: "user" | "agent" }): void;
 }
 
+/**
+ * What a view can reach back through. Present only from `setup` onward, which
+ * is why views are created there rather than when the plan is read.
+ */
+export interface ViewContext {
+  /** Interactive views only. Goes through the shell's own input path. */
+  setValues?(values: Record<string, unknown>, options?: { commit?: boolean }): void;
+  /** The latest values, for a view that needs to read before it writes. */
+  values(): Record<string, unknown>;
+}
+
 export interface ViewImpl {
-  create(panel: PreviewPanel, spec: unknown): PreviewView;
+  create(panel: PreviewPanel, spec: unknown, ctx?: ViewContext): PreviewView;
   payload(panel: PreviewPanel, values: Record<string, unknown>): unknown;
 }
 

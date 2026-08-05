@@ -60,6 +60,16 @@ describe("PreviewToParent", () => {
     expect(PreviewToParent.safeParse({ type: "ready-for-init" }).success).toBe(true);
   });
 
+  it("accepts a set_values, which is the frame's only write", () => {
+    expect(PreviewToParent.safeParse({ type: "set_values", values: { origin: [0.2, 0.8] } }).success).toBe(true);
+    expect(PreviewToParent.safeParse({ type: "set_values", values: {}, commit: true }).success).toBe(true);
+  });
+
+  it("requires values on a set_values, so a malformed one cannot clear the widget", () => {
+    expect(PreviewToParent.safeParse({ type: "set_values" }).success).toBe(false);
+    expect(PreviewToParent.safeParse({ type: "set_values", values: [] }).success).toBe(false);
+  });
+
   it("rejects a message shape the frame never sends", () => {
     expect(PreviewToParent.safeParse({ type: "resize", height: 400 }).success).toBe(false);
     expect(PreviewToParent.safeParse({ type: "preview_error" }).success).toBe(false);
@@ -67,6 +77,13 @@ describe("PreviewToParent", () => {
 });
 
 describe("the documented module contract", () => {
+  it("teaches setValues, without which a view cannot be an input", () => {
+    expect(PREVIEW_MODULE_CONTRACT).toContain("setValues");
+    // The commit distinction is the whole discipline: everything before the
+    // release is drag noise, and waking the agent per frame is forbidden.
+    expect(PREVIEW_MODULE_CONTRACT).toContain("commit: true");
+  });
+
   it("teaches the two-arg update", () => {
     expect(PREVIEW_MODULE_CONTRACT).toContain("update(values, meta)");
     expect(PREVIEW_MODULE_CONTRACT).toContain('"user"');

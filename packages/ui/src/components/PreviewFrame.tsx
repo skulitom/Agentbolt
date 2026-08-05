@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { PreviewToParent, type ParentToPreview } from "@agentui/shared";
+import { PreviewToParent, validateValuesAgainstSpec, type ParentToPreview, type Values } from "@agentui/shared";
 import { useSession } from "../store.js";
 
 /**
@@ -15,6 +15,38 @@ import { useSession } from "../store.js";
  */
 function postToPreview(frame: HTMLIFrameElement | null, message: ParentToPreview): void {
   frame?.contentWindow?.postMessage(message, "*");
+}
+
+/**
+ * A value change the PREVIEW asked for — a dragged point, a moved stop.
+ *
+ * Replayed through `setLocalValue`/`commit`, the same path a real input takes,
+ * rather than written into the store directly. That is not tidiness: every
+ * invariant comes from that path. Going around it would produce a value that is
+ * not marked `touched` (so the agent reads a human's decision as an untouched
+ * default), is not sourced "user" (so the preview animates under the finger),
+ * skips the interim throttle (so one drag wakes the agent hundreds of times),
+ * and ignores whether the session is still open.
+ *
+ * Validated first because the frame is hostile by assumption: an agent wrote
+ * what runs in it, and `setLocalValue` will happily store whatever it is given.
+ */
+function applyFromPreview(values: Record<string, unknown>, commit: boolean): void {
+  const { spec, setLocalValue, commit: commitValues } = useSession.getState();
+  if (!spec) return;
+
+  const problems = validateValuesAgainstSpec(spec, values);
+  if (problems.length) {
+    // Dropped whole rather than partially applied: half a gesture is a worse
+    // answer than none, and the frame is the thing with the bug.
+    console.warn("preview sent values this widget cannot accept", problems);
+    return;
+  }
+
+  for (const [id, value] of Object.entries(values)) setLocalValue(id, value as Values[string]);
+  // Only the end of a gesture wakes the agent. Everything in between is drag
+  // noise and rides the interim throttle, exactly like a slider.
+  if (commit) commitValues();
 }
 
 /**
@@ -76,6 +108,8 @@ export function PreviewFrame({ sessionId, previewOrigin }: { sessionId: string; 
         transport?.send({ type: "preview_error", message: message.message, stack: message.stack });
       } else if (message.type === "preview_event") {
         transport?.send({ type: "preview_event", name: message.name, data: message.data });
+      } else if (message.type === "set_values") {
+        applyFromPreview(message.values, message.commit === true);
       } else if (message.type === "ready") {
         setPreviewError(undefined);
       }

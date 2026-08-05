@@ -97,6 +97,18 @@
             spec,
             values: lastValues,
             emit: (name, data) => post({ type: "preview_event", name, data }),
+            // Makes a preview interactive. Applied LOCALLY as well as posted,
+            // so a dragged point tracks the finger at pointer rate instead of
+            // waiting for the value to round-trip through the parent and come
+            // back — the same reason the shell writes local state first.
+            setValues: (values, options) => {
+              if (!values || typeof values !== "object") return;
+              lastValues = { ...lastValues, ...values };
+              lastSource = "user";
+              batchHadUser = true;
+              post({ type: "set_values", values, commit: options?.commit === true });
+              scheduleUpdate();
+            },
           });
           // First paint is "user": it must apply instantly, never animate in.
           if (typeof mod.update === "function") mod.update(lastValues, { source: "user" });

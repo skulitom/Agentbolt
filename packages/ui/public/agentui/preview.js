@@ -342,11 +342,11 @@ export function typeScale({ title = "Type", sample = "The quick brown fox jumps 
  * cannot honestly show three axes at once and a fake perspective would imply
  * precision that is not there.
  */
-export function pad({ title = "Position" } = {}) {
+export function pad({ title = "Position", onDrag } = {}) {
   let root;
   const rows = new Map();
 
-  const createRow = ({ label }) => {
+  const createRow = ({ label, id }) => {
     const dot = el("div", {
       style: {
         position: "absolute", width: "11px", height: "11px", borderRadius: "50%",
@@ -368,6 +368,38 @@ export function pad({ title = "Position" } = {}) {
       },
       dot,
     );
+
+    // Interactive only when the host wired it up. A field that swallowed
+    // pointer events without changing anything would read as broken.
+    if (onDrag) {
+      field.style.cursor = "crosshair";
+      field.style.touchAction = "none";
+      const at = (event) => {
+        const rect = field.getBoundingClientRect();
+        return {
+          x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
+          // Screen y grows downward; a position control does not.
+          y: Math.max(0, Math.min(1, 1 - (event.clientY - rect.top) / rect.height)),
+        };
+      };
+      field.addEventListener("pointerdown", (event) => {
+        field.setPointerCapture(event.pointerId);
+        onDrag(id, at(event), false);
+      });
+      field.addEventListener("pointermove", (event) => {
+        if (field.hasPointerCapture(event.pointerId)) onDrag(id, at(event), false);
+      });
+      // The release is the COMMIT. Everything before it is drag noise, and
+      // waking the agent once per frame is the one thing this must never do.
+      const finish = (event) => {
+        if (!field.hasPointerCapture(event.pointerId)) return;
+        field.releasePointerCapture(event.pointerId);
+        onDrag(id, at(event), true);
+      };
+      field.addEventListener("pointerup", finish);
+      field.addEventListener("pointercancel", finish);
+    }
+
     const readout = el("div", { class: "aui-mono" });
     const depthFill = el("div", {
       style: { height: "100%", width: "0%", background: "light-dark(#1c1c1a, #ececee)", borderRadius: "3px" },
@@ -750,6 +782,24 @@ export function stateLine({ title = "Settings" } = {}) {
 
 /* ------------------------------------------------------- view registry */
 
+/**
+ * Snaps a dragged value the way a slider would.
+ *
+ * Without this a drag produces 0.7767857142857143, because a pixel position
+ * divided by a pixel width is an arbitrary float. A slider never does that: it
+ * has a `step`. So the pad honours `step` when one is declared, and otherwise
+ * uses the field's own resolution — about a hundred distinct positions across
+ * 112px — because claiming more precision than the input has is exactly the
+ * kind of false authority this tool exists to avoid.
+ */
+function quantize(value, step, min, max) {
+  const grain = Number.isFinite(step) && step > 0 ? step : (max - min) / 100 || 1;
+  const snapped = Math.round((value - min) / grain) * grain + min;
+  // Float artefacts survive the snap (78 * 0.01 is 0.78000000000000003), so
+  // clean them the same way every other readout does.
+  return Number.parseFloat(Math.min(max, Math.max(min, snapped)).toPrecision(12));
+}
+
 /** The standard payload: one entry per control, with its declared range. */
 const entriesFor = (panel, values) =>
   panel.controls.map((c) => ({
@@ -792,7 +842,30 @@ export const VIEW_IMPLS = {
   },
   swatch: { create: (panel) => swatchGrid({ title: panel.title }), payload: entriesFor },
   gradient: { create: (panel) => gradient({ title: panel.title }), payload: entriesFor },
-  pad: { create: (panel) => pad({ title: panel.title }), payload: entriesFor },
+  pad: {
+    // The one view that is also an INPUT. `ctx.setValues` is threaded in from
+    // the frame, so a dragged point goes back through the same path a slider
+    // does rather than becoming a second way to change a value.
+    create: (panel, spec, ctx) =>
+      pad({
+        title: panel.title,
+        onDrag: ctx?.setValues
+          ? (id, point, commit) => {
+              const control = panel.controls.find((c) => c.id === id);
+              if (!control) return;
+              const min = Number.isFinite(control.min) ? control.min : 0;
+              const max = Number.isFinite(control.max) ? control.max : 1;
+              const to = (f) => quantize(min + f * (max - min), control.step, min, max);
+              const current = ctx.values()[id] ?? control.default;
+              const next = Array.isArray(current) ? [...current] : [];
+              next[0] = to(point.x);
+              next[1] = to(point.y);
+              ctx.setValues({ [id]: next }, { commit });
+            }
+          : undefined,
+      }),
+    payload: entriesFor,
+  },
   box: { create: (panel) => box({ title: panel.title }), payload: entriesFor },
   shadow: { create: (panel) => shadow({ title: panel.title }), payload: entriesFor },
   ruler: { create: (panel) => ruler({ title: panel.title }), payload: entriesFor },
@@ -829,22 +902,31 @@ export function autoPreview(spec) {
     .map((panel) => ({ panel, impl: VIEW_IMPLS[panel.view] }))
     // A panel whose view has no implementation is dropped rather than thrown:
     // a spec authored against a newer build should degrade, not blank the pane.
-    .filter((entry) => entry.impl)
-    .map((entry) => ({ ...entry, view: entry.impl.create(entry.panel, spec) }));
+    .filter((entry) => entry.impl);
+
+  // Views are created at setup, not here, because an interactive one needs the
+  // frame's `setValues` and the latest values — neither of which exists yet.
+  let live = [];
+  let latest = {};
 
   return {
-    setup({ container }) {
+    setup({ container, setValues }) {
       ensureStyles(container);
       const wrap = el("div", { class: "aui" });
       container.append(wrap);
-      for (const { view } of built) view.mount(wrap);
-      if (!built.length) {
+
+      const ctx = { setValues, values: () => latest };
+      live = built.map((entry) => ({ ...entry, view: entry.impl.create(entry.panel, spec, ctx) }));
+      for (const { view } of live) view.mount(wrap);
+
+      if (!live.length) {
         wrap.append(el("div", { class: "aui-muted" }, "Nothing here has a visual effect to preview."));
       }
     },
 
     update(values, meta) {
-      for (const { panel, impl, view } of built) view.update(impl.payload(panel, values), meta);
+      latest = values;
+      for (const { panel, impl, view } of live) view.update(impl.payload(panel, values), meta);
     },
   };
 }
