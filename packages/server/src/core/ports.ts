@@ -100,12 +100,23 @@ export function candidateOriginsAllProjects(): string[] {
   return origins;
 }
 
+/**
+ * Resolves false for "this port is taken, try the next one" and REJECTS for
+ * anything else.
+ *
+ * The distinction matters more than it looks. Treating every bind error as
+ * "busy" means a genuine failure — EPERM from a security product, ENOTSUP,
+ * EADDRNOTAVAIL because loopback is misconfigured — is reported only after
+ * scanning all 120 slots, and reported as "could not bind any port in
+ * 4520-4760", which sends you hunting for a port conflict that does not exist.
+ * The errno is the whole diagnosis; it must survive.
+ */
 function tryListen(server: net.Server | import("node:http").Server, port: number): Promise<boolean> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const onError = (error: NodeJS.ErrnoException) => {
       server.removeListener("listening", onListening);
       if (error.code === "EADDRINUSE" || error.code === "EACCES") resolve(false);
-      else resolve(false);
+      else reject(error);
     };
     const onListening = () => {
       server.removeListener("error", onError);
@@ -118,26 +129,12 @@ function tryListen(server: net.Server | import("node:http").Server, port: number
 }
 
 /**
- * Binds to the first available port in the policy's range, on loopback only.
- *
- * Two projects with agents running means two of these processes; each gets its
- * own port, and because every tool result carries the URL, a shifted port
- * self-heals without anyone having to know it changed.
+ * Releases a bound server. `close` reports "not running" as an error, which is
+ * never interesting here — we only ever call this on a server we just bound,
+ * and on the failure paths there is a real error already in flight to report.
  */
-export async function listenOnAvailablePort(server: import("node:http").Server): Promise<number> {
-  const ports = candidatePorts();
-  for (const port of ports) {
-    if (await tryListen(server, port)) {
-      log.info("listening", { url: `http://${HOST}:${port}` });
-      return port;
-    }
-    log.debug("port busy, trying next", port);
-  }
-  throw new Error(
-    portPolicy() === "pinned"
-      ? `AgentUI could not bind pinned port ${ports[0]}. Free it or unset AGENT_UI_PORT_POLICY=pinned.`
-      : `AgentUI could not bind any port in ${DEFAULT_PORT}-${PORT_SCAN_END}.`,
-  );
+function closeQuietly(server: import("node:http").Server): Promise<void> {
+  return new Promise((resolve) => server.close(() => resolve()));
 }
 
 /**
@@ -165,13 +162,25 @@ export async function listenOnAvailablePair(
   for (const port of starts) {
     if (port + 1 > 65535) continue;
     if (!(await tryListen(shell, port))) continue;
-    if (await tryListen(preview, port + 1)) {
+
+    // From here P is BOUND, so every exit from this block must release it —
+    // including the throwing one. Without the catch, a hard failure on P+1
+    // (which now rejects rather than reporting "busy") would propagate out
+    // leaving a listener on P that nothing owns and nothing will close.
+    let bound = false;
+    try {
+      bound = await tryListen(preview, port + 1);
+    } catch (error) {
+      await closeQuietly(shell);
+      throw error;
+    }
+    if (bound) {
       log.info("listening", { shell: `http://${HOST}:${port}`, preview: `http://${HOST}:${port + 1}` });
       return { shellPort: port, previewPort: port + 1 };
     }
     // Took P but not P+1: release P and try the next candidate, otherwise we
     // would strand a half-bound server.
-    await new Promise<void>((resolve) => shell.close(() => resolve()));
+    await closeQuietly(shell);
   }
   throw new Error(`AgentUI could not bind an adjacent port pair in ${DEFAULT_PORT}-${PORT_SCAN_END}.`);
 }

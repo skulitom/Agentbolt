@@ -1,5 +1,35 @@
+import { EventEmitter } from "node:events";
+import type { Server } from "node:http";
 import { describe, expect, it } from "vitest";
-import { PORT_BASE, PORT_SLOTS, candidateOriginsAllProjects, derivedPort } from "../src/core/ports.js";
+import { PORT_BASE, PORT_SLOTS, candidateOriginsAllProjects, derivedPort, listenOnAvailablePair } from "../src/core/ports.js";
+
+/**
+ * A server whose bind outcome is scripted per port, so the scan can be driven
+ * through cases that are impossible to arrange for real (EPERM from a security
+ * product, a pair whose second half hard-fails).
+ */
+class FakeServer extends EventEmitter {
+  closed = 0;
+  constructor(private readonly outcome: (port: number) => "ok" | NodeJS.ErrnoException) {
+    super();
+  }
+  listen(port: number, _host: string): void {
+    const result = this.outcome(port);
+    // Async, like the real thing: a synchronous emit would fire before the
+    // caller has attached its listeners.
+    setImmediate(() => (result === "ok" ? this.emit("listening") : this.emit("error", result)));
+  }
+  close(callback: () => void): void {
+    this.closed++;
+    setImmediate(callback);
+  }
+}
+
+function errno(code: string): NodeJS.ErrnoException {
+  return Object.assign(new Error(`bind ${code}`), { code });
+}
+
+const asServer = (fake: FakeServer) => fake as unknown as Server;
 
 /**
  * Ports are derived from the project so the inbox has a permanent address.
@@ -44,5 +74,58 @@ describe("derived ports", () => {
     expect(origins).toContain(`http://127.0.0.1:${PORT_BASE}`);
     expect(origins).toContain(`http://127.0.0.1:${PORT_BASE + 1}`);
     expect(new Set(origins).size).toBe(origins.length);
+  });
+});
+
+/**
+ * "Busy" and "broken" are different answers and must not be collapsed.
+ *
+ * Treating every bind error as busy means a real failure is reported only after
+ * all 120 slots, and reported as "could not bind any port in 4520-4760" — which
+ * sends you looking for a port conflict that does not exist. The errno is the
+ * diagnosis; it has to survive the scan.
+ */
+describe("listenOnAvailablePair error handling", () => {
+  it("surfaces a hard bind error immediately, with its errno", async () => {
+    const shell = new FakeServer(() => errno("EPERM"));
+    const preview = new FakeServer(() => "ok");
+
+    await expect(listenOnAvailablePair(asServer(shell), asServer(preview))).rejects.toThrow(/EPERM/);
+  });
+
+  it("keeps scanning past a busy port and settles on the first free pair", async () => {
+    const first = PORT_BASE;
+    const shell = new FakeServer((port) => (port === first ? errno("EADDRINUSE") : "ok"));
+    const preview = new FakeServer(() => "ok");
+
+    const result = await listenOnAvailablePair(asServer(shell), asServer(preview));
+    expect(result.shellPort).not.toBe(first);
+    expect(result.previewPort).toBe(result.shellPort + 1);
+  });
+
+  it("releases the shell when the preview half is merely busy", async () => {
+    // P binds, P+1 is taken: the pair is unusable, so P must not be left held.
+    let firstPair = true;
+    const shell = new FakeServer(() => "ok");
+    const preview = new FakeServer(() => {
+      if (firstPair) {
+        firstPair = false;
+        return errno("EADDRINUSE");
+      }
+      return "ok";
+    });
+
+    await listenOnAvailablePair(asServer(shell), asServer(preview));
+    expect(shell.closed).toBe(1);
+  });
+
+  it("releases the shell when the preview half hard-fails, instead of stranding it", async () => {
+    // The regression this guards: P is bound, P+1 rejects, and the throw
+    // escapes past the cleanup leaving a listener nothing owns or will close.
+    const shell = new FakeServer(() => "ok");
+    const preview = new FakeServer(() => errno("EPERM"));
+
+    await expect(listenOnAvailablePair(asServer(shell), asServer(preview))).rejects.toThrow(/EPERM/);
+    expect(shell.closed).toBe(1);
   });
 });

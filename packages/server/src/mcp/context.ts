@@ -64,11 +64,6 @@ export class AgentUiContext {
     return web.sessionUrl(sessionId);
   }
 
-  async dashboardUrl(): Promise<string> {
-    const web = await this.web();
-    return web.origin;
-  }
-
   connectedClients(sessionId: string): number {
     return connectedClientCount(sessionId);
   }

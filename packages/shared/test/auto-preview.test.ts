@@ -3,7 +3,6 @@ import {
   EASING_NAME_HINT_SOURCE,
   EASING_OPTION_SOURCE,
   SIZE_HINTS_SOURCE,
-  controlHasVisual,
   controlIsIllustrated,
   isEasingSelect,
   isPreviewSubject,
@@ -167,7 +166,7 @@ describe("groupControls visualFirst", () => {
       { id: "tint", label: "Tint", type: "color", default: "#000000", group: "Colour" },
       { id: "gap", label: "Gap", type: "slider", min: 0, max: 20, default: 4, unit: "px", group: "Layout" },
     ]);
-    const ordered = groupControls(spec, { visualFirst: true, isVisual: controlHasVisual });
+    const ordered = groupControls(spec, { visualFirst: true, isVisual: isPreviewSubject });
     expect(ordered.map((g) => g.group)).toEqual(["Colour", "Layout", "Behaviour"]);
   });
 
@@ -185,7 +184,7 @@ describe("groupControls visualFirst", () => {
       { id: "b_flag", label: "B", type: "toggle", default: false, group: "Second non-visual" },
       { id: "tint", label: "Tint", type: "color", default: "#000000", group: "Visual" },
     ]);
-    const ordered = groupControls(spec, { visualFirst: true, isVisual: controlHasVisual });
+    const ordered = groupControls(spec, { visualFirst: true, isVisual: isPreviewSubject });
     expect(ordered.map((g) => g.group)).toEqual(["Visual", "First non-visual", "Second non-visual"]);
   });
 });

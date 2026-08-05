@@ -94,5 +94,3 @@ export function crossOriginWriteGuard(req: Request, res: Response, next: NextFun
   log.warn("rejected cross-origin write", { origin, method: req.method, path: req.path });
   res.status(403).type("text/plain").send("AgentUI only accepts writes from its own pages.\n");
 }
-
-export const LOOPBACK_HOST = HOST;

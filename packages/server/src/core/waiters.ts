@@ -128,14 +128,6 @@ export class Waiters {
     return undefined;
   }
 
-  /** Releases everything waiting on a session that is going away. */
-  releaseForClosedSession(sessionId: string): void {
-    for (const waiter of [...this.#parked]) {
-      if (waiter.sessionId !== undefined && waiter.sessionId !== sessionId) continue;
-      this.#release(waiter, sessionId, "closed");
-    }
-  }
-
   disposeAll(): void {
     for (const waiter of [...this.#parked]) {
       clearTimeout(waiter.timer);

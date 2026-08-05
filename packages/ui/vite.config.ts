@@ -23,7 +23,10 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       "/api": SERVER,
-      "/p": SERVER,
+      // No "/p": preview modules are served by the PREVIEW origin (shell port
+      // + 1), which the frame reaches directly via `previewOrigin` from
+      // /api/session/:id. Proxying it here would only recreate the shell-origin
+      // copy that was removed for lacking the preview origin's CSP.
       "/vendor": SERVER,
       "/ws": { target: SERVER, ws: true },
     },

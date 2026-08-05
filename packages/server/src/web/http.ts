@@ -242,19 +242,10 @@ export async function startWebServer(
     },
   );
 
-  // Agent-authored preview modules. Never cached: ui_update rewrites them and
-  // the iframe must pick up the new one on reload.
-  app.get("/p/:id.mjs", async (req, res) => {
-    const session = sessions.get(String(req.params["id"]));
-    const module = await session?.previewModule();
-    if (!module) {
-      res.status(404).type("text/plain").send("// no preview module for this session\n");
-      return;
-    }
-    res.setHeader("Content-Type", "text/javascript; charset=utf-8");
-    res.setHeader("Cache-Control", "no-store");
-    res.send(module);
-  });
+  // NOTE: `/p/:id.mjs` is deliberately NOT served here. Preview modules are
+  // agent-authored code and belong to the preview origin only (see preview.ts),
+  // which serves them under `Content-Security-Policy: default-src 'none'`. A
+  // second copy on the shell origin was reachable without that header.
 
   // Built shell: hashed assets and the vendored three.js.
   app.use("/assets", express.static(path.join(root, "assets"), { immutable: true, maxAge: "1y" }));

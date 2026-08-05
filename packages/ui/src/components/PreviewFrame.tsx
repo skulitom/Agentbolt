@@ -1,6 +1,21 @@
 import { useEffect, useRef, useState } from "react";
-import { PreviewToParent } from "@agentui/shared";
+import { PreviewToParent, type ParentToPreview } from "@agentui/shared";
 import { useSession } from "../store.js";
+
+/**
+ * The only way the parent talks to the frame.
+ *
+ * `ParentToPreview` cannot be validated on arrival — the frame has no bundler
+ * and so no zod — which makes this funnel the one place the shape can be
+ * checked at all. Posting an object literal directly would skip it silently.
+ *
+ * targetOrigin is "*" because the frame's origin is discovered at runtime (the
+ * shell's port + 1) and nothing here is a secret: the frame already receives
+ * the full spec and values by design.
+ */
+function postToPreview(frame: HTMLIFrameElement | null, message: ParentToPreview): void {
+  frame?.contentWindow?.postMessage(message, "*");
+}
 
 /**
  * Hosts the agent-authored preview module.
@@ -34,7 +49,7 @@ export function PreviewFrame({ sessionId, previewOrigin }: { sessionId: string; 
   useEffect(() => {
     if (!ready) return;
     const source = useSession.getState().valuesSource;
-    iframeRef.current?.contentWindow?.postMessage({ type: "values", values, source }, "*");
+    postToPreview(iframeRef.current, { type: "values", values, source });
   }, [values, ready]);
 
   useEffect(() => {
@@ -43,17 +58,19 @@ export function PreviewFrame({ sessionId, previewOrigin }: { sessionId: string; 
 
       // Shape-validated rather than origin-trusted: the frame is hostile by
       // assumption, since an agent wrote what runs inside it.
-      if (event.data?.type === "ready-for-init") {
-        iframeRef.current?.contentWindow?.postMessage({ type: "init", sessionId, spec, values }, "*");
-        setReady(true);
-        return;
-      }
-
       const parsed = PreviewToParent.safeParse(event.data);
       if (!parsed.success) return;
       const message = parsed.data;
 
-      if (message.type === "preview_error") {
+      if (message.type === "ready-for-init") {
+        // Genuinely read fresh, which is what the effect's dep list assumes:
+        // the frame asks for init whenever it feels like it, and a drag between
+        // mount and that request would otherwise send it values it has already
+        // been superseded by.
+        const { values: current } = useSession.getState();
+        postToPreview(iframeRef.current, { type: "init", sessionId, spec, values: current });
+        setReady(true);
+      } else if (message.type === "preview_error") {
         setPreviewError({ message: message.message, stack: message.stack });
         // Into the event log too, so the agent sees the stack trace it caused.
         transport?.send({ type: "preview_error", message: message.message, stack: message.stack });
@@ -66,8 +83,6 @@ export function PreviewFrame({ sessionId, previewOrigin }: { sessionId: string; 
 
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-    // `values` is intentionally read fresh inside the handler rather than tracked.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, spec, setPreviewError, transport]);
 
   // A new revision means the module may have been rewritten; remount the frame

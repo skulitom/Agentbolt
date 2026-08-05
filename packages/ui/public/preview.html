@@ -154,12 +154,20 @@
           lastSource = msg.source ?? "user";
           if (lastSource === "user") batchHadUser = true;
           scheduleUpdate();
-        } else if (msg.type === "dispose") {
-          try {
-            mod?.dispose?.();
-          } catch {
-            /* disposal errors are not worth surfacing */
-          }
+        }
+      });
+
+      // The module contract advertises an optional dispose(), so it has to
+      // actually run. There is no "dispose" message to trigger it: the parent
+      // tears this frame down by remounting the iframe (key={revision}), so
+      // pagehide is the only moment that exists. Teardown reclaims the whole JS
+      // context anyway — this is for side effects that outlive it, like a
+      // WebGL context or a rAF loop the module owns.
+      window.addEventListener("pagehide", () => {
+        try {
+          mod?.dispose?.();
+        } catch {
+          /* disposal errors are not worth surfacing — the frame is going away */
         }
       });
 

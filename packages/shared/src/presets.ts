@@ -54,10 +54,13 @@ export const AskInput = z.strictObject({
   fields: z.array(FieldShorthand).optional(),
   /** Something to look at: a diff, an image, markdown, code. */
   content: ContentShorthand.optional(),
-  /** Instantiate a saved widget instead of describing one inline. */
-  template: z.string().optional(),
   title: z.string().optional(),
-  timeoutMs: z.number().int().positive().max(3_600_000).optional(),
+  /**
+   * No `template` and no `timeoutMs` here on purpose. Instantiating a saved
+   * widget is `ui_create`'s job — duplicating it would give two paths to the
+   * same thing — and the timeout belongs to the MCP tool that does the waiting,
+   * which declares its own.
+   */
   /** Whether the free-text comment box is shown. Default true. */
   allowComment: z.boolean().default(true),
   /** `{ auto: false }` declines the generated preview — see PreviewOptions. */
@@ -190,18 +193,12 @@ function inferType(field: z.infer<typeof FieldShorthand>): string {
   return "text";
 }
 
-export interface CompiledAsk {
-  spec: InterfaceSpecInput;
-  /** True when the widget has buttons, i.e. the answer is a choice. */
-  hasChoices: boolean;
-}
-
 /**
  * Compiles ui_ask input into a spec. ui_ask is not a separate code path — this
  * produces the same JSON an agent could have written by hand, so there is
  * exactly one renderer and one event pipeline to reason about.
  */
-export function compileAsk(input: AskInput): CompiledAsk {
+export function compileAsk(input: AskInput): InterfaceSpecInput {
   const content = normalizeContent(input.content);
   const actions = normalizeOptions(input.options);
   const controls = (input.fields ?? []).map(inflateField);
@@ -226,12 +223,12 @@ export function compileAsk(input: AskInput): CompiledAsk {
   };
   if (input.preview) spec.preview = input.preview;
 
-  return { spec, hasChoices: actions.length > 0 };
+  return spec;
 }
 
 /** Validates a compiled ask, surfacing errors in the same format as ui_create. */
 export function compileAskChecked(input: AskInput): { ok: true; spec: InterfaceSpec } | { ok: false; message: string } {
-  const { spec } = compileAsk(input);
+  const spec = compileAsk(input);
   const parsed = InterfaceSpec.safeParse(spec);
   if (parsed.success) return { ok: true, spec: parsed.data };
   return { ok: false, message: formatSpecError(parsed.error) };

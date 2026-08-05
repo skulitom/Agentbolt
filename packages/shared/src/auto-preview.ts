@@ -108,9 +108,6 @@ export function controlIsIllustrated(spec: InterfaceSpec, control: InterfaceSpec
   });
 }
 
-/** Retained name, so existing callers and tests keep working. */
-export const controlHasVisual = isPreviewSubject;
-
 export function shouldAutoPreview(spec: InterfaceSpec): boolean {
   // An agent can decline a generated preview outright. Without this the only
   // way to suppress one was to delete `unit`, which the skill rightly forbids.
