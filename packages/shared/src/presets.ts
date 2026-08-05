@@ -41,7 +41,7 @@ export const FieldShorthand = z.looseObject({
   options: z.array(z.union([z.string(), z.looseObject({ value: z.string(), label: z.string().optional() })])).optional(),
 });
 
-const OptionShorthand = z.union([
+export const OptionShorthand = z.union([
   z.string(),
   z.strictObject({
     id: z.string().optional(),
@@ -50,7 +50,7 @@ const OptionShorthand = z.union([
   }),
 ]);
 
-const ContentShorthand = z.union([z.string(), ContentBlock, z.array(z.union([z.string(), ContentBlock]))]);
+export const ContentShorthand = z.union([z.string(), ContentBlock, z.array(z.union([z.string(), ContentBlock]))]);
 
 export const AskInput = z.strictObject({
   question: z.string().min(1),

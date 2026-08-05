@@ -4,7 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { log, protectStdout } from "./log.js";
 import { adoptProjectRoot, dataDir, projectName } from "./core/paths.js";
 import { AgentUiContext } from "./mcp/context.js";
-import { registerTools } from "./mcp/tools.js";
+import { registerTools } from "./mcp/tools/index.js";
 
 /**
  * Adopts the client's declared workspace root, if it declares one.

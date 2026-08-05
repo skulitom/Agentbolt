@@ -231,3 +231,82 @@ describe("mcp surface", () => {
     expect(sessions.some((s) => s.sessionId === sessionId)).toBe(false);
   });
 });
+
+/**
+ * What the AGENT sees of the spec, and what it costs.
+ *
+ * ui_ask's rich parameters and ui_create.spec were `z.unknown()`, so the only
+ * structural feedback an agent ever got was a failed call. The full schemas are
+ * not the fix: inlining them costs roughly 5,950 tokens RESIDENT ON EVERY
+ * REQUEST. Shallow-but-typed containers plus an on-demand ui_schema is, and the
+ * budget below is what stops that decision being quietly undone the next time
+ * someone "just adds the real schema".
+ */
+describe("the schema an agent can see", () => {
+  it("advertises the real control vocabulary on ui_ask and ui_create", async () => {
+    const { tools } = await client.listTools();
+    const ask = tools.find((t) => t.name === "ui_ask");
+    const create = tools.find((t) => t.name === "ui_create");
+
+    // The enums are the part that actually prevents a failed call: an agent
+    // guessing "checkbox" or "textarea" is corrected before it calls.
+    expect(JSON.stringify(ask?.inputSchema)).toContain("multiselect");
+    expect(JSON.stringify(create?.inputSchema)).toContain("multiselect");
+    // ...but not the full detail of every variant.
+    expect(JSON.stringify(create?.inputSchema)).not.toContain("weightUnit");
+  });
+
+  it("keeps those schemas inside a token budget", async () => {
+    const { tools } = await client.listTools();
+    const sizeOf = (name: string) => JSON.stringify(tools.find((t) => t.name === name)?.inputSchema ?? {}).length;
+
+    // ~4 chars per token. The full InterfaceSpec alone is ~8,100 chars.
+    expect(sizeOf("ui_create"), "ui_create.inputSchema has grown past its budget").toBeLessThan(2500);
+    expect(sizeOf("ui_ask"), "ui_ask.inputSchema has grown past its budget").toBeLessThan(3000);
+  });
+
+  it("has no defaulted field in an exposed schema, which zod would emit as required", async () => {
+    const { tools } = await client.listTools();
+    for (const name of ["ui_ask", "ui_create", "ui_update"]) {
+      const schema = tools.find((t) => t.name === name)?.inputSchema as
+        | { required?: string[]; properties?: Record<string, unknown> }
+        | undefined;
+      // Only `question` (ui_ask) and `sessionId` (ui_update) are genuinely
+      // required. A `.default()` anywhere in these schemas would silently add
+      // to this list under zod 4's output mode.
+      const required = schema?.required ?? [];
+      expect(required.length, `${name} requires ${required.join(", ")}`).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("serves the full shape of one control type on demand", async () => {
+    const result = (await client.callTool({
+      name: "ui_schema",
+      arguments: { of: "control", type: "slider" },
+    })) as { content: Array<{ text: string }>; structuredContent?: Record<string, unknown> };
+
+    const body = result.content[0]?.text ?? "";
+    expect(body).toContain('"min"');
+    expect(body).toContain('"max"');
+    expect(body).toContain('"unit"');
+    expect(result.structuredContent?.["type"]).toBe("slider");
+  });
+
+  it("names the real types when asked for one that does not exist", async () => {
+    const result = (await client.callTool({
+      name: "ui_schema",
+      arguments: { of: "control", type: "checkbox" },
+    })) as { isError?: boolean; content: Array<{ text: string }> };
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("multiselect");
+  });
+
+  it("describes the preview module contract, which no JSON Schema could", async () => {
+    const result = (await client.callTool({ name: "ui_schema", arguments: { of: "preview-module" } })) as {
+      content: Array<{ text: string }>;
+    };
+    expect(result.content[0]?.text).toContain("update(values, meta)");
+    expect(result.content[0]?.text).toContain("agentui");
+  });
+});

@@ -5,6 +5,7 @@ import { projectName, webRoot } from "../core/paths.js";
 import { HOST, candidateOriginsAllProjects, listenOnAvailablePair } from "../core/ports.js";
 import type { SessionManager } from "../core/session-manager.js";
 import type { Library } from "../core/library.js";
+import { openSavedWidget } from "../core/library-open.js";
 import { createPreviewApp } from "./preview.js";
 import { crossOriginWriteGuard, hostGuard, peerCors, trustOwnOrigins } from "./security.js";
 import { log } from "../log.js";
@@ -208,21 +209,15 @@ export async function startWebServer(
    * result afterwards.
    */
   app.post("/api/library/:slug/open", async (req, res) => {
-    const slug = String(req.params["slug"]);
-    const saved = await library.load(slug);
-    if (!saved) {
+    // Shared with ui_create({ template }) — the agent side of the library does
+    // exactly this, and the two used to carry separate copies of the steps.
+    const opened = await openSavedWidget(sessions, library, String(req.params["slug"]));
+    if (!opened.ok) {
       res.status(404).json({ error: "no such widget" });
       return;
     }
-    const session = await sessions.create({
-      spec: saved.widget.spec,
-      previewModule: await library.previewModule(slug),
-      values: saved.widget.lastValues as never,
-      template: slug,
-    });
-    onSessionCreated?.(session.id);
-    await library.recordUse(slug);
-    res.json({ sessionId: session.id, url: `/s/${session.id}` });
+    onSessionCreated?.(opened.session.id);
+    res.json({ sessionId: opened.session.id, url: `/s/${opened.session.id}` });
   });
 
   /* -------------------------------------------------------------- assets */
