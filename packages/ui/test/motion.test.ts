@@ -106,14 +106,14 @@ describe("springStep", () => {
 
 describe("tokens", () => {
   it("mirror the shell's --t-* motion tokens", async () => {
-    // durations hand-mirrors styles.css because the preview frame is a
+    // durations hand-mirrors the CSS tokens because the preview frame is a
     // different origin and inherits no CSS variables. Same contract as the
     // SIZE_HINTS mirror in shared/auto-preview.ts.
     const fs = await import("node:fs");
     const url = await import("node:url");
     const path = await import("node:path");
     const here = path.dirname(url.fileURLToPath(import.meta.url));
-    const css = fs.readFileSync(path.resolve(here, "..", "src", "styles.css"), "utf8");
+    const css = fs.readFileSync(path.resolve(here, "..", "src", "styles", "tokens-and-base.css"), "utf8");
     expect(css).toContain(`--t-fast: ${durations.fast}ms`);
     expect(css).toContain(`--t-quick: ${durations.quick}ms`);
     expect(css).toContain(`--t-gentle: ${durations.gentle}ms`);

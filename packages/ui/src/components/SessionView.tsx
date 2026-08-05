@@ -33,7 +33,7 @@ export function SessionView() {
   // A re-authored spec swaps content in place — deliberately no remount, which
   // would reset scroll and open <details> state — so a brief settle fade is
   // what makes the swap legible at all. Skips the first revision seen: initial
-  // load is not a change. 220ms mirrors --t-gentle in styles.css.
+  // load is not a change. 220ms mirrors --t-gentle in styles/tokens-and-base.css.
   useEffect(() => {
     if (seenRevision.current !== null && revision !== seenRevision.current) {
       if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {

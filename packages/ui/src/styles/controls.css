@@ -1,0 +1,59 @@
+/* --------------------------------------------------------------- controls */
+
+.controls { display: flex; flex-direction: column; gap: 14px; }
+
+.control-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.control-label { font-size: 13.5px; }
+.control-meta { display: inline-flex; align-items: center; gap: 8px; }
+.control-value { font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+
+/* Rounded so the values_pushed background flash (ControlRenderer, WAAPI) has a
+   shape; harmless otherwise since the card has no resting background. */
+.control { border-radius: 10px; transition: opacity var(--t-quick) var(--ease-out); }
+
+/* Untouched controls recede: at a glance you can see what you have actually
+   engaged with versus what is still just the agent's suggestion. */
+.control[data-touched="false"] { opacity: .72; }
+.control[data-touched="false"]:hover,
+.control[data-touched="false"]:focus-within { opacity: 1; }
+.control[data-touched="true"] .control-label { font-weight: 500; }
+
+.tag-default {
+  font-size: 10.5px; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px;
+}
+.reset {
+  padding: 0; width: 22px; height: 22px; line-height: 1; font-size: 13px;
+  border-radius: 50%; color: var(--muted);
+  transition: color var(--t-quick) var(--ease-out);
+}
+.reset:hover { color: var(--text); }
+.control-value .unit { margin-left: 2px; }
+.control-description { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+.control-body { margin-top: 5px; }
+
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+input[type="text"], input[type="number"], select, textarea {
+  width: 100%; padding: 7px 9px; font: inherit; font-size: 13.5px;
+  color: var(--text); background: var(--surface);
+  border: 1px solid var(--border-strong); border-radius: 7px;
+}
+textarea { resize: vertical; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px;
+}
+input:disabled, select:disabled, textarea:disabled { opacity: .6; }
+
+.switch { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.switch input { accent-color: var(--accent); width: 16px; height: 16px; }
+
+.color-row { display: flex; align-items: center; gap: 10px; }
+.color-row input[type="color"] {
+  width: 40px; height: 28px; padding: 2px; background: var(--surface);
+  border: 1px solid var(--border-strong); border-radius: 7px;
+}
+.color-row code { color: var(--muted); font-size: 12.5px; }
+
+.vector-row { display: flex; gap: 8px; }
+.vector-axis { flex: 1; display: flex; align-items: center; gap: 6px; }
+.vector-axis > span { font-size: 12px; color: var(--muted); font-family: var(--mono); }

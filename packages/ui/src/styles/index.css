@@ -1,0 +1,23 @@
+/*
+ * The shell's stylesheet, split at the section banners it already had.
+ *
+ * Vite inlines these @imports at build time and preserves their order, which
+ * matters: tokens-and-base must come first (every other file reads its custom
+ * properties), and the rest are ordered by specificity the way a single file
+ * would have been.
+ *
+ * The motion tokens (--t-*) live in tokens-and-base.css and are hand-mirrored
+ * in packages/ui/public/agentui/motion.js, because the preview frame is a
+ * different origin and inherits no CSS variables. ui/test/motion.test.ts pins
+ * the pair; change both.
+ */
+@import "./tokens-and-base.css";
+@import "./content.css";
+@import "./sample.css";
+@import "./preview.css";
+@import "./controls.css";
+@import "./compare.css";
+@import "./multiselect.css";
+@import "./action-bar.css";
+@import "./dashboard.css";
+@import "./library.css";

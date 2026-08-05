@@ -1,0 +1,70 @@
+/* -------------------------------------------------------------- action bar */
+
+.comment-box { margin-top: var(--gap); }
+.comment-box > summary {
+  cursor: pointer; font-size: 12.5px; color: var(--muted);
+  padding: 4px 0; width: fit-content; list-style: none;
+  transition: color var(--t-quick) var(--ease-out);
+}
+.comment-box > summary::-webkit-details-marker { display: none; }
+.comment-box > summary::before { content: "+ "; font-family: var(--mono); }
+.comment-box[open] > summary::before { content: "\2212 "; }
+.comment-box > summary:hover { color: var(--text); }
+.comment-box textarea { margin-top: 6px; }
+
+.action-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border);
+}
+.status-line { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); }
+.buttons { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+
+button {
+  padding: 7px 14px; font: inherit; font-size: 13.5px; cursor: pointer;
+  color: var(--text); background: var(--surface);
+  border: 1px solid var(--border-strong); border-radius: 7px;
+  /* transform on --t-fast with a touch of overshoot, so releasing a press
+     springs back rather than snapping; colours on --t-quick for hover. */
+  transition:
+    background var(--t-quick) var(--ease-out),
+    border-color var(--t-quick) var(--ease-out),
+    color var(--t-quick) var(--ease-out),
+    filter var(--t-quick) var(--ease-out),
+    transform var(--t-fast) var(--ease-back);
+}
+button:hover { background: var(--surface-2); }
+button:active { transform: scale(.985); }
+
+/* Action buttons rise in on appearance. The Done → Cancel/Yes-finish swap
+   remounts the elements, so the swap gets the same entrance for free. */
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(3px); }
+}
+.buttons > button { animation: rise-in var(--t-gentle) var(--ease-out); }
+.btn-primary { background: var(--accent); border-color: transparent; color: #fff; }
+.btn-primary:hover { filter: brightness(1.08); background: var(--accent); }
+.btn-danger { background: var(--danger-bg); border-color: transparent; color: var(--danger); }
+
+/* The reason box, which only exists between arming a dismissal and confirming
+   it. Sized for a sentence — anything longer belongs in the comment box, which
+   is still right above it. */
+.dismiss-note { width: min(260px, 46vw); padding: 6px 9px; font-size: 13px; }
+
+.dot {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none;
+  transition: background var(--t-gentle) var(--ease-out);
+}
+.dot-open { background: var(--ok); }
+/* Breathing while unsettled; the reduced-motion block disables this, since a
+   fixed-duration keyframe cannot be zeroed through the tokens. */
+@keyframes dot-pulse {
+  from { opacity: .45; }
+  to { opacity: 1; }
+}
+.dot-connecting, .dot-reconnecting {
+  background: var(--warn);
+  animation: dot-pulse 1.2s var(--ease-in-out) infinite alternate;
+}
+.dot-closed { background: var(--muted); }
+/* Open, but nobody is waiting on it — hollow, so it reads as neither live nor done. */
+.dot-stale { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }

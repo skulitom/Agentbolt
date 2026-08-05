@@ -18,7 +18,45 @@ process.env["AGENT_UI_LOG_LEVEL"] = "silent";
 let dataDir: string;
 let spec: InterfaceSpec;
 
-const settle = () => new Promise((resolve) => setTimeout(resolve, 150));
+/**
+ * Waits for a condition on disk, rather than sleeping and hoping.
+ *
+ * This was `setTimeout(150)`, and it failed roughly one run in six — but only
+ * when all three packages ran in parallel, never when the file ran alone, which
+ * is the most annoying shape a flake can have.
+ *
+ * TWO separate fire-and-forget writes feed a restart, and a sleep bets on both:
+ * `EventLog.append` persists with `void appendLine(...)`, and `setValues`
+ * flushes state.json with `void this.#stateWriter.flush(...)`. Comments are
+ * rebuilt from the event log, but VALUES come from state.json — so a test that
+ * waited only for the log could hydrate a session whose values were still the
+ * defaults. Both are deliberate (the in-memory copy is authoritative and the
+ * disk catches up); the test just has to say which it is waiting for.
+ */
+async function waitFor(what: string, check: () => Promise<boolean>): Promise<void> {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    if (await check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`timed out after 5s waiting for ${what}`);
+}
+
+async function eventLineCount(sessionId: string): Promise<number> {
+  const file = path.join(dataDir, "sessions", sessionId, "events.ndjson");
+  const text = await fsp.readFile(file, "utf8").catch(() => "");
+  return text.split("\n").filter(Boolean).length;
+}
+
+async function stateOnDisk(sessionId: string): Promise<{ values?: Record<string, unknown> } | undefined> {
+  const file = path.join(dataDir, "sessions", sessionId, "state.json");
+  const text = await fsp.readFile(file, "utf8").catch(() => "");
+  try {
+    return text ? (JSON.parse(text) as { values?: Record<string, unknown> }) : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 beforeEach(async () => {
   dataDir = await fsp.mkdtemp(path.join(os.tmpdir(), "agentui-restart-"));
@@ -44,7 +82,12 @@ describe("restart", () => {
     session.addComment("first thoughts");
     session.setValues({ alpha: 0.8 }, "committed", ["alpha"]);
     session.addComment("second thoughts");
-    await settle(); // event-log appends are fire-and-forget
+    // Comments come back from the event log; the 0.8 comes from state.json.
+    // Waiting for only one of the two is what made this flaky.
+    await waitFor("both comments and the committed value to reach disk", async () => {
+      const state = await stateOnDisk(session.id);
+      return (await eventLineCount(session.id)) >= 4 && state?.values?.["alpha"] === 0.8;
+    });
 
     const after = new SessionManager();
     await after.hydrate();
@@ -63,7 +106,7 @@ describe("restart", () => {
     // The "previous process" creates a session and dies.
     const before = new SessionManager();
     const session = await before.create({ spec });
-    await settle();
+    await waitFor("the session to be written", async () => (await eventLineCount(session.id)) >= 1);
 
     // The "next process" hydrates through the context, which must re-watch.
     const ctx = new AgentUiContext();
@@ -151,7 +194,7 @@ describe("hydrating a spec written by an older build", () => {
   it("skips one unparseable session without taking the readable ones with it", async () => {
     const live = new SessionManager();
     const good = await live.create({ spec });
-    await settle();
+    await waitFor("the readable session to be written", async () => (await eventLineCount(good.id)) >= 1);
     await writeSessionOnDisk("stale-layout", {
       schemaVersion: 1,
       title: "Also older",

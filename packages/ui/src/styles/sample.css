@@ -1,0 +1,91 @@
+/* ----------------------------------------------------------------- sample */
+
+/* The rule, replayed against rows the reader recognises — as a PLOT, not a
+   table of words. Bars sit on the range of answers the slider can actually
+   produce, and one line cuts down through all of them at wherever it currently
+   is. You see the gaps in the data and which side each row falls on without
+   reading a single number; the numbers are there for when you want them. */
+.sample { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.sample-head {
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 8px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border);
+}
+.sample-label { font-size: 13px; font-weight: 500; }
+/* Provenance, never optional and never quiet enough to miss. */
+.sample-source { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+/* One grid for the whole plot: labels, numbers, then the track column. Rows are
+   `display: contents` so every track is the same width and starts at the same
+   x — which is what lets independent per-row cut marks read as one line. */
+.sample-rows {
+  list-style: none; margin: 0; padding: 6px 12px 8px;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(90px, 1.5fr);
+  align-items: center; column-gap: 10px;
+}
+.sample-row { display: contents; }
+.sample-cell { padding: 5px 0; transition: opacity var(--t-quick) var(--ease-out); }
+.sample-row + .sample-row > .sample-cell { border-top: 1px solid var(--border); }
+.sample-row-label { font-size: 13px; min-width: 0; }
+.sample-note { display: block; font-size: 11.5px; color: var(--muted); }
+.sample-row-value { font-family: var(--mono); font-size: 12.5px; text-align: right; white-space: nowrap; }
+.sample-row-value .unit { margin-left: 1px; color: var(--muted); }
+.sample-verdict { font-size: 12px; color: var(--accent); text-align: right; }
+
+/* Unmatched rows recede rather than vanish — you need to see what the setting
+   is NOT catching to know what it costs you. */
+.sample-row[data-matched="false"] > .sample-cell { opacity: .5; }
+
+.sample-track { position: relative; height: 22px; display: flex; align-items: center; }
+.sample-track::before {
+  content: ""; position: absolute; inset: 9px 0; border-radius: 3px;
+  background: var(--surface-2); border: 1px solid var(--border);
+}
+/* The cut: one segment per track, at the same x, with the rows contiguous — so
+   it reads as a single rule dropped through the whole plot. */
+.sample-track::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: var(--sample-cut, 50%);
+  width: 1px; background: var(--accent); opacity: .75;
+}
+.sample[data-plotted="false"] .sample-track::after { display: none; }
+.sample-bar {
+  position: relative; height: 6px; border-radius: 3px; min-width: 2px;
+  background: var(--muted);
+  transition: width var(--t-quick) var(--ease-out), background var(--t-quick) var(--ease-out);
+}
+.sample-row[data-matched="true"] .sample-bar { background: var(--accent); }
+/* Past the end of the answer space: no setting on this slider reaches it, and
+   the chevron is how the bar says so instead of quietly maxing out. */
+.sample-track[data-beyond="high"]::before { border-right-style: dashed; }
+.sample-track[data-beyond="high"] .sample-bar::after {
+  content: "›"; position: absolute; right: -9px; top: -6px; color: var(--muted); font-size: 13px;
+}
+
+/* Axis captions, in the track column so they line up with the bars. */
+.sample-axis {
+  grid-column: 3; position: relative; display: flex; justify-content: space-between;
+  font-family: var(--mono); font-size: 10.5px; color: var(--muted); padding-top: 3px;
+}
+.sample-cut-label {
+  position: absolute; left: var(--sample-cut, 50%);
+  white-space: nowrap; color: var(--accent); background: var(--accent-bg);
+  border-radius: 999px; padding: 0 7px; font-size: 10.5px;
+  /* Never let the pill push the card wider than the column it sits in. */
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+}
+.sample-cut-label[data-side="mid"] { transform: translateX(-50%); }
+.sample-cut-label[data-side="end"] { transform: translateX(-100%); }
+.sample-foot {
+  display: flex; justify-content: space-between; gap: 12px;
+  padding: 7px 12px; border-top: 1px solid var(--border);
+  background: var(--surface-2); font-size: 12px; color: var(--muted);
+}
+.sample-foot b { color: var(--text); font-weight: 600; }
+.sample-total { font-family: var(--mono); }
+
+/* Narrow: the number column is the first thing to go — it is on the bar. */
+@media (max-width: 560px) {
+  .sample-rows { grid-template-columns: minmax(0, 1fr) auto; }
+  .sample-track, .sample-axis { grid-column: 1 / -1; }
+  .sample-row + .sample-row > .sample-cell { border-top: 0; }
+  .sample-row + .sample-row > .sample-row-label { border-top: 1px solid var(--border); }
+}

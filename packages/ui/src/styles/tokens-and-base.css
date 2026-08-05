@@ -1,0 +1,124 @@
+:root {
+  color-scheme: light dark;
+
+  /* Tuned via the shell's own widget (session 4vay4nwt37) — "roomy" density,
+     1100px column, 16px radius, 14px base. Change them here; every rule below
+     derives from these four. */
+  --content-width: 1100px;
+  --radius: 16px;
+  --font-size: 14px;
+  --pad: 22px;
+  --gap: 18px;
+
+  /* Motion tokens: three durations, three roles. Every transition/animation in
+     this file MUST take its duration from one of these — that convention is
+     what lets the reduced-motion block below turn ALL of it off by zeroing
+     three variables instead of chasing selectors. The preview frame is a
+     different origin and inherits none of this; agentui/motion.js hand-mirrors
+     the values, so a change here needs a change there. */
+  --t-fast: 90ms;   /* press feedback — must feel instantaneous */
+  --t-quick: 140ms; /* hover states, opacity fades */
+  --t-gentle: 220ms; /* reveals, status changes, settle-in */
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-in-out: cubic-bezier(0.45, 0, 0.2, 1);
+  --ease-back: cubic-bezier(0.34, 1.3, 0.64, 1); /* slight overshoot — press-release only */
+
+  --bg: #fbfbfa;
+  --surface: #ffffff;
+  --surface-2: #f4f4f1;
+  --border: #e4e4df;
+  --border-strong: #d0d0c9;
+  --text: #1c1c1a;
+  --muted: #6d6d67;
+  --accent: #185fa5;
+  --accent-bg: #e6f1fb;
+  --danger: #a32d2d;
+  --danger-bg: #fceaea;
+  --ok: #3b6d11;
+  --warn: #854f0b;
+  --warn-bg: #faeeda;
+  --add-bg: #eaf3de;
+  --del-bg: #fceaea;
+  --mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #171719;
+    --surface: #1f1f22;
+    --surface-2: #26262a;
+    --border: #34343a;
+    --border-strong: #45454d;
+    --text: #ececee;
+    --muted: #9b9ba3;
+    --accent: #85b7eb;
+    --accent-bg: #16283c;
+    --danger: #f09595;
+    --danger-bg: #3a1c1c;
+    --ok: #97c459;
+    --warn: #fac775;
+    --warn-bg: #3a2a10;
+    --add-bg: #1b2c14;
+    --del-bg: #331b1b;
+  }
+}
+
+/* Zeroing the tokens IS the reduced-motion implementation — see the token
+   block. Only fixed-duration keyframe animations need naming here. */
+@media (prefers-reduced-motion: reduce) {
+  :root { --t-fast: 0ms; --t-quick: 0ms; --t-gentle: 0ms; }
+  .dot-connecting, .dot-reconnecting { animation: none; }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: var(--font-size) / 1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.shell { max-width: var(--content-width); margin: 0 auto; padding: 20px 20px 56px; }
+
+h1 { font-size: 20px; font-weight: 600; margin: 0; }
+h2.group-title {
+  font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); margin: 22px 0 8px;
+}
+.muted { color: var(--muted); }
+code { font-family: var(--mono); font-size: .92em; }
+
+/* Stacked by default; two columns once there is room for them. */
+.session { display: grid; grid-template-columns: minmax(0, 1fr); }
+.session-head { grid-row: 1; }
+.session-side { grid-row: 2; min-width: 0; }
+.session-main { grid-row: 3; min-width: 0; }
+
+@media (min-width: 1000px) {
+  .session[data-split="true"] {
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 42%);
+    column-gap: 30px;
+    align-items: start;
+  }
+  .session[data-split="true"] .session-head { grid-column: 1 / -1; }
+  .session[data-split="true"] .session-main { grid-column: 1; grid-row: 2; }
+  .session[data-split="true"] .session-side { grid-column: 2; grid-row: 2; }
+  /* Sticky within its own column, so it tracks a long control list. */
+  .session[data-split="true"] .preview { position: sticky; top: 16px; }
+  .session[data-split="true"] .preview iframe { max-height: 72vh; }
+  .session[data-split="true"] .preview::after { display: none; }
+}
+
+.session-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 16px; }
+.session-head p { margin: 3px 0 0; font-size: 13px; }
+
+.pill {
+  flex: none; font-size: 11px; padding: 4px 10px; border-radius: 999px;
+  background: var(--surface-2); color: var(--muted);
+  /* active → answered swaps class, not element; ease the recolour. */
+  transition: background var(--t-gentle) var(--ease-out), color var(--t-gentle) var(--ease-out);
+}
+.pill-active { background: var(--accent-bg); color: var(--accent); }
+.pill-done { background: var(--add-bg); color: var(--ok); }
+.pill-warn { background: var(--warn-bg); color: var(--warn); }
