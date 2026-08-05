@@ -13,7 +13,7 @@ human with sliders, forms, diffs and live previews instead of guessing.
 
 ```bash
 pnpm build     # shared -> ui -> server (vendors three.js, copies the shell into server/web)
-pnpm test      # 366 tests; the server suite runs against the real built binary over stdio
+pnpm test      # 378 tests; the server suite runs against the real built binary over stdio
 pnpm typecheck
 ```
 
@@ -62,11 +62,22 @@ about this project, so building the tool and using it are the same activity.
   (hint regexes, `SELF_SHOWN`, display rounding) lives there and is synced to
   `ui/public/agentui/vocab.js` by a `prebuild`/`predev` script. The copy is
   checked in; `vocab-sync.test.ts` compares the two byte for byte.
-- **`shouldAutoPreview` and `planPreview` must agree.** One decides whether a
-  preview frame appears, the other what goes in it. Disagreement means a pane
-  that opens saying it has nothing to show, or a widget that had something to
-  show and never got a frame. `preview-agreement.test.ts` runs both over a
-  corpus; it has already caught one real regression.
+- **One function decides whether a preview opens AND what goes in it.**
+  `planPreview` (`shared/src/preview-plan.js`, synced to the frame) returns an
+  ordered list of panels; `shouldAutoPreview` is just "does any planned view
+  draw". These used to be two implementations a test compared, and they
+  disagreed — a "type_scale" control landed in the frame's font bucket while the
+  gate said there was nothing to show, so the frame never opened.
+- **A new preview view is two entries.** `PREVIEW_VIEWS` in `preview-plan.js`
+  (the vocabulary — label, accepted control types, and whether drawing it
+  justifies opening a frame) and `VIEW_IMPLS` in `preview.js` (the DOM). A test
+  asserts the key sets match: a view with `draws: true` and no implementation
+  opens a frame and then renders nothing, which is worse than not having it.
+- **A preview can write back, and must do it through the shell's own path.**
+  `setValues` in the frame posts `set_values`; `PreviewFrame` replays it through
+  `setLocalValue`/`commit`. Going around that would lose `touched`, animate
+  under the user's finger, skip the interim throttle, and ignore whether the
+  session is still open — every invariant lives on that path.
 - **MCP tool schemas are shallow on purpose.** `ui_ask` and `ui_create` advertise
   the containers and the enumerated vocabulary, not the full spec — inlining the
   real schemas costs ~5,000 tokens on every request. Detail comes from

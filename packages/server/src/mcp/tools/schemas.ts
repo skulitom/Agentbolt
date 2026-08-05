@@ -70,6 +70,10 @@ const PREVIEW_OPTIONS = z.looseObject({
     )
     .optional()
     .describe("Arrange the generated preview yourself. Declaring any view replaces inference entirely."),
+  data: z
+    .unknown()
+    .optional()
+    .describe("Anything you measured, for a previewModule to draw. Arrives as setup({ data })."),
 });
 
 export const ASK_PREVIEW = PREVIEW_OPTIONS.optional().describe(

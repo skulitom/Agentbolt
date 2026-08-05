@@ -81,7 +81,7 @@ export const PREVIEW_IMPORTS = ["three", "three/addons/", "agentui", "agentui/mo
  * fields (tick time, viewport…) never break existing two-arg modules.
  */
 export const PREVIEW_MODULE_CONTRACT = `export default {
-  setup({ container, spec, values, emit, setValues }) { /* build into container */ },
+  setup({ container, spec, values, data, emit, setValues }) { /* build into container */ },
   update(values, meta) { /* every change, ~60fps during drags; meta.source is "user" (track 1:1) or "agent" (animate the change) */ },
   dispose() { /* optional cleanup */ },
 };

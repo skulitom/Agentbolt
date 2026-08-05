@@ -96,6 +96,10 @@
             container: root,
             spec,
             values: lastValues,
+            // Pulled out of the spec rather than sent separately: the frame
+            // already has the whole spec, and a second channel for the same
+            // bytes would be a second thing to keep in step.
+            data: spec?.preview?.data,
             emit: (name, data) => post({ type: "preview_event", name, data }),
             // Makes a preview interactive. Applied LOCALLY as well as posted,
             // so a dragged point tracks the finger at pointer rate instead of

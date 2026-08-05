@@ -96,7 +96,41 @@ thousands of tokens on every request instead of once, when you need it. So when
 you are reaching for something structured — a `compare`'s axes, a `sample`'s
 rows, a slider's bounds — call `ui_schema({ of: "control", type: "compare" })`
 rather than guessing and reading the rejection. `of` also takes `"content"`,
-`"spec"` and `"preview-module"`.
+`"view"`, `"spec"` and `"preview-module"`.
+
+## Previews
+
+A widget with a magnitude in it gets a preview automatically — colours, lengths,
+type sizes, positions and easing curves are inferred from the controls. You do
+not have to ask for one, and `preview: { auto: false }` declines it.
+
+**When the inferred arrangement is not what you meant, declare it** rather than
+writing a whole module:
+
+```js
+preview: {
+  views: [
+    { view: "gradient", controls: ["ramp_from", "ramp_to"] },
+    { view: "box", controls: ["padding", "corner_radius"], title: "Card" },
+  ],
+}
+```
+
+Declaring any view replaces inference entirely. `ui_schema({ of: "view" })` lists
+what each one draws. Three of them — `gradient`, `box` and `shadow` — are only
+ever reachable this way, because which two colours form a ramp and which length
+is "the padding" are things you know and inference would be guessing at.
+
+**A `previewModule` is still the answer for anything custom** — a three.js scene,
+a bespoke chart. It gets `setup({ container, spec, values, data, emit, setValues })`
+and `update(values, meta)`. Two things worth knowing:
+
+- `preview: { data }` carries anything you MEASURED into the module. Real timings
+  and real file sizes are what makes a preview worth looking at; inlining them
+  into the module source hides them from everything that reads the spec.
+- `setValues` makes a preview an INPUT. Drag a point, move a stop — call
+  `setValues(values)` during the gesture and `setValues(values, { commit: true })`
+  on release. Only the committed one wakes you, so a drag does not spam you.
 
 ## The normal shape
 

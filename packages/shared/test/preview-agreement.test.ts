@@ -316,3 +316,39 @@ describe("views that are declaration-only", () => {
     expect(planPreview(spec).panels[0]?.controls.map((c) => c.type)).toEqual(["slider", "color"]);
   });
 });
+
+/**
+ * `preview.data` carries what the agent MEASURED into a preview module.
+ *
+ * It needed no new plumbing — the frame already receives the whole spec — only
+ * somewhere to put it, which a strict object otherwise refused. The reason it
+ * exists at all is the same one that makes `sample.source` required: the
+ * previews worth having draw real timings and real file sizes, and without a
+ * field for them an author has to inline the numbers into the module source
+ * where nothing that reads the spec can see them.
+ */
+describe("preview.data", () => {
+  it("accepts arbitrary JSON and hands it back unchanged", () => {
+    const measured = { runs: [{ name: "cold", ms: 812 }, { name: "warm", ms: 91 }], source: "hyperfine, 10 runs" };
+    const spec = build([{ id: "budget", label: "Budget", type: "slider", min: 0, max: 1000, default: 300, unit: "ms" }], {
+      preview: { data: measured },
+    });
+    expect(spec.preview?.data).toEqual(measured);
+  });
+
+  it("does not change what the preview plans", () => {
+    // Data is for a module to draw; it must not make the inferred views differ.
+    const controls = [{ id: "gap", label: "Gap", type: "slider", min: 0, max: 40, default: 8, unit: "px" }];
+    expect(viewsOf(build(controls, { preview: { data: { anything: true } } }))).toEqual(viewsOf(build(controls)));
+  });
+
+  it("still rejects a misspelt preview field, so typos are not silently kept", () => {
+    // `data` being unknown-typed must not turn `preview` into a bag.
+    const result = parseSpec({
+      title: "T",
+      controls: [{ id: "gap", label: "Gap", type: "slider", min: 0, max: 40, default: 8 }],
+      preview: { heigth: 400 },
+    });
+    expect(result.ok).toBe(false);
+  });
+});

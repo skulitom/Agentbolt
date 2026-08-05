@@ -82,6 +82,20 @@ export const PreviewOptions = z.strictObject({
       }),
     )
     .optional(),
+  /**
+   * Anything the agent MEASURED, for a preview module to draw.
+   *
+   * The frame already receives the whole spec, so this needed no new plumbing —
+   * only somewhere to put it, which a strict object otherwise refused. A module
+   * gets it as `setup({ data })`, and `ui_update({ spec })` replaces it.
+   *
+   * It exists for the same reason `sample.source` is required: the interesting
+   * previews are the ones drawing real timings, real file sizes, real row
+   * counts — things the agent went and got. Without a field for them, an author
+   * with real data has to inline it into the module source, where it is
+   * invisible to everything that reads the spec.
+   */
+  data: z.unknown().optional(),
 });
 
 export const InterfaceSpec = z
