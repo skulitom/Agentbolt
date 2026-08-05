@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  EASING_NAME_HINT_SOURCE,
-  EASING_OPTION_SOURCE,
-  SIZE_HINTS_SOURCE,
   controlIsIllustrated,
   isEasingSelect,
   isPreviewSubject,
@@ -189,27 +186,7 @@ describe("groupControls visualFirst", () => {
   });
 });
 
-describe("hint regexes stay in sync", () => {
-  /**
-   * SIZE_HINTS lives twice: in shared (deciding whether a preview frame exists)
-   * and in the browser helper (deciding what goes inside it). Drift means a pane
-   * opens with nothing in it, which is the exact "looks informative, says
-   * nothing" failure the tool exists to avoid.
-   */
-  it("shared and the browser helper use the same SIZE_HINTS", async () => {
-    const fs = await import("node:fs");
-    const url = await import("node:url");
-    const path = await import("node:path");
-    const here = path.dirname(url.fileURLToPath(import.meta.url));
-    const helper = fs.readFileSync(
-      path.resolve(here, "..", "..", "ui", "public", "agentui", "preview.js"),
-      "utf8",
-    );
-    const match = /^const SIZE_HINTS = \/(.+)\/i;$/m.exec(helper);
-    expect(match, "SIZE_HINTS not found in preview.js").toBeTruthy();
-    expect(match![1]).toBe(SIZE_HINTS_SOURCE);
-  });
-
+describe("what earns a preview frame", () => {
   it("no longer claims a duration is a length", () => {
     // Time is not spatial; a bar for "400ms" was a category error. An explicit
     // unit still qualifies, because that is a declaration rather than a guess.
@@ -284,22 +261,4 @@ describe("isEasingSelect", () => {
     expect(shouldAutoPreview(build([easing()]))).toBe(true);
   });
 
-  it("shared and the browser helper use the same easing regexes", async () => {
-    // Same contract as SIZE_HINTS above: shared decides whether a frame
-    // exists, the helper decides what goes inside it.
-    const fs = await import("node:fs");
-    const url = await import("node:url");
-    const path = await import("node:path");
-    const here = path.dirname(url.fileURLToPath(import.meta.url));
-    const helper = fs.readFileSync(
-      path.resolve(here, "..", "..", "ui", "public", "agentui", "preview.js"),
-      "utf8",
-    );
-    const nameHint = /^const EASING_NAME_HINT = \/(.+)\/i;$/m.exec(helper);
-    expect(nameHint, "EASING_NAME_HINT not found in preview.js").toBeTruthy();
-    expect(nameHint![1]).toBe(EASING_NAME_HINT_SOURCE);
-    const option = /^const EASING_OPTION = \/(.+)\/i;$/m.exec(helper);
-    expect(option, "EASING_OPTION not found in preview.js").toBeTruthy();
-    expect(option![1]).toBe(EASING_OPTION_SOURCE);
-  });
 });

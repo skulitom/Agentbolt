@@ -1,4 +1,5 @@
 import type { ContentBlock, Control, ControlValue, Values } from "./spec.js";
+import { roundForDisplay } from "./vocab.js";
 
 /**
  * The `sample` block: one comparison, replayed against rows the reader already
@@ -53,10 +54,7 @@ export function parseSampleRule(rule: string): ParsedRule | undefined {
 /** Display form of a cell. Rounded, because float artefacts read as precision. */
 export function sampleText(value: unknown): string {
   if (value === undefined || value === null) return "";
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) return String(value);
-    return Number.isInteger(value) ? String(value) : String(Math.round(value * 10000) / 10000);
-  }
+  if (typeof value === "number") return roundForDisplay(value);
   if (typeof value === "boolean") return value ? "true" : "false";
   return String(value);
 }

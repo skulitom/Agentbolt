@@ -21,6 +21,19 @@
  */
 
 import { spring, tween, resolveEasing, prefersReducedMotion, durations } from "./motion.js";
+// The single source for "is this control spatial / a duration / an easing
+// picker", shared byte-for-byte with the shell via packages/shared/src/vocab.js.
+// Same-origin relative import: this file and vocab.js are both served from
+// /agentui on the preview origin, so it resolves without a bundler.
+import {
+  DELAY_HINT,
+  SELF_SHOWN,
+  isDurationish,
+  isEasingSelect,
+  isFontish,
+  isSizeish,
+  roundForDisplay,
+} from "./vocab.js";
 
 /** Motion utilities ride along, so `import { spring } from "agentui"` works too. */
 export * from "./motion.js";
@@ -42,13 +55,12 @@ const el = (tag, props = {}, ...children) => {
   return node;
 };
 
-/** Round for display. JS float maths leaks 0.30000000000000004 into the UI. */
-const round = (value, places = 3) => {
-  if (typeof value !== "number" || !Number.isFinite(value)) return String(value ?? "");
-  const factor = 10 ** places;
-  const rounded = Math.round(value * factor) / factor;
-  return Number.isInteger(rounded) ? String(rounded) : String(rounded);
-};
+/**
+ * Round for display. Shared with the shell so the same value never prints two
+ * ways in the two halves of one screen — it used to show 3 decimals here and 4
+ * there.
+ */
+const round = roundForDisplay;
 
 const BASE_CSS = `
   .aui { font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -502,41 +514,24 @@ export function easingCurve({ title = "Motion" } = {}) {
 
 /* ------------------------------------------------------------ autoPreview */
 
-const COLOUR_HINTS = /colou?r|tint|accent|hue|shade|background|foreground/i;
-// MUST match SIZE_HINTS in packages/shared/src/auto-preview.ts — that decides
-// whether a frame exists, this decides what goes in it. A test asserts they match.
-const SIZE_HINTS = /width|height|size|radius|spacing|gap|padding|margin|length|distance|offset/i;
-const FONT_HINTS = /font|type|text.*size|size.*text/i;
-
-// MUST match EASING_NAME_HINT / EASING_OPTION in packages/shared/src/auto-preview.ts,
-// same contract as SIZE_HINTS above. A test asserts they match.
-const EASING_NAME_HINT = /(^|[_\s-])(easing|ease|curve|timing)([_\s-]|$)/i;
-const EASING_OPTION = /^(none|instant|linear|ease|spring|bounce|elastic|back|overshoot|anticipate|cubic-bezier\(.+\)|ease[-_]?[a-z]+([-_]?(in|out|back|bounce|elastic))*|[a-z]+[-_]?(in|out)([-_]?(back|bounce|elastic|quad|cubic|expo|sine|circ))?)$/i;
-
-function isEasingSelect(c) {
-  return (
-    c.type === "select" &&
-    EASING_NAME_HINT.test(`${c.id} ${c.label}`) &&
-    (c.options?.length ?? 0) >= 2 &&
-    c.options.every((o) => EASING_OPTION.test(String(o.value).trim()))
-  );
-}
-
-const DURATION_HINT = /(^|[_\s-])(duration|delay)([_\s-]|$)/i;
-const DELAY_HINT = /(^|[_\s-])delay([_\s-]|$)/i;
-const isDurationish = (c) =>
-  (c.type === "slider" || c.type === "number") &&
-  (c.unit === "ms" || c.unit === "s" || DURATION_HINT.test(`${c.id} ${c.label}`));
-
 /**
- * Picks a preview for a spec that did not bring its own.
+ * Sorts a spec's controls into the buckets the generated preview draws.
+ *
+ * Split out of `autoPreview` and exported because this is the only part of the
+ * generated preview with a *correctness* question — the rest is DOM. The shell
+ * decides whether a preview frame exists at all (`shouldAutoPreview`), this
+ * decides what goes inside it, and if the two disagree you get a pane whose
+ * entire content is "Nothing here has a visual effect to preview." Nothing in
+ * here touches the DOM, so a test can import it under node and check the two
+ * answers agree; the regex-scraping test that used to guard this could only
+ * compare the hint patterns, not the decision they feed.
  *
  * The rule, from how these widgets are actually used: anything with a MAGNITUDE
  * earns a visual — a colour, a length, a duration. Toggles and selects are
  * self-describing and get a compact state line instead of being forced into a
  * picture that would say nothing.
  */
-export function autoPreview(spec) {
+export function planPreview(spec) {
   const controls = spec?.controls ?? [];
 
   // Motion trio: an easing select claims the first duration and the first
@@ -554,34 +549,58 @@ export function autoPreview(spec) {
   const motion = [easingSelect, durationCtl, delayCtl].filter(Boolean);
 
   const colours = controls.filter((c) => c.type === "color");
-  const fonts = controls.filter(
-    (c) => (c.type === "slider" || c.type === "number") && !motion.includes(c) && FONT_HINTS.test(`${c.id} ${c.label}`),
-  );
-  const sizes = controls.filter(
-    (c) =>
-      (c.type === "slider" || c.type === "number") &&
-      !motion.includes(c) &&
-      !fonts.includes(c) &&
-      (c.unit || SIZE_HINTS.test(`${c.id} ${c.label}`)),
-  );
+  const fonts = controls.filter((c) => !motion.includes(c) && isFontish(c));
+  const sizes = controls.filter((c) => !motion.includes(c) && !fonts.includes(c) && isSizeish(c));
   // `text`, `compare` and `multiselect` are left out of the state line for one
   // reason: they are already illustrated in the SHELL, by the input itself, the
   // matrix, or the running total. Echoing them here says the same thing twice
   // and says it worse — an array flattened to "a.ts,b.ts" is not a summary.
-  const SELF_SHOWN = new Set(["text", "compare", "multiselect"]);
+  const selfShown = new Set(SELF_SHOWN);
   const others = controls.filter(
     (c) =>
-      !colours.includes(c) && !fonts.includes(c) && !sizes.includes(c) && !motion.includes(c) && !SELF_SHOWN.has(c.type),
+      !colours.includes(c) && !fonts.includes(c) && !sizes.includes(c) && !motion.includes(c) && !selfShown.has(c.type),
   );
+
+  const accent = colours[0];
+  const radius = sizes.find((c) => /radius/i.test(`${c.id} ${c.label}`));
+
+  return {
+    easingSelect,
+    durationCtl,
+    delayCtl,
+    motion,
+    colours,
+    fonts,
+    sizes,
+    others,
+    accent,
+    radius,
+    showCard: Boolean(accent || radius || fonts.length),
+    /**
+     * Is there anything here the helper can actually DRAW?
+     *
+     * `others` deliberately does not count. It renders as a line of text —
+     * real content for a frame that exists for another reason, never a reason
+     * to open one. A pane containing only "Retries: 3" is the failure this
+     * whole tool is against. This is the value `shouldAutoPreview` must match.
+     */
+    drawsSomething: Boolean(easingSelect) || colours.length > 0 || sizes.length > 0 || fonts.length > 0,
+    /** True when the frame would show its "nothing to preview" notice. */
+    empty: !easingSelect && !colours.length && !sizes.length && !fonts.length && !others.length,
+  };
+}
+
+/**
+ * Picks a preview for a spec that did not bring its own.
+ */
+export function autoPreview(spec) {
+  const { easingSelect, durationCtl, delayCtl, colours, fonts, sizes, others, accent, radius, showCard } =
+    planPreview(spec);
 
   const parts = [];
   if (colours.length) parts.push({ kind: "colours", controls: colours, view: swatchGrid({ title: "Colours" }) });
   if (sizes.length) parts.push({ kind: "sizes", controls: sizes, view: ruler({ title: "Sizes" }) });
   if (fonts.length) parts.push({ kind: "fonts", controls: fonts, view: typeScale({ title: "Type" }) });
-
-  const accent = colours[0];
-  const radius = sizes.find((c) => /radius/i.test(`${c.id} ${c.label}`));
-  const showCard = Boolean(accent || radius || fonts.length);
 
   let motionView;
   let cardView;

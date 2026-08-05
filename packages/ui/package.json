@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "node scripts/vendor-three.mjs && vite build",
+    "dev": "node scripts/sync-vocab.mjs && vite",
+    "build": "node scripts/sync-vocab.mjs && node scripts/vendor-three.mjs && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run --passWithNoTests"

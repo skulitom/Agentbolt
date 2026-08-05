@@ -1,4 +1,5 @@
 import type { Control, Values } from "./spec.js";
+import { roundForDisplay } from "./vocab.js";
 
 /**
  * `bind`: put the string being decided in the places it will actually appear.
@@ -74,9 +75,7 @@ export function interpolate(text: string, controls: Control[], values: Values): 
  */
 function valueToText(value: unknown): string | undefined {
   if (typeof value === "string") return value;
-  if (typeof value === "number") {
-    return Number.isInteger(value) ? String(value) : String(Math.round(value * 10000) / 10000);
-  }
+  if (typeof value === "number") return roundForDisplay(value);
   return undefined;
 }
 

@@ -1,6 +1,11 @@
 import { collectPlaceholders } from "./bind.js";
 import { parseSampleRule } from "./sample.js";
 import type { InterfaceSpec } from "./spec.js";
+// The vocabulary the preview frame reads too, so both origins answer "is this
+// spatial / a duration / an easing picker" the same way. See vocab.js.
+import { isEasingSelect, isFontish, isSizeish } from "./vocab.js";
+
+export { isEasingSelect };
 
 /**
  * Whether a spec has anything worth showing without the agent writing a preview.
@@ -16,50 +21,6 @@ import type { InterfaceSpec } from "./spec.js";
  * is guessing while the UI looks authoritative.
  */
 /**
- * Names that imply a spatial magnitude.
- *
- * `duration`/`delay` were here and are deliberately gone: time is not a length,
- * and a name alone is too weak a signal to open a whole preview pane on. A
- * duration with an explicit `unit` still qualifies via the unit check, which is
- * a real declaration rather than a guess at intent.
- *
- * MUST stay identical to SIZE_HINTS in packages/ui/public/agentui/preview.js —
- * this decides whether a frame exists, that one decides what goes inside it, and
- * drift between them yields an empty preview pane. A test asserts they match.
- */
-const SIZE_HINTS = /width|height|size|radius|spacing|gap|padding|margin|length|distance|offset/i;
-
-export const SIZE_HINTS_SOURCE = SIZE_HINTS.source;
-
-/**
- * Easing-select detection, deliberately conservative: the control must be
- * NAMED like an easing choice AND every option value must be easing
- * vocabulary. Either test alone misfires — {id:"mode", options:[ease,linear]}
- * is not an easing picker, and neither is {id:"easing", options:[fast,slow]}.
- * A false positive draws a meaningless curve over a real select; a miss just
- * leaves today's state line, which is the acceptable failure.
- *
- * Mirrored in packages/ui/public/agentui/preview.js like SIZE_HINTS above,
- * and pinned by the same sync test.
- */
-const EASING_NAME_HINT = /(^|[_\s-])(easing|ease|curve|timing)([_\s-]|$)/i;
-const EASING_OPTION =
-  /^(none|instant|linear|ease|spring|bounce|elastic|back|overshoot|anticipate|cubic-bezier\(.+\)|ease[-_]?[a-z]+([-_]?(in|out|back|bounce|elastic))*|[a-z]+[-_]?(in|out)([-_]?(back|bounce|elastic|quad|cubic|expo|sine|circ))?)$/i;
-
-export const EASING_NAME_HINT_SOURCE = EASING_NAME_HINT.source;
-export const EASING_OPTION_SOURCE = EASING_OPTION.source;
-
-/** Whether this select is an easing/timing-function picker. */
-export function isEasingSelect(control: InterfaceSpec["controls"][number]): boolean {
-  return (
-    control.type === "select" &&
-    EASING_NAME_HINT.test(`${control.id} ${control.label}`) &&
-    control.options.length >= 2 &&
-    control.options.every((o) => EASING_OPTION.test(o.value.trim()))
-  );
-}
-
-/**
  * Would the built-in auto-preview actually have something to DRAW for this
  * control? Gates whether a preview frame appears at all.
  *
@@ -69,9 +30,16 @@ export function isEasingSelect(control: InterfaceSpec["controls"][number]): bool
  */
 export function isPreviewSubject(control: InterfaceSpec["controls"][number]): boolean {
   if (control.type === "color") return true;
-  if (control.type === "slider" || control.type === "number") {
-    return Boolean(control.unit) || SIZE_HINTS.test(`${control.id} ${control.label}`);
-  }
+  // The same predicates the frame buckets with, not a second copy of their
+  // regexes: "does a frame appear" and "does this land in a bucket" have to
+  // agree, or the pane opens saying it has nothing to show.
+  if (isSizeish(control)) return true;
+  // A type size the helper draws with typeScale. This was missing while the
+  // two sides only shared regexes rather than predicates: a control named
+  // "type_scale" carries no unit and no spatial word, so it landed in the
+  // frame's font bucket while the gate said there was nothing to show — the
+  // frame simply never opened. preview-agreement.test.ts pins the pair now.
+  if (isFontish(control)) return true;
   // An easing curve is a shape the helper CAN draw (easingCurve): the name
   // "easeOutBack" tells you nothing you can feel, the plotted curve does.
   if (isEasingSelect(control)) return true;

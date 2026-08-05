@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { roundForDisplay } from "./vocab.js";
 
 /**
  * The append-only event log is the single source of truth for "what happened",
@@ -119,7 +120,4 @@ function compactValues(values: unknown): string {
   return entries.join(" ");
 }
 
-function round(value: unknown): string {
-  if (typeof value !== "number") return String(value);
-  return Number.isInteger(value) ? String(value) : String(Math.round(value * 1000) / 1000);
-}
+const round = roundForDisplay;

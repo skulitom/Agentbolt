@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import type { Control, Values } from "@agentui/shared";
+import { roundForDisplay, type Control, type Values } from "@agentui/shared";
 import { useSession } from "../store.js";
 
 interface Props {
@@ -480,8 +480,6 @@ function formatDefault(control: Control): string {
   return String(value);
 }
 
-function formatNumber(value: unknown): string {
-  if (typeof value !== "number") return String(value ?? "");
-  // Float maths leaks artefacts like 0.30000000000000004 into the readout.
-  return Number.isInteger(value) ? String(value) : String(Math.round(value * 10000) / 10000);
-}
+// Float maths leaks artefacts like 0.30000000000000004 into the readout. Shared
+// with the preview frame so one value never prints two ways on one screen.
+const formatNumber = roundForDisplay;
