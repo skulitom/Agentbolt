@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "agentui": {
+      "command": "node",
+      "args": ["packages/server/dist/mcp.js"]
+    }
+  }
+}

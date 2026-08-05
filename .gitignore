@@ -1,0 +1,17 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# AgentUI runtime data (sessions, per-project widget library)
+.agent-ui/
+
+# Vendored at build time from node_modules/three
+packages/ui/public/vendor/
+
+# Copied from ui/dist and skills/agentui by scripts/copy-ui.mjs on every build
+packages/server/web/
+packages/server/skill/
+
+.DS_Store
+Thumbs.db
+*.log

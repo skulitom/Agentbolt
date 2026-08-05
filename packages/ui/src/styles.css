@@ -1,0 +1,350 @@
+:root {
+  color-scheme: light dark;
+
+  /* Tuned via the shell's own widget (session 4vay4nwt37) — "roomy" density,
+     1100px column, 16px radius, 14px base. Change them here; every rule below
+     derives from these four. */
+  --content-width: 1100px;
+  --radius: 16px;
+  --font-size: 14px;
+  --pad: 22px;
+  --gap: 18px;
+
+  --bg: #fbfbfa;
+  --surface: #ffffff;
+  --surface-2: #f4f4f1;
+  --border: #e4e4df;
+  --border-strong: #d0d0c9;
+  --text: #1c1c1a;
+  --muted: #6d6d67;
+  --accent: #185fa5;
+  --accent-bg: #e6f1fb;
+  --danger: #a32d2d;
+  --danger-bg: #fceaea;
+  --ok: #3b6d11;
+  --warn: #854f0b;
+  --warn-bg: #faeeda;
+  --add-bg: #eaf3de;
+  --del-bg: #fceaea;
+  --mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #171719;
+    --surface: #1f1f22;
+    --surface-2: #26262a;
+    --border: #34343a;
+    --border-strong: #45454d;
+    --text: #ececee;
+    --muted: #9b9ba3;
+    --accent: #85b7eb;
+    --accent-bg: #16283c;
+    --danger: #f09595;
+    --danger-bg: #3a1c1c;
+    --ok: #97c459;
+    --warn: #fac775;
+    --warn-bg: #3a2a10;
+    --add-bg: #1b2c14;
+    --del-bg: #331b1b;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: var(--font-size) / 1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.shell { max-width: var(--content-width); margin: 0 auto; padding: 20px 20px 56px; }
+
+h1 { font-size: 20px; font-weight: 600; margin: 0; }
+h2.group-title {
+  font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); margin: 22px 0 8px;
+}
+.muted { color: var(--muted); }
+code { font-family: var(--mono); font-size: .92em; }
+
+/* Stacked by default; two columns once there is room for them. */
+.session { display: grid; grid-template-columns: minmax(0, 1fr); }
+.session-head { grid-row: 1; }
+.session-side { grid-row: 2; min-width: 0; }
+.session-main { grid-row: 3; min-width: 0; }
+
+@media (min-width: 1000px) {
+  .session[data-split="true"] {
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 42%);
+    column-gap: 30px;
+    align-items: start;
+  }
+  .session[data-split="true"] .session-head { grid-column: 1 / -1; }
+  .session[data-split="true"] .session-main { grid-column: 1; grid-row: 2; }
+  .session[data-split="true"] .session-side { grid-column: 2; grid-row: 2; }
+  /* Sticky within its own column, so it tracks a long control list. */
+  .session[data-split="true"] .preview { position: sticky; top: 16px; }
+  .session[data-split="true"] .preview iframe { max-height: 72vh; }
+  .session[data-split="true"] .preview::after { display: none; }
+}
+
+.session-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 16px; }
+.session-head p { margin: 3px 0 0; font-size: 13px; }
+
+.pill { flex: none; font-size: 11px; padding: 4px 10px; border-radius: 999px; background: var(--surface-2); color: var(--muted); }
+.pill-active { background: var(--accent-bg); color: var(--accent); }
+.pill-done { background: var(--add-bg); color: var(--ok); }
+.pill-warn { background: var(--warn-bg); color: var(--warn); }
+
+/* ---------------------------------------------------------------- content */
+
+.content { display: flex; flex-direction: column; gap: 12px; margin-bottom: 18px; }
+.markdown > *:first-child { margin-top: 0; }
+.markdown > *:last-child { margin-bottom: 0; }
+.markdown p { margin: 0 0 8px; }
+.markdown a { color: var(--accent); }
+.markdown table { border-collapse: collapse; font-size: 13px; }
+.markdown th, .markdown td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }
+
+.code-block, .diff-body {
+  margin: 0; padding: 10px 12px; overflow-x: auto;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.5;
+}
+
+.diff { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.diff-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.diff-file { font-family: var(--mono); }
+.diff-stats .added { color: var(--ok); }
+.diff-stats .removed { color: var(--danger); }
+.diff-body { border: 0; border-radius: 0; padding: 0; }
+.diff-line { display: flex; padding: 0 8px; white-space: pre; }
+.diff-line .gutter { flex: none; width: 14px; color: var(--muted); user-select: none; }
+.diff-add { background: var(--add-bg); }
+.diff-del { background: var(--del-bg); }
+.diff-hunk, .diff-meta { color: var(--muted); }
+
+.image-block { margin: 0; }
+.image-block img { max-width: 100%; border-radius: 8px; border: 1px solid var(--border); display: block; }
+.image-block figcaption { font-size: 12px; color: var(--muted); margin-top: 5px; }
+
+/* ---------------------------------------------------------------- preview */
+
+/* The preview STAYS PUT while you scroll the controls.
+   Adjusting a slider and then scrolling back up to see what it did defeats the
+   entire point of a live preview, so it pins to the top of the viewport and the
+   controls scroll underneath it. */
+.preview {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin: 0 0 var(--gap);
+  padding: 8px 0;
+  /* Opaque, or controls scrolling underneath show through the gap. */
+  background: var(--bg);
+}
+.preview::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -10px; height: 10px;
+  background: linear-gradient(var(--bg), transparent); pointer-events: none;
+}
+.preview-head {
+  display: flex; align-items: baseline; gap: 8px; padding: 0 2px 6px;
+}
+.preview-title {
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--muted);
+}
+.preview-hint { font-size: 11px; color: var(--muted); opacity: .8; }
+.preview iframe {
+  width: 100%; display: block; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--surface); color-scheme: light dark;
+  /* Never let a tall preview eat a short viewport — the controls must stay reachable. */
+  max-height: 52vh;
+}
+.preview-error {
+  margin-top: 8px; padding: 8px 10px; border-radius: 8px; font-size: 12px;
+  background: var(--del-bg); color: var(--danger);
+}
+.preview-error pre { margin: 6px 0 0; font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; }
+
+.notice {
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface-2); font-size: 13px;
+}
+
+/* --------------------------------------------------------------- controls */
+
+.controls { display: flex; flex-direction: column; gap: 14px; }
+
+.control-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.control-label { font-size: 13.5px; }
+.control-meta { display: inline-flex; align-items: center; gap: 8px; }
+.control-value { font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+
+/* Untouched controls recede: at a glance you can see what you have actually
+   engaged with versus what is still just the agent's suggestion. */
+.control[data-touched="false"] { opacity: .72; }
+.control[data-touched="false"]:hover,
+.control[data-touched="false"]:focus-within { opacity: 1; }
+.control[data-touched="true"] .control-label { font-weight: 500; }
+
+.tag-default {
+  font-size: 10.5px; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px;
+}
+.reset {
+  padding: 0; width: 22px; height: 22px; line-height: 1; font-size: 13px;
+  border-radius: 50%; color: var(--muted);
+}
+.reset:hover { color: var(--text); }
+.control-value .unit { margin-left: 2px; }
+.control-description { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+.control-body { margin-top: 5px; }
+
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+input[type="text"], input[type="number"], select, textarea {
+  width: 100%; padding: 7px 9px; font: inherit; font-size: 13.5px;
+  color: var(--text); background: var(--surface);
+  border: 1px solid var(--border-strong); border-radius: 7px;
+}
+textarea { resize: vertical; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px;
+}
+input:disabled, select:disabled, textarea:disabled { opacity: .6; }
+
+.switch { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.switch input { accent-color: var(--accent); width: 16px; height: 16px; }
+
+.color-row { display: flex; align-items: center; gap: 10px; }
+.color-row input[type="color"] {
+  width: 40px; height: 28px; padding: 2px; background: var(--surface);
+  border: 1px solid var(--border-strong); border-radius: 7px;
+}
+.color-row code { color: var(--muted); font-size: 12.5px; }
+
+.vector-row { display: flex; gap: 8px; }
+.vector-axis { flex: 1; display: flex; align-items: center; gap: 6px; }
+.vector-axis > span { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+
+/* -------------------------------------------------------------- action bar */
+
+.comment-box { margin-top: var(--gap); }
+.comment-box > summary {
+  cursor: pointer; font-size: 12.5px; color: var(--muted);
+  padding: 4px 0; width: fit-content; list-style: none;
+}
+.comment-box > summary::-webkit-details-marker { display: none; }
+.comment-box > summary::before { content: "+ "; font-family: var(--mono); }
+.comment-box[open] > summary::before { content: "\2212 "; }
+.comment-box > summary:hover { color: var(--text); }
+.comment-box textarea { margin-top: 6px; }
+
+.action-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border);
+}
+.status-line { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); }
+.buttons { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+
+button {
+  padding: 7px 14px; font: inherit; font-size: 13.5px; cursor: pointer;
+  color: var(--text); background: var(--surface);
+  border: 1px solid var(--border-strong); border-radius: 7px;
+}
+button:hover { background: var(--surface-2); }
+button:active { transform: scale(.985); }
+.btn-primary { background: var(--accent); border-color: transparent; color: #fff; }
+.btn-primary:hover { filter: brightness(1.08); background: var(--accent); }
+.btn-danger { background: var(--danger-bg); border-color: transparent; color: var(--danger); }
+
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot-open { background: var(--ok); }
+.dot-connecting, .dot-reconnecting { background: var(--warn); }
+.dot-closed { background: var(--muted); }
+/* Open, but nobody is waiting on it — hollow, so it reads as neither live nor done. */
+.dot-stale { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
+
+/* -------------------------------------------------------------- dashboard */
+
+.session-list { list-style: none; margin: 0 0 8px; padding: 0; }
+.session-list a {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px;
+  background: var(--surface); color: inherit; text-decoration: none;
+}
+.session-list a:hover { border-color: var(--border-strong); }
+.row-title { flex: 1; font-size: 14px; }
+.row-meta { font-size: 12px; color: var(--muted); }
+
+button.subtle { border-color: transparent; color: var(--muted); }
+button.subtle:hover { color: var(--text); border-color: var(--border); }
+
+/* Leftovers from earlier runs: present and reachable, but folded away so the
+   sessions that actually want you are the only thing at eye level. */
+.stale-group { margin: 22px 0 8px; }
+.stale-group > summary {
+  cursor: pointer; font-size: 13px; color: var(--muted); padding: 6px 0;
+  list-style: none;
+}
+.stale-group > summary::-webkit-details-marker { display: none; }
+.stale-group > summary::before { content: "▸ "; }
+.stale-group[open] > summary::before { content: "▾ "; }
+.stale-group > summary:hover { color: var(--text); }
+.stale-note { font-size: 12.5px; margin: 2px 0 8px; }
+.stale-group .session-list { margin-top: 8px; }
+.stale-group .session-list a { background: transparent; }
+
+/* Collapsed multiline inputs — same reasoning as the comment box: a big empty
+   textarea dominates a page and reads as an obligation. */
+.long-text > summary {
+  cursor: pointer; font-size: 13px; color: var(--muted); padding: 6px 9px;
+  border: 1px dashed var(--border-strong); border-radius: 7px;
+  list-style: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.long-text > summary::-webkit-details-marker { display: none; }
+.long-text > summary:hover { color: var(--text); border-color: var(--muted); }
+.long-text[open] > summary { border-style: solid; margin-bottom: 6px; }
+
+/* ---------------------------------------------------------------- library */
+
+.library input[type="search"] { margin-bottom: 4px; }
+.library-list { list-style: none; margin: 12px 0 0; padding: 0; }
+.library-row {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+  padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); margin-bottom: 8px;
+}
+.library-main { min-width: 0; }
+.library-name { font-size: 14.5px; font-weight: 500; margin-right: 8px; }
+.library-slug { font-size: 12px; color: var(--muted); }
+.library-desc { margin: 4px 0 0; font-size: 13px; }
+.library-meta { margin: 3px 0 0; font-size: 11.5px; color: var(--muted); }
+.library-actions { display: flex; gap: 6px; flex: none; }
+.tag-pin {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em;
+  background: var(--warn-bg); color: var(--warn); border-radius: 999px; padding: 1px 7px;
+}
+
+/* Answering from the inbox: one click, no navigation. */
+.quick-answer { display: flex; gap: 6px; margin: -2px 0 8px 26px; }
+.quick-answer button { font-size: 12.5px; padding: 4px 12px; }
+
+/* Back to the inbox from inside a widget. Quiet, but always in the same place. */
+.home-link {
+  display: inline-flex; align-items: center; gap: 6px; margin-bottom: 6px;
+  font-size: 12px; color: var(--muted); text-decoration: none;
+}
+.home-link:hover { color: var(--text); }
+.home-count {
+  background: var(--accent-bg); color: var(--accent);
+  border-radius: 999px; padding: 1px 8px; font-size: 11px;
+}
+.dashboard .session-head a { color: var(--accent); text-decoration: none; }
+.dashboard .session-head a:hover { text-decoration: underline; }
