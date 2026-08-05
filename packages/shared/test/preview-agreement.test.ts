@@ -123,3 +123,97 @@ describe("motion groups", () => {
     expect(viewsOf(spec)).toEqual(["ruler"]);
   });
 });
+
+/**
+ * Declared views: the middle ground between accepting inference and writing a
+ * whole previewModule.
+ *
+ * The failure this has to avoid is a heading with nothing under it. A view that
+ * cannot draw the control it was given, or a panel below the view's minimum,
+ * would render as an empty section — so both are parse errors naming the
+ * control and the view, rather than something you discover by looking.
+ */
+describe("declared preview.views", () => {
+  const twoColours = [
+    { id: "accent", label: "Accent", type: "color", default: "#ef9f27" },
+    { id: "surface", label: "Surface", type: "color", default: "#1c1c1a" },
+  ];
+
+  it("replaces inference entirely rather than adding to it", () => {
+    // Inference alone would give swatch + card here.
+    expect(viewsOf(build(twoColours))).toEqual(["swatch", "card"]);
+    const declared = build(twoColours, { preview: { views: [{ view: "swatch", controls: ["accent"] }] } });
+    expect(viewsOf(declared)).toEqual(["swatch"]);
+    expect(planPreview(declared).panels[0]?.controls.map((c) => c.id)).toEqual(["accent"]);
+  });
+
+  it("keeps the author's order, not the spec's", () => {
+    const spec = build(twoColours, { preview: { views: [{ view: "swatch", controls: ["surface", "accent"] }] } });
+    expect(planPreview(spec).panels[0]?.controls.map((c) => c.id)).toEqual(["surface", "accent"]);
+  });
+
+  it("uses the declared title over the view's own label", () => {
+    const spec = build(twoColours, { preview: { views: [{ view: "swatch", controls: ["accent"], title: "Brand" }] } });
+    expect(planPreview(spec).panels[0]?.title).toBe("Brand");
+  });
+
+  it("lets an author split one bucket into several panels", () => {
+    // Not expressible by inference at all: two swatch panels over the same type.
+    const spec = build(twoColours, {
+      preview: {
+        views: [
+          { view: "swatch", controls: ["accent"], title: "Brand" },
+          { view: "swatch", controls: ["surface"], title: "Chrome" },
+        ],
+      },
+    });
+    expect(viewsOf(spec)).toEqual(["swatch", "swatch"]);
+    expect(planPreview(spec).panels.map((p) => p.title)).toEqual(["Brand", "Chrome"]);
+  });
+
+  it("marks declared panels as declared, so nothing treats them as guesses", () => {
+    const spec = build(twoColours, { preview: { views: [{ view: "swatch", controls: ["accent"] }] } });
+    expect(planPreview(spec).panels[0]?.declared).toBe(true);
+    expect(planPreview(build(twoColours)).panels[0]?.declared).toBe(false);
+  });
+
+  it("rejects a view that cannot draw the control it was given", () => {
+    const result = parseSpec({
+      title: "T",
+      controls: [{ id: "verbose", label: "Verbose", type: "toggle", default: false }],
+      preview: { views: [{ view: "swatch", controls: ["verbose"] }] },
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toMatch(/"swatch" view draws color/);
+    expect(result.message).toMatch(/verbose/);
+  });
+
+  it("rejects a control id that does not exist", () => {
+    const result = parseSpec({
+      title: "T",
+      controls: twoColours,
+      preview: { views: [{ view: "swatch", controls: ["nope"] }] },
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toMatch(/not a declared control id/);
+  });
+
+  it("rejects an unknown view by name", () => {
+    const result = parseSpec({
+      title: "T",
+      controls: twoColours,
+      preview: { views: [{ view: "hologram", controls: ["accent"] }] },
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it("still opens a frame for a declared state line only if something draws", () => {
+    const spec = build([{ id: "retries", label: "Retries", type: "number", default: 3 }], {
+      preview: { views: [{ view: "state", controls: ["retries"] }] },
+    });
+    expect(viewsOf(spec)).toEqual(["state"]);
+    expect(shouldAutoPreview(spec)).toBe(false);
+  });
+});

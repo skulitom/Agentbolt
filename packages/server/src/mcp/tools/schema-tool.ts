@@ -8,6 +8,8 @@ import {
   InterfaceSpec,
   PREVIEW_MODULE_CONTRACT,
   PREVIEW_IMPORTS,
+  PREVIEW_VIEWS,
+  PREVIEW_VIEW_NAMES,
 } from "@agentui/shared";
 import { fail, text } from "./shared.js";
 import { SCHEMA_OF, SCHEMA_TYPE } from "./schemas.js";
@@ -60,6 +62,7 @@ export function registerSchemaTool(server: McpServer): void {
         "",
         `of:"control" with type:"slider" | ${CONTROL_TYPES.slice(1).map((t) => `"${t}"`).join(" | ")}`,
         `of:"content" with type:${CONTENT_KINDS.map((k) => `"${k}"`).join(" | ")}`,
+        `of:"view" for the preview views usable in preview.views (${PREVIEW_VIEW_NAMES.join(", ")})`,
         'of:"spec" for the whole InterfaceSpec; of:"preview-module" for the module contract.',
       ].join("\n"),
       inputSchema: { of: SCHEMA_OF, type: SCHEMA_TYPE },
@@ -102,6 +105,43 @@ export function registerSchemaTool(server: McpServer): void {
           return {
             content: text(JSON.stringify(asJsonSchema(variant), null, 2)),
             structuredContent: { of: args.of, type: args.type, schema: asJsonSchema(variant) },
+          };
+        }
+
+        case "view": {
+          // Not a JSON Schema: what an author needs about a view is what it
+          // DRAWS and what it accepts, which is the registry itself.
+          const names = args.type ? [args.type] : PREVIEW_VIEW_NAMES;
+          const unknown = names.filter((name) => !PREVIEW_VIEWS[name]);
+          if (unknown.length) {
+            return fail(`No preview view "${unknown[0]}". Declared: ${PREVIEW_VIEW_NAMES.join(", ")}.`);
+          }
+          const rows = names.map((name) => {
+            const view = PREVIEW_VIEWS[name]!;
+            const accepts = view.accepts === "*" ? "any control" : [...view.accepts].join(", ");
+            return {
+              view: name,
+              label: view.label,
+              accepts,
+              minControls: view.min ?? 1,
+              opensAFrame: view.draws,
+            };
+          });
+          return {
+            content: text(
+              [
+                "Views for `preview.views: [{ view, controls, title? }]`.",
+                "Declaring any view replaces inference entirely.",
+                "",
+                ...rows.map(
+                  (r) =>
+                    `  ${r.view.padEnd(8)} ${r.label.padEnd(13)} draws: ${r.accepts}` +
+                    (r.minControls > 1 ? ` (needs ${r.minControls}+)` : "") +
+                    (r.opensAFrame ? "" : "  — never opens a frame on its own"),
+                ),
+              ].join("\n"),
+            ),
+            structuredContent: { of: args.of, ...(args.type ? { type: args.type } : {}), schema: rows },
           };
         }
 

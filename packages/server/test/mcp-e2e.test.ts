@@ -260,9 +260,17 @@ describe("the schema an agent can see", () => {
     const { tools } = await client.listTools();
     const sizeOf = (name: string) => JSON.stringify(tools.find((t) => t.name === name)?.inputSchema ?? {}).length;
 
-    // ~4 chars per token. The full InterfaceSpec alone is ~8,100 chars.
-    expect(sizeOf("ui_create"), "ui_create.inputSchema has grown past its budget").toBeLessThan(2500);
-    expect(sizeOf("ui_ask"), "ui_ask.inputSchema has grown past its budget").toBeLessThan(3000);
+    // ~4 chars per token. The full InterfaceSpec alone is ~7,700 chars, so what
+    // these numbers are really guarding against is someone inlining it.
+    //
+    // Raised once, deliberately, when `preview.views` was added: +325 tokens
+    // across the three spec-bearing schemas. Paid because the list of view
+    // names is exactly the thing an agent cannot guess, and a vocabulary you
+    // have to discover by failed call is the problem the shallow schema exists
+    // to solve. Raising these should always be a decision with a reason, which
+    // is the entire point of the test.
+    expect(sizeOf("ui_create"), "ui_create.inputSchema has grown past its budget").toBeLessThan(3000);
+    expect(sizeOf("ui_ask"), "ui_ask.inputSchema has grown past its budget").toBeLessThan(3400);
   });
 
   it("has no defaulted field in an exposed schema, which zod would emit as required", async () => {

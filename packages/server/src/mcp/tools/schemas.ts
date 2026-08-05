@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CONTENT_KINDS, CONTROL_TYPES, FieldShorthand } from "@agentui/shared";
+import { CONTENT_KINDS, CONTROL_TYPES, FieldShorthand, PREVIEW_VIEW_NAMES } from "@agentui/shared";
 
 /**
  * What the AGENT sees of the spec.
@@ -51,14 +51,30 @@ export const ASK_CONTENT = z
   .optional()
   .describe("Something to look at: a markdown string, or content blocks.");
 
-export const ASK_PREVIEW = z
-  .looseObject({
-    auto: z.boolean().optional(),
-    height: z.number().int().optional(),
-    position: z.enum(["top", "right"]).optional(),
-  })
-  .optional()
-  .describe("{ auto: false } declines the generated preview — use it when a sample or compare already shows the effect.");
+/**
+ * Shared by ui_ask and ui_create. `views` is spelled out rather than left to
+ * pass through, because it is the one preview field an agent cannot guess: the
+ * list of view names is the whole vocabulary.
+ */
+const PREVIEW_OPTIONS = z.looseObject({
+  auto: z.boolean().optional(),
+  height: z.number().int().optional(),
+  position: z.enum(["top", "right"]).optional(),
+  views: z
+    .array(
+      z.looseObject({
+        view: z.enum(PREVIEW_VIEW_NAMES as [string, ...string[]]),
+        controls: z.array(z.string()),
+        title: z.string().optional(),
+      }),
+    )
+    .optional()
+    .describe("Arrange the generated preview yourself. Declaring any view replaces inference entirely."),
+});
+
+export const ASK_PREVIEW = PREVIEW_OPTIONS.optional().describe(
+  "{ auto: false } declines the generated preview — use it when a sample or compare already shows the effect. `views` arranges it by hand.",
+);
 
 /* --------------------------------------------------------------- ui_create */
 
@@ -79,13 +95,7 @@ export const CREATE_SPEC = z
       )
       .optional(),
     actions: z.array(z.looseObject({ id: z.string(), label: z.string() })).optional(),
-    preview: z
-      .looseObject({
-        auto: z.boolean().optional(),
-        height: z.number().int().optional(),
-        position: z.enum(["top", "right"]).optional(),
-      })
-      .optional(),
+    preview: PREVIEW_OPTIONS.optional(),
   })
   .optional()
   .describe(
@@ -95,7 +105,7 @@ export const CREATE_SPEC = z
 /* --------------------------------------------------------------- ui_schema */
 
 export const SCHEMA_OF = z
-  .enum(["spec", "control", "content", "preview-module"])
+  .enum(["spec", "control", "content", "view", "preview-module"])
   .describe("Which part of the vocabulary to describe.");
 
 export const SCHEMA_TYPE = z

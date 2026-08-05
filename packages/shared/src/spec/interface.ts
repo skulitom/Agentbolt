@@ -3,6 +3,7 @@ import { idField, Control } from "./control-schemas.js";
 import { behaviourFor } from "./control-registry.js";
 import { ContentBlock, contentBehaviourFor } from "./content-blocks.js";
 import { formatSpecError } from "./errors.js";
+import { PREVIEW_VIEWS, PREVIEW_VIEW_NAMES, viewAccepts } from "../preview-plan.js";
 
 /**
  * The Interface Spec: the JSON an agent authors to describe a widget.
@@ -56,6 +57,31 @@ export const PreviewOptions = z.strictObject({
    * declaring any unrelated layout field silently moved the frame.
    */
   position: z.enum(["top", "right"]).default("right"),
+  /**
+   * Arrange the generated preview yourself, instead of letting it infer.
+   *
+   * This is the middle ground the vocabulary was missing. Before it there were
+   * two options: accept whatever inference produced, or write an entire
+   * `previewModule` — a hundred lines of DOM to say "put these two colours in a
+   * gradient rather than two swatches". Declaring panels costs one line each and
+   * still gets the animation policy, the keyed reconciliation and the range
+   * handling for free.
+   *
+   * Declaring ANY view replaces inference completely rather than adding to it.
+   * Merging would mean an author who wanted one thing moved could not stop the
+   * inferred copy of it appearing as well.
+   */
+  views: z
+    .array(
+      z.strictObject({
+        view: z.enum(PREVIEW_VIEW_NAMES as [string, ...string[]]),
+        /** Control ids, in the order they should be drawn. */
+        controls: z.array(z.string()).min(1),
+        /** Overrides the view's own heading. */
+        title: z.string().optional(),
+      }),
+    )
+    .optional(),
 });
 
 export const InterfaceSpec = z
@@ -120,6 +146,44 @@ export const InterfaceSpec = z
     spec.content.forEach((block, index) => {
       const at = (...rest: Array<string | number>) => ["content", index, ...rest];
       contentBehaviourFor(block).refine?.(block, at, controlsById, ctx);
+    });
+
+    // A declared panel that names a control the view cannot draw would render
+    // as a heading with nothing under it. Caught here so the author is told
+    // which control and which view, rather than discovering an empty pane.
+    spec.preview?.views?.forEach((declared, index) => {
+      const view = PREVIEW_VIEWS[declared.view];
+      const at = (...rest: Array<string | number>) => ["preview", "views", index, ...rest];
+
+      declared.controls.forEach((id, c) => {
+        const control = controlsById.get(id);
+        if (!control) {
+          const ids = [...controlsById.keys()];
+          ctx.addIssue({
+            code: "custom",
+            path: at("controls", c),
+            message: `"${id}" is not a declared control id (${ids.length ? ids.join(", ") : "this widget has no controls"})`,
+          });
+          return;
+        }
+        if (!viewAccepts(declared.view, control.type)) {
+          const accepts = view?.accepts === "*" ? "any control" : (view?.accepts ?? []).join(", ");
+          ctx.addIssue({
+            code: "custom",
+            path: at("controls", c),
+            message: `the "${declared.view}" view draws ${accepts}, but "${id}" is a ${control.type}`,
+          });
+        }
+      });
+
+      const min = view?.min ?? 1;
+      if (declared.controls.length < min) {
+        ctx.addIssue({
+          code: "custom",
+          path: at("controls"),
+          message: `the "${declared.view}" view needs at least ${min} control${min === 1 ? "" : "s"} to say anything`,
+        });
+      }
     });
   });
 

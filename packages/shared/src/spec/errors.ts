@@ -17,7 +17,7 @@ export interface Ctx {
 }
 
 const DOC_HINT =
-  "See the agentui skill for a worked example, or call ui_schema({ of }) for the full shape of a control or block.";
+  'See the agentui skill for a worked example, or call ui_schema({ of: "control" | "content" | "view" | "spec" }) for the exact shape.';
 
 /**
  * Turns zod issues into per-path one-liners a model can act on directly.
