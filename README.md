@@ -48,6 +48,33 @@ Agent ──stdio/MCP──> [agentui process] ──HTTP/WS──> Browser (Rea
                             └── .agent-ui/sessions/<id>/  └── sandboxed iframe (preview.mjs)
 ```
 
+## Opening a widget on your phone
+
+Off by default, because binding to `127.0.0.1` is not a detail — it is the whole
+security model. There is no login anywhere in this server; loopback is what made
+one unnecessary.
+
+Set `AGENT_UI_HOST=lan` in the `env` of your agent's MCP registration and
+restart it. On startup the server prints an address and a key:
+
+```
+Open on another device on this network:
+  http://192.168.1.112:4608/?k=vckqvceqbzz7
+```
+
+Open that once on the phone; a cookie carries the key from then on, and the
+inbox lists whatever is waiting, so no one types a session id. If the address it
+picks is wrong — a VPN tunnel often outranks your real card — pin the right one
+with `AGENT_UI_HOST=192.168.1.112`.
+
+**What you are trading.** Traffic is plain HTTP, because a self-signed
+certificate on a LAN address produces a full-page warning on exactly the phone
+this exists to serve. Anyone on that network holding the key can read what the
+agent attached — diffs, file contents, screenshots — and *answer for you*: their
+decision reaches your agent as though it were yours. That is a fair trade on a
+home network and a bad one on cafe or hotel wifi. Your phone also has to be on
+the same network; this does nothing over cellular.
+
 ## Development
 
 ```bash
