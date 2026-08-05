@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { HOST, candidateOriginsAllProjects } from "../core/ports.js";
+import { accessMode, lanAddresses } from "./access.js";
 import { log } from "../log.js";
 
 /**
@@ -12,7 +13,19 @@ import { log } from "../log.js";
  * standard defence — a rebound request cannot forge it, because the browser
  * sets it from the URL the attacker had to use.
  */
-const ALLOWED_HOSTNAMES = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
+const LOOPBACK_HOSTNAMES = ["127.0.0.1", "localhost", "[::1]", "::1"];
+
+/**
+ * Loopback always; this machine's own LAN addresses only when network access
+ * was switched on.
+ *
+ * Deliberately the SPECIFIC addresses rather than "anything that is not a
+ * name": the whole point of the check is that a rebound request cannot forge
+ * the Host header, and a wildcard would give that away.
+ */
+function allowedHostnames(): Set<string> {
+  return new Set(accessMode() === "lan" ? [...LOOPBACK_HOSTNAMES, ...lanAddresses()] : LOOPBACK_HOSTNAMES);
+}
 
 function hostnameOf(hostHeader: string | undefined): string | undefined {
   if (!hostHeader) return undefined;
@@ -23,7 +36,7 @@ function hostnameOf(hostHeader: string | undefined): string | undefined {
 
 export function hostGuard(req: Request, res: Response, next: NextFunction): void {
   const hostname = hostnameOf(req.headers.host);
-  if (hostname && ALLOWED_HOSTNAMES.has(hostname)) {
+  if (hostname && allowedHostnames().has(hostname)) {
     next();
     return;
   }
@@ -33,7 +46,7 @@ export function hostGuard(req: Request, res: Response, next: NextFunction): void
 
 export function isAllowedHostHeader(hostHeader: string | undefined): boolean {
   const hostname = hostnameOf(hostHeader);
-  return Boolean(hostname && ALLOWED_HOSTNAMES.has(hostname));
+  return Boolean(hostname && allowedHostnames().has(hostname));
 }
 
 /**

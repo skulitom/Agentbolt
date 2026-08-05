@@ -4,6 +4,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { ClientMessage, WS_PATH, type ServerMessage, type SessionEvent } from "@agentui/shared";
 import type { Outbound, SessionManager } from "../core/session-manager.js";
 import { candidateOriginsAllProjects } from "../core/ports.js";
+import { upgradeIsAllowed } from "./access.js";
 import { isAllowedHostHeader } from "./security.js";
 import { log } from "../log.js";
 
@@ -40,6 +41,15 @@ export function attachWebSocket(server: http.Server, sessions: SessionManager): 
       socket.destroy();
       return;
     }
+    // Same key as every other request. Without this the socket would be the
+    // one door on the network with no lock: the HTTP guard would hold and a
+    // raw WebSocket client could still drive every session.
+    if (!upgradeIsAllowed(req.headers.host, req.headers.cookie)) {
+      log.warn("ws upgrade rejected: no valid key", { host: req.headers.host });
+      socket.destroy();
+      return;
+    }
+
     const origin = req.headers.origin;
     if (origin !== undefined && !ALLOWED_ORIGINS.has(origin)) {
       log.warn("ws upgrade rejected: bad Origin", origin);

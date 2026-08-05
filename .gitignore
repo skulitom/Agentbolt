@@ -5,6 +5,11 @@ dist/
 # AgentUI runtime data (sessions, per-project widget library)
 .agent-ui/
 
+# Prime Agent project state. Its settings/extensions/skills under .prime/agent/ are
+# shareable and stay tracked; these two are machine-local.
+.prime/agent/sessions/
+.prime/agent/kernel-venv/
+
 # Vendored at build time from node_modules/three
 packages/ui/public/vendor/
 

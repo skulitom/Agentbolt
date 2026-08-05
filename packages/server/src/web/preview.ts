@@ -5,6 +5,7 @@ import express, { type Express } from "express";
 import type { SessionManager } from "../core/session-manager.js";
 import { webRoot } from "../core/paths.js";
 import { isAllowedHostHeader } from "./security.js";
+import { accessGuard } from "./access.js";
 import { log } from "../log.js";
 
 /**
@@ -28,11 +29,15 @@ export function createPreviewApp(sessions: SessionManager): Express {
 
   app.use((req, res, next) => {
     if (!isAllowedHostHeader(req.headers.host)) {
-      res.status(403).type("text/plain").send("AgentUI preview only serves localhost.\n");
+      res.status(403).type("text/plain").send("AgentUI preview only serves this machine.\n");
       return;
     }
     next();
   });
+  // A separate ORIGIN but the same HOST, and cookies are scoped by host rather
+  // than by port — so the one pairing that unlocked the shell also unlocks
+  // this, with no second key for the user to carry.
+  app.use(accessGuard);
 
   // The agent's module. Never cached — ui_update rewrites it and the frame must
   // pick up the new one on reload.

@@ -1,5 +1,6 @@
 import net from "node:net";
 import { dataDir } from "./paths.js";
+import { accessMode, bindHost, lanAddresses } from "../web/access.js";
 import { log } from "../log.js";
 
 /**
@@ -90,12 +91,23 @@ export function candidatePorts(): number[] {
   return ports;
 }
 
-/** Every origin ANY project on this machine could serve from. */
+/**
+ * Every origin ANY project on this machine could serve from.
+ *
+ * Includes the LAN addresses when network access is on, because a page served
+ * to a phone has THAT origin — without it the origin guard would reject writes
+ * from our own page and the widget would render but refuse every answer.
+ */
 export function candidateOriginsAllProjects(): string[] {
+  // Gated on the MODE, not merely on the machine having a LAN address. Adding
+  // these unconditionally would mean a page served from 192.168.x.y counted as
+  // one of ours on a server that never agreed to answer the network — widening
+  // the trust set for everybody to buy a feature almost nobody switched on.
+  const hosts = accessMode() === "lan" ? [HOST, ...lanAddresses()] : [HOST];
   const origins: string[] = [];
   for (let i = 0; i < PORT_SLOTS; i++) {
     const shell = PORT_BASE + i * 2;
-    origins.push(`http://${HOST}:${shell}`, `http://${HOST}:${shell + 1}`);
+    for (const host of hosts) origins.push(`http://${host}:${shell}`, `http://${host}:${shell + 1}`);
   }
   return origins;
 }
@@ -124,7 +136,10 @@ function tryListen(server: net.Server | import("node:http").Server, port: number
     };
     server.once("error", onError);
     server.once("listening", onListening);
-    server.listen(port, HOST);
+    // May be 0.0.0.0 when network access is switched on. HOST stays 127.0.0.1
+    // for every URL we generate — turning this on ADDS reachability, it does
+    // not move it.
+    server.listen(port, bindHost());
   });
 }
 

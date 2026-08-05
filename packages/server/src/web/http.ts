@@ -8,6 +8,7 @@ import type { Library } from "../core/library.js";
 import { openSavedWidget } from "../core/library-open.js";
 import { createPreviewApp } from "./preview.js";
 import { crossOriginWriteGuard, hostGuard, peerCors, trustOwnOrigins } from "./security.js";
+import { accessGuard, exposureBanner } from "./access.js";
 import { log } from "../log.js";
 
 export interface WebServer {
@@ -44,6 +45,8 @@ export async function startWebServer(
 
   app.disable("x-powered-by");
   app.use(hostGuard);
+  // Loopback passes straight through; anything from the network needs the key.
+  app.use(accessGuard);
   app.use(crossOriginWriteGuard);
   app.use(express.json({ limit: "8mb" }));
 
@@ -275,6 +278,11 @@ export async function startWebServer(
   const previewOrigin = `http://${HOST}:${previewPort}`;
 
   log.info("web server ready", { origin, previewOrigin, project: projectName() });
+
+  // Printed rather than logged as structured fields: this is the one thing the
+  // user has to read and act on, and the address plus key is useless wrapped in
+  // JSON. Empty unless network access was switched on.
+  for (const line of exposureBanner(shellPort)) log.warn(line);
 
   return {
     server,

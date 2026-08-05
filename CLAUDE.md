@@ -13,7 +13,7 @@ human with sliders, forms, diffs and live previews instead of guessing.
 
 ```bash
 pnpm build     # shared -> ui -> server (vendors three.js, copies the shell into server/web)
-pnpm test      # 378 tests; the server suite runs against the real built binary over stdio
+pnpm test      # 394 tests; the server suite runs against the real built binary over stdio
 pnpm typecheck
 ```
 
@@ -25,6 +25,12 @@ about this project, so building the tool and using it are the same activity.
 
 ## Things that will bite you
 
+- **Loopback is the entire security model, until it is not.** There is no login
+  anywhere in this server: 127.0.0.1 is what makes it safe. `AGENT_UI_HOST=lan`
+  (or an explicit address) trades that for reachability and MUST carry the token
+  in `web/access.ts` — the shell, the preview origin AND the WebSocket upgrade.
+  Anyone who reaches a widget can read what the agent attached and *answer as
+  you*. It is off by default and prints what it is giving away.
 - **stdout belongs to the MCP transport.** `protectStdout()` redirects
   `console.*` to stderr and blocks stray writes; the transport gets the only
   remaining handle. A single stray print corrupts every message after it.
