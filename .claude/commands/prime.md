@@ -16,26 +16,44 @@ provider auth, and its own session store in `~/.prime/agent/sessions/`.
 It discovers `CLAUDE.md` natively by walking up from its cwd, so it already sees this
 repo's conventions. Do not paste CLAUDE.md into the prompt.
 
+## Required environment (Windows)
+
+Prime Agent 0.7.0 auto-bootstraps its kernel at `kernel-venv/bin/python` — the POSIX
+layout. On Windows the interpreter is at `kernel-venv/Scripts/python.exe`, so the
+bootstrap fails, and a failed bootstrap recreates the venv and wipes what is in it.
+Every invocation below must export the override first, or the agent runs with no tools
+at all and can only answer from context:
+
+```bash
+export PRIME_AGENT_KERNEL_PYTHON='C:\Users\artem\.prime\agent\kernel-venv\Scripts\python.exe'
+```
+
+That venv is provisioned with `ipykernel`, `prime-agent-runtime`, and the default set
+(`requests httpx pyyaml tomli python-dotenv pandas numpy scipy beautifulsoup4 lxml
+pydantic`). If the agent reports missing packages, install them into that same
+interpreter with `uv pip install --python <path> <pkgs>` — never let the broken
+auto-bootstrap try, since it clears the venv on failure.
+
 ## Invoking it
 
 One-shot, prints the final response and exits:
 
 ```bash
-prime-agent -p --cwd "C:/DEV/AgentUI" "<task>"
+export PRIME_AGENT_KERNEL_PYTHON='C:\Users\artem\.prime\agent\kernel-venv\Scripts\python.exe'; prime-agent -p --cwd "C:/DEV/AgentUI" "<task>"
 ```
 
 Long or open-ended work — run it in the background and read the log, rather than
 blocking a foreground Bash call for minutes:
 
 ```bash
-prime-agent -p --cwd "C:/DEV/AgentUI" "<task>" > .prime-run.log 2>&1
+export PRIME_AGENT_KERNEL_PYTHON='C:\Users\artem\.prime\agent\kernel-venv\Scripts\python.exe'; prime-agent -p --cwd "C:/DEV/AgentUI" "<task>" > .prime-run.log 2>&1
 ```
 
 Bounded autonomous run, when the task needs many turns to converge. Every limit is a
 hard stop, and hitting one does NOT mean the task succeeded — check the output:
 
 ```bash
-prime-agent -p --cwd "C:/DEV/AgentUI" --autonomous --autonomous-max-turns 8 --autonomous-timeout-ms 900000 "<task>"
+export PRIME_AGENT_KERNEL_PYTHON='C:\Users\artem\.prime\agent\kernel-venv\Scripts\python.exe'; prime-agent -p --cwd "C:/DEV/AgentUI" --autonomous --autonomous-max-turns 8 --autonomous-timeout-ms 900000 "<task>"
 ```
 
 Useful flags: `--mode json` (event stream, for parsing), `-c` (continue previous
