@@ -277,7 +277,7 @@ pub async fn effects_loop(
                         ui.counts(open, digest);
                         push.on_counts(ntfy::Counts { open, digest, next_deadline });
                     }
-                    Event::Effect(Effect::Toast { ask_id, title, body, buttons }) => {
+                    Event::Effect(Effect::Toast { ask_id, tag, suppress_popup, title, body, buttons }) => {
                         if !toasts {
                             info!("toast for ask {ask_id} skipped: headless");
                         } else if paused {
@@ -288,7 +288,8 @@ pub async fn effects_loop(
                             }
                             let buttons = toast_buttons(buttons, handler_ok);
                             let names = shared.names.clone();
-                            tokio::task::spawn_blocking(move || show_toast(&names, &ask_id, &title, &body, &buttons));
+                            // Preserve replacement order: an older count must not overwrite a newer one.
+                            let _ = tokio::task::spawn_blocking(move || show_toast(&names, &ask_id, &tag, suppress_popup, &title, &body, &buttons)).await;
                         }
                     }
                     Event::Effect(Effect::CodexQueue { ask_id, thread, text }) => {
@@ -332,15 +333,23 @@ fn send_push(shared: &Shared, counts: &ntfy::Counts) {
     }
 }
 
-fn show_toast(names: &Names, ask_id: &str, title: &str, body: &str, buttons: &[(String, String)]) {
+fn show_toast(
+    names: &Names,
+    ask_id: &str,
+    tag: &str,
+    suppress_popup: bool,
+    title: &str,
+    body: &str,
+    buttons: &[(String, String)],
+) {
     #[cfg(windows)]
-    match crate::toast::show(names, ask_id, title, body, buttons) {
+    match crate::toast::show(names, tag, suppress_popup, title, body, buttons) {
         Ok(()) => info!("toast shown for ask {ask_id} ({} buttons)", buttons.len()),
         Err(e) => warning!("ask {ask_id}: {e}"),
     }
     #[cfg(not(windows))]
     {
-        let _ = (names, title, body, buttons);
+        let _ = (names, tag, suppress_popup, title, body, buttons);
         info!("toast for ask {ask_id} skipped: toasts are Windows-only");
     }
 }

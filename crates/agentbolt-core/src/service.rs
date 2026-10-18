@@ -24,6 +24,10 @@ pub enum Effect {
     /// Show a toast for this ask. Buttons carry per-button tokens (reversible choose/approve asks only).
     Toast {
         ask_id: String,
+        /// Stable, opaque owner tag: updates replace the same notification.
+        tag: String,
+        /// A waiting-count update goes to Notification Center without another popup.
+        suppress_popup: bool,
         title: String,
         body: String,
         buttons: Vec<(String, String)>,

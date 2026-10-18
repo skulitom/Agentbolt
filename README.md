@@ -33,6 +33,10 @@ agent ──stdio──► agentbolt mcp ──user-only pipe──► agentbolt
   applied that way carries no authority of yours.
 - **Inbox:** every question appears immediately, ordered by priority and then deadline. Each owner can have
   three open questions; duplicates are merged. There is no daily budget or Digest.
+- **Noise control:** one silent toast popup per owner per ten minutes; additional eligible questions update
+  the same notification with “N more waiting”. P2 questions notify when due within two hours. Mark a question
+  **Not needed** to tell the agent it was unnecessary, or **Mute this agent** to keep its questions silently at
+  the bottom until unmuted. The Desk counts unnecessary questions per owner.
 
 ## Install
 ```powershell

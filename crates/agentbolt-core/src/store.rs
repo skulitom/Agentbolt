@@ -116,6 +116,14 @@ ALTER TABLE asks ADD COLUMN asking_cwd TEXT;
     r#"
 ALTER TABLE owners ADD COLUMN muted INTEGER NOT NULL DEFAULT 0;
 "#,
+    r#"
+ALTER TABLE owners ADD COLUMN last_toast_ms INTEGER;
+ALTER TABLE owners ADD COLUMN toast_head TEXT;
+ALTER TABLE asks ADD COLUMN toast_notified INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX asks_toast_pending ON asks(status, toast_notified, deadline_ms);
+UPDATE owners SET last_toast_ms = (SELECT MAX(t.created_ms) FROM toasts t JOIN asks a ON a.id = t.ask_id WHERE a.owner = owners.name);
+UPDATE asks SET toast_notified = 1 WHERE id IN (SELECT ask_id FROM toasts);
+"#,
 ];
 
 pub(crate) fn db_err(e: rusqlite::Error) -> String {

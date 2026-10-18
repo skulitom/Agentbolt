@@ -97,4 +97,10 @@ Not needed and persistent owner mute are implemented on asks, Agents and owner s
 works for every ask kind, approves no option, is counted per owner and revokes outstanding answer tokens.
 Mute survives re-registration, suppresses new toasts and orders that owner's asks below unmuted asks.
 Core regression tests and all-target lint pass; the new controls still need live GUI verification.
-Per-owner toast batching is the remaining implementation part of the third feedback item.
+Toast batching is implemented with a persistent ten-minute owner cooldown and one opaque owner tag.
+Additional eligible asks replace the Notification Center entry with “N more waiting” and `SuppressPopup`;
+the daemon serializes these replacements. P2 asks become eligible at two hours before their deadline, even
+without another MCP call. Tests cover the exact cooldown boundary, separate owners, daemon restart,
+no repeated tick alerts and the existing notification's buttons answering only its displayed ask.
+Windows workspace tests and all-target lint pass. Live toast rendering/activation and the new GUI controls
+remain unverified.

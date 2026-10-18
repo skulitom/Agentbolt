@@ -33,6 +33,8 @@ pub const MAX_DEADLINE_DAYS: i64 = 30;
 pub const MAX_TOAST_BUTTONS: usize = 5;
 /// A P2 ask still gets a toast when it is due within this long.
 pub const URGENT_MS: i64 = 2 * 60 * 60 * 1000;
+/// At most one popup per owner during this interval; waiting-count updates never pop up.
+pub const TOAST_INTERVAL_MS: i64 = 10 * 60 * 1000;
 /// A shown, reversible ask takes its default no sooner than this long after Artem was first shown it, even when
 /// it was already overdue: opening the Desk after a day away mustn't default everything within a second.
 pub const DEFAULT_GRACE_MS: i64 = 60 * 60 * 1000;

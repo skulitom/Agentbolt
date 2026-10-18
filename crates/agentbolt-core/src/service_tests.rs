@@ -1152,7 +1152,7 @@ fn which_asks_get_toasts_and_buttons() {
     assert_eq!(toasts(&fx)[0].1.len(), 2, "due within 2 hours");
     let (_, fx) = t
         .try_ask(
-            &a,
+            &t.register("irreversible-toast-owner"),
             AskInput {
                 reversible: false,
                 ..urgent(&t, "Irreversible")
@@ -1203,6 +1203,105 @@ fn which_asks_get_toasts_and_buttons() {
     );
     assert_eq!(t.svc.mint_toast(&text_ask.id), None);
     assert_eq!(t.svc.mint_toast("ask_missing"), None);
+}
+
+fn toast_details(fx: &[Effect]) -> (String, String, bool, String) {
+    fx.iter()
+        .find_map(|e| match e {
+            Effect::Toast {
+                ask_id,
+                tag,
+                suppress_popup,
+                body,
+                ..
+            } => Some((ask_id.clone(), tag.clone(), *suppress_popup, body.clone())),
+            _ => None,
+        })
+        .expect("a toast or a silent count update")
+}
+
+#[test]
+fn toasts_batch_by_owner_for_ten_minutes_without_delaying_the_inbox() {
+    let t = T::new();
+    let h = t.register("batch-owner");
+    let (one, fx) = t.try_ask(&h, urgent(&t, "One")).unwrap();
+    let first = toast_details(&fx);
+    assert!(!first.2);
+    let (two, fx) = t.try_ask(&h, urgent(&t, "Two")).unwrap();
+    let second = toast_details(&fx);
+    assert_eq!((&second.0, &second.1, second.2), (&one.id, &first.1, true));
+    assert!(second.3.starts_with("1 more waiting."));
+    let (three, fx) = t.try_ask(&h, urgent(&t, "Three")).unwrap();
+    assert!(toast_details(&fx).3.starts_with("2 more waiting."));
+    assert_eq!(t.status().open, 3);
+    // The existing toast's buttons still answer the question shown in its title, never a batched ask.
+    let token = toasts(&fx)[0].1[0].1.clone();
+    let answer = t.token(&token).unwrap();
+    assert_eq!(answer.ask_id, one.id);
+    t.cancel(&h, &two.id).unwrap();
+    t.cancel(&h, &three.id).unwrap();
+    t.advance(Duration::minutes(9) + Duration::seconds(59));
+    let (_, fx) = t.try_ask(&h, urgent(&t, "Before boundary")).unwrap();
+    assert!(toast_details(&fx).2);
+    t.advance(Duration::seconds(1));
+    let (_, fx) = t.try_ask(&h, urgent(&t, "At boundary")).unwrap();
+    assert!(!toast_details(&fx).2);
+    let other = t.register("independent-owner");
+    let (_, fx) = t.try_ask(&other, urgent(&t, "Independent")).unwrap();
+    assert!(!toast_details(&fx).2);
+    assert_ne!(toast_details(&fx).1, first.1);
+}
+
+#[test]
+fn p2_toasts_when_due_within_two_hours_and_never_repeats_on_ticks() {
+    let t = T::new();
+    let h = t.register("p2-owner");
+    let (_, fx) = t
+        .try_ask(
+            &h,
+            t.due_in(
+                t.input("Becomes urgent later"),
+                Duration::hours(2) + Duration::minutes(1),
+            ),
+        )
+        .unwrap();
+    assert!(toasts(&fx).is_empty());
+    t.advance(Duration::seconds(59));
+    assert!(toasts(&t.tick()).is_empty());
+    t.advance(Duration::seconds(1));
+    assert!(!toast_details(&t.tick()).2);
+    assert!(toasts(&t.tick()).is_empty());
+    t.advance(Duration::minutes(11));
+    assert!(toasts(&t.tick()).is_empty());
+}
+
+#[test]
+fn toast_cooldown_survives_a_daemon_restart() {
+    let dir =
+        std::env::temp_dir().join(format!("agentbolt-batch-{}", crate::tokens::random_hex(6)));
+    let path = dir.join("agentbolt.db");
+    let (handle, tag) = {
+        let t = T::with(StoreService::open(&path).unwrap());
+        let h = t.register("persistent-batch");
+        let (_, fx) = t.try_ask(&h, urgent(&t, "Before restart")).unwrap();
+        (h, toast_details(&fx).1)
+    };
+    {
+        let t = T::with(StoreService::open(&path).unwrap());
+        t.advance(Duration::minutes(9));
+        assert!(
+            toasts(&t.tick()).is_empty(),
+            "restart does not replay notifications"
+        );
+        let (_, fx) = t.try_ask(&handle, urgent(&t, "After restart")).unwrap();
+        let detail = toast_details(&fx);
+        assert_eq!(detail.1, tag);
+        assert!(detail.2);
+        t.advance(Duration::minutes(1));
+        let (_, fx) = t.try_ask(&handle, urgent(&t, "After cooldown")).unwrap();
+        assert!(!toast_details(&fx).2);
+    }
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 // ---- rules 9 to 13 ----

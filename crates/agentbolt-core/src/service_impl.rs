@@ -487,17 +487,92 @@ impl Ctx<'_> {
         {
             return Ok(());
         }
-        let buttons = if rules::toast_buttons_allowed(&row.input) {
-            self.mint_buttons(row)?
+        let notified: bool = self
+            .db
+            .query_row(
+                "SELECT toast_notified FROM asks WHERE id = ?1",
+                [&row.id],
+                |r| r.get(0),
+            )
+            .map_err(db_err)?;
+        if notified {
+            return Ok(());
+        }
+        let (last, head): (Option<i64>, Option<String>) = self
+            .db
+            .query_row(
+                "SELECT last_toast_ms, toast_head FROM owners WHERE name = ?1",
+                [&row.owner],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(db_err)?;
+        let suppress_popup =
+            last.is_some_and(|at| self.now < at.saturating_add(rules::TOAST_INTERVAL_MS));
+        let head = if suppress_popup {
+            head.as_deref()
+                .map(|id| self.row(id))
+                .transpose()?
+                .flatten()
+                .filter(|r| {
+                    r.status == AskStatus::Open
+                        && r.owner == row.owner
+                        && rules::toast_worthy(&r.input, r.deadline_ms, self.now)
+                })
+        } else {
+            None
+        };
+        let head = head.as_ref().unwrap_or(row);
+        let count = store::count(self.db,
+            "SELECT COUNT(*) FROM asks WHERE owner = ?1 AND status = 'open' AND (priority <> 'P2' OR deadline_ms <= ?2)",
+            params![row.owner, self.now + rules::URGENT_MS]).map_err(db_err)?;
+        self.db.execute(
+            "UPDATE asks SET toast_notified = 1 WHERE owner = ?1 AND status = 'open' AND (priority <> 'P2' OR deadline_ms <= ?2)",
+            params![row.owner, self.now + rules::URGENT_MS]).map_err(db_err)?;
+        self.db.execute(
+            "UPDATE owners SET last_toast_ms = CASE WHEN ?1 THEN last_toast_ms ELSE ?2 END, toast_head = ?3 WHERE name = ?4",
+            params![suppress_popup, self.now, head.id, row.owner]).map_err(db_err)?;
+        let buttons = if rules::toast_buttons_allowed(&head.input) {
+            self.mint_buttons(head)?
         } else {
             Vec::new()
         };
+        let more = count.saturating_sub(1);
+        let body = rules::toast_body(&head.owner, &head.input.body);
+        let body = if more > 0 {
+            format!("{more} more waiting. {body}")
+        } else {
+            body
+        };
+        use sha2::Digest;
+        let tag = hex::encode(&sha2::Sha256::digest(row.owner.as_bytes())[..8]);
+        self.event(
+            "toast.batched",
+            &head.id,
+            json!({"owner":row.owner,"more":more,"suppress_popup":suppress_popup}),
+        )?;
         self.effects.push(Effect::Toast {
-            ask_id: row.id.clone(),
-            title: row.input.title.clone(),
-            body: rules::toast_body(&row.owner, &row.input.body),
+            ask_id: head.id.clone(),
+            tag,
+            suppress_popup,
+            title: head.input.title.clone(),
+            body,
             buttons,
         });
+        Ok(())
+    }
+
+    /// P2 asks become eligible when their deadlines approach, even with no new MCP traffic.
+    fn due_toasts(&mut self) -> Result<(), String> {
+        let settings = self.settings()?;
+        if settings.toasts_off {
+            return Ok(());
+        }
+        let rows = store::ask_rows(self.db,
+            "status = 'open' AND toast_notified = 0 AND muted = 0 AND (priority <> 'P2' OR deadline_ms <= ?1)
+             ORDER BY priority, deadline_ms, created_ms, rowid", [self.now + rules::URGENT_MS]).map_err(db_err)?;
+        for row in rows {
+            self.maybe_toast(&row, &settings)?;
+        }
         Ok(())
     }
 
@@ -1251,6 +1326,7 @@ impl Service for StoreService {
         let now = store::to_ms(now);
         self.write(now, |c| {
             c.apply_defaults()?;
+            c.due_toasts()?;
             let expired =
                 c.db.execute(
                     "DELETE FROM agents WHERE last_seen_ms < ?1",

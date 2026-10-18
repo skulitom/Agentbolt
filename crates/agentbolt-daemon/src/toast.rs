@@ -118,11 +118,12 @@ pub fn xml(names: &Names, title: &str, body: &str, buttons: &[(String, String)])
     x
 }
 
-/// Show the toast. Tagged with the ask id so a later version could withdraw it.
+/// One Notification Center entry per owner; count updates replace it without showing another popup.
 #[cfg(windows)]
 pub fn show(
     names: &Names,
-    ask_id: &str,
+    tag: &str,
+    suppress_popup: bool,
     title: &str,
     body: &str,
     buttons: &[(String, String)],
@@ -135,15 +136,16 @@ pub fn show(
         let doc = XmlDocument::new()?;
         doc.LoadXml(&HSTRING::from(xml(names, title, body, buttons)))?;
         let toast = ToastNotification::CreateToastNotification(&doc)?;
-        let tag: String = ask_id
+        let tag: String = tag
             .chars()
             .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
-            .take(64)
+            .take(16)
             .collect();
         if !tag.is_empty() {
             toast.SetTag(&HSTRING::from(tag))?;
             toast.SetGroup(&HSTRING::from("asks"))?;
         }
+        toast.SetSuppressPopup(suppress_popup)?;
         ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(&names.aumid))?
             .Show(&toast)
     };
