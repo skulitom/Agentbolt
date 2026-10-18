@@ -121,7 +121,7 @@ fn warm_desk_reopens_fast_without_showing_unseen_asks() {
     unsafe {
         GetWindowThreadProcessId(hwnd, Some(&mut warm_pid));
     }
-    if std::env::var_os("AGENTBOLT_MEASURE_IDLE").is_some() {
+    if std::env::var("AGENTBOLT_MEASURE_IDLE").as_deref() == Ok("1") {
         idle_cpu(&desk, &daemon.0, warm_pid, hwnd);
     }
     let mut samples = Vec::new();
@@ -407,7 +407,7 @@ fn cold_startup_measurement() {
     let report = desk.parent().unwrap().join("startup-results.json");
     std::fs::write(&report, serde_json::to_vec_pretty(&samples).unwrap()).unwrap();
     println!("Report: {}", report.display());
-    if std::env::var_os("AGENTBOLT_REQUIRE_COLD_TARGET").is_some() {
+    if std::env::var("AGENTBOLT_REQUIRE_COLD_TARGET").as_deref() == Ok("1") {
         assert!(
             samples
                 .iter()

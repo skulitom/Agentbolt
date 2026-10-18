@@ -7,7 +7,8 @@ list is what's left before a public release. Do the first section first.
 five Anode reopen cycles (11–13 ms window, 27–58 ms Inbox), including hidden-ask safety and crash cleanup.
 Validated chat navigation, direct Inbox, Not needed, persistent mute and per-owner toast batching are implemented.
 Dedicated Codex delivery workers and execution-time wake-permission checks are implemented.
-Batch answering with a review step and atomic validation is implemented; its live GUI check is pending.
+Batch answering passed live GUI checks for edited choices, replies and required numeric forms, including
+disabled Send on invalid input and atomic delivery of all answers.
 The installed supervisor recovers from a killed daemon in 2 seconds; install, MCP-open upgrade and uninstall
 passed on a throwaway channel. Open-Desk upgrade and the 72-hour soak remain pending.
 Mute, unmute, Not needed, its count and draft retention passed live GUI checks; live-client navigation remains

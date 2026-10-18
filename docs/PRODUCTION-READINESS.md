@@ -141,7 +141,17 @@ The Inbox supports selecting up to 32 asks and reviewing editable choices, repli
 The final Send answers action is explicit. The Desk pipe commits the batch atomically; an invalid answer,
 duplicate id or already-closed ask rolls the entire batch back. MCP has no batch-answer operation. Tests
 cover stale batches, duplicate/oversized/empty inputs, rollback and durable per-ask Desk authority. Windows
-workspace tests and lint pass. Live batch-review interaction remains pending.
+workspace tests and lint pass. The release `tests/gui.rs` fixture passed through Anode: select three asks,
+change the choice to Yes, edit a reply and change a numeric form from 5 to 7. Clearing the required quantity
+disabled Send. All three edits arrived atomically with Desk authority. The fixture's processes and data
+were removed; the missing-handler warning was also visible on the Desk.
+
+After changing child containment, the warm reopen probe passed five cycles at **10.5–13.1 ms window /
+27.0–57.9 ms Inbox**, including hidden-ask safety and crash cleanup. One earlier probe was cancelled after
+an optional test switch incorrectly treated `0` as enabled; both measurement switches now require `1`.
+Automatic approval review blocked deletion of that interrupted probe's data folder,
+`C:\Users\artem\AppData\Local\Agentbolt\warm-95688`. Its processes are stopped. This and the earlier
+`codex02-gui-1018` folder are the two known manual-cleanup leftovers.
 
 ## Installed crash probe and licenses
 
