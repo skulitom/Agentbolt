@@ -3,7 +3,17 @@
 The design and milestones are in Compass's `work/2026-10-18-agentbolt/PLAN.md` (v4). 0.1 is M0 plus most of M1. This
 list is what's left before a public release. Do the first section first.
 
-**Current order (Artem, 22:01 UTC): finish all implementation before heavy validation.** The long CPU
+**Current scope (Artem, 2026-10-18): implement the full plan, including M2–M7.** This overrides the older
+handoff's M0/M1 limit and the evidence gate before building the Board. Finish all features before heavy
+testing, licensing or release validation. [Full feature work](docs/FULL-PLAN.md) tracks the expanded scope.
+
+The expanded implementation now includes selectable question history, Board tools and Desk tab,
+work-copy/agent holds with PR/merge guard commands, Activity reporting and saved baselines, and Claude
+long-wait/relay handoff support. Phone answers, Beads, remote machines and concrete Compass workflow
+integration remain feature work. No baseline, scan configuration or new validation run has been started
+in the real installation. Earlier test results below predate these additions.
+
+**Current order: finish all implementation before heavy validation.** The long CPU
 probe and 72-hour run were stopped, and the hourly monitor is paused. Complete the handoff-to-code audit
 and remaining changes with focused checks first; package and run the full release checks afterward.
 See [the implementation audit](docs/IMPLEMENTATION-AUDIT.md). It found and fixed queue acceptance hiding

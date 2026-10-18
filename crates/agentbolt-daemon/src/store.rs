@@ -8,6 +8,12 @@ use agentbolt_core::channel::Names;
 use crate::daemon::DaemonService;
 
 impl DaemonService for StoreService {
+    fn hold_config(&self) -> Result<agentbolt_core::holds::Config, String> {
+        StoreService::hold_config(self)
+    }
+    fn save_hold_scan(&self, scan: agentbolt_core::holds::Scan) -> Result<(), String> {
+        StoreService::save_hold_scan(self, scan)
+    }
     fn toast_allowed(&self, ask_id: &str) -> bool {
         StoreService::toast_allowed(self, ask_id)
     }

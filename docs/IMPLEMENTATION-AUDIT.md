@@ -2,7 +2,9 @@
 
 Artem's instruction at 22:01 UTC on 2026-10-18 is to implement all changes before heavy testing.
 This audit uses the v4 feedback at the top of Compass's `PLAN.md`, `CODEX-HANDOFF.md`, and `NEXT.md`.
-It covers M0/M1 and the release work explicitly moved into this handoff. M2–M7 remain out of scope.
+This is the historical M0/M1 audit. Artem subsequently expanded the task to the full plan, including
+M2–M7, and reiterated that all features must precede testing and licensing. The active implementation
+scope is tracked in [FULL-PLAN.md](FULL-PLAN.md); this audit does not establish full-plan completion.
 
 The long CPU measurement and candidate soak were cancelled. The hourly monitor is paused. The two
 current fixtures were uninstalled and purged successfully. The manual desktop checks are deferred too;

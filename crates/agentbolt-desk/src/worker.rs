@@ -38,6 +38,24 @@ pub enum Req {
         muted: bool,
     },
     Agents,
+    Board,
+    Holds,
+    SetHolds(agentbolt_core::holds::Config),
+    ImportFocus {
+        path: String,
+        excluded: Vec<String>,
+    },
+    Metrics,
+    StartBaseline {
+        label: String,
+    },
+    RecordVerdict {
+        text: String,
+    },
+    SetLease {
+        owner: String,
+        seconds: u32,
+    },
     Owners,
     SetOwner(Owner),
     ResolveOwner {
@@ -64,6 +82,13 @@ pub enum Resp {
         result: Result<AnswerResult, String>,
     },
     Agents(AgentsResult),
+    Board(agentbolt_core::board::Snapshot),
+    Holds(agentbolt_core::holds::Snapshot),
+    HoldsSaved(Result<(), String>),
+    FocusImported(Result<agentbolt_core::holds::Config, String>),
+    Metrics(agentbolt_core::metrics::Report),
+    MetricsSaved(Result<(), String>),
+    LeaseSaved(Result<(), String>),
     Owners(OwnersResult),
     OwnerSaved(Result<String, String>),
     Settings(Settings),
@@ -177,6 +202,48 @@ async fn run(
                 .await
                 .map(Resp::Agents)
                 .unwrap_or_else(|e| failed("the agents", e)),
+            Req::Board => conn
+                .get(&DeskOp::Board)
+                .await
+                .map(Resp::Board)
+                .unwrap_or_else(|e| failed("the Board", e)),
+            Req::Holds => conn
+                .get(&DeskOp::Holds)
+                .await
+                .map(Resp::Holds)
+                .unwrap_or_else(|e| failed("work holds", e)),
+            Req::SetHolds(config) => Resp::HoldsSaved(
+                conn.call(&DeskOp::SetHolds { config }, false)
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| e.to_string()),
+            ),
+            Req::ImportFocus { path, excluded } => {
+                Resp::FocusImported(import_focus(&path, excluded))
+            }
+            Req::Metrics => conn
+                .get(&DeskOp::Metrics)
+                .await
+                .map(Resp::Metrics)
+                .unwrap_or_else(|e| failed("activity", e)),
+            Req::StartBaseline { label } => Resp::MetricsSaved(
+                conn.call(&DeskOp::StartBaseline { label }, false)
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| e.to_string()),
+            ),
+            Req::RecordVerdict { text } => Resp::MetricsSaved(
+                conn.call(&DeskOp::RecordVerdict { text }, false)
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| e.to_string()),
+            ),
+            Req::SetLease { owner, seconds } => Resp::LeaseSaved(
+                conn.call(&DeskOp::SetLease { owner, seconds }, false)
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| e.to_string()),
+            ),
             Req::Owners => conn
                 .get(&DeskOp::Owners)
                 .await
@@ -281,4 +348,32 @@ async fn run(
         }
         wake();
     }
+}
+
+fn import_focus(
+    path: &str,
+    excluded: Vec<String>,
+) -> Result<agentbolt_core::holds::Config, String> {
+    use std::io::Read;
+    let path = std::path::Path::new(path.trim());
+    if !path.is_absolute()
+        || !path
+            .file_name()
+            .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case("FOCUS.json"))
+    {
+        return Err("Choose an absolute path to FOCUS.json".into());
+    }
+    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut bytes = Vec::new();
+    file.by_ref()
+        .take(2_097_153)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() > 2_097_152 {
+        return Err("FOCUS.json exceeds 2 MiB".into());
+    }
+    agentbolt_core::holds::from_focus(
+        serde_json::from_slice(&bytes).map_err(|e| e.to_string())?,
+        excluded,
+    )
 }

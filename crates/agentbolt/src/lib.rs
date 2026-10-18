@@ -138,6 +138,46 @@ pub fn run<I: IntoIterator<Item = String>>(args: I) -> i32 {
 
 fn dispatch(cmd: Command) -> anyhow::Result<()> {
     match cmd {
+        Command::Holds {
+            channel,
+            owner,
+            repo,
+            paths,
+            stage,
+        } => {
+            let names = names_for(channel.as_deref())?;
+            let result = runtime()?.block_on(async {
+                let d = Daemon::new(names, Pipe::Mcp, true);
+                let registered = d
+                    .call(&McpOp::Register {
+                        owner: Some(owner),
+                        client: "agentbolt-holds".into(),
+                        session_ref: None,
+                        cwd: None,
+                        doing: Some(format!("hold check before {stage}")),
+                        provisional_key: None,
+                    })
+                    .await
+                    .map_err(|e| anyhow::anyhow!("{e}"))?;
+                let registered: RegisterResult = serde_json::from_value(registered)?;
+                d.call(&McpOp::Holds {
+                    handle: registered.handle,
+                    action: agentbolt_core::holds::HoldOp::Check {
+                        repo,
+                        paths,
+                        stage: Some(stage),
+                    },
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))
+            })?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+            if result["clear"] != true {
+                bail!(
+                    "work overlaps or a working-copy scan is unknown; resolve the reported holds before proceeding"
+                );
+            }
+        }
         Command::Help => println!("{}", cli::USAGE),
         Command::Version => println!("agentbolt {}", env!("CARGO_PKG_VERSION")),
         Command::Mcp(m) => {
@@ -318,3 +358,4 @@ mod tests {
         );
     }
 }
+pub mod board_tools;

@@ -3,7 +3,7 @@
     "agentbolt": {
       "type": "stdio",
       "command": "${user_config.agentbolt_exe}",
-      "args": ["mcp", "--channel", "${user_config.channel}"]
+      "args": ["mcp", "--channel", "${user_config.channel}", "--max-wait-ms", "600000"]
     }
   }
 }

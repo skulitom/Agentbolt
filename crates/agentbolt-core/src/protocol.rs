@@ -32,6 +32,15 @@ pub struct Response {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", content = "args", rename_all = "snake_case")]
 pub enum McpOp {
+    Holds {
+        handle: String,
+        action: crate::holds::HoldOp,
+    },
+    /// Agent coordination only. No Board action can answer a human question.
+    Board {
+        handle: String,
+        action: crate::board::BoardOp,
+    },
     /// Say who you are. `owner` comes from `agentbolt mcp --owner`; None gets a provisional owner: per host
     /// session (`session_ref`, which the front-end takes only from the host, never from a tool argument), else
     /// per MCP process (`provisional_key`, made once when the process starts), else a fresh one.
@@ -156,6 +165,22 @@ pub struct StatusResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", content = "args", rename_all = "snake_case")]
 pub enum DeskOp {
+    Holds,
+    SetHolds {
+        config: crate::holds::Config,
+    },
+    Metrics,
+    StartBaseline {
+        label: String,
+    },
+    RecordVerdict {
+        text: String,
+    },
+    Board,
+    SetLease {
+        owner: String,
+        seconds: u32,
+    },
     /// Inbox and recent answers. Listing the Inbox marks those asks shown, so the Desk sends it only
     /// while its window is focused and not minimized (`Status` refreshes the counts otherwise).
     List,

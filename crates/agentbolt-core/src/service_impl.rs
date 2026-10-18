@@ -154,6 +154,14 @@ impl StoreService {
         self
     }
 
+    pub fn hold_config(&self) -> Result<crate::holds::Config, String> {
+        crate::holds::config(&self.lock())
+    }
+    pub fn save_hold_scan(&self, scan: crate::holds::Scan) -> Result<(), String> {
+        self.write(self.now_ms(), |c| crate::holds::save_scan(c.db, scan))
+            .map(|_| ())
+    }
+
     /// Record a delivery the daemon made (e.g. after `codex queue`). `to` is where it went: for Codex, the
     /// thread. Queue acceptance does not confirm receipt: keep the answer on checkpoint and relay lists.
     pub fn record_delivery(
@@ -343,8 +351,8 @@ impl StoreService {
         .map_err(db_err)?;
         let agents = store::count(
             &conn,
-            "SELECT COUNT(*) FROM agents WHERE last_seen_ms >= ?1",
-            [now - ALIVE_MS],
+            "SELECT COUNT(*) FROM agents a LEFT JOIN board_limits l ON l.owner = a.owner WHERE a.last_seen_ms + 1000 * COALESCE(l.lease_seconds, 14400) > ?1",
+            [now],
         )
         .map_err(db_err)?;
         let chain_ok = self.chain_ok(&conn, now);
@@ -488,6 +496,8 @@ impl Ctx<'_> {
                     params![self.now, conn_id, handle],
                 )
                 .map_err(db_err)?;
+            crate::board::touch(self.db, self.now, handle)?;
+            crate::holds::touch(self.db, self.now, handle)?;
         }
         store::agent(self.db, handle)
             .map_err(db_err)?
@@ -1350,6 +1360,7 @@ impl Ctx<'_> {
             )
             .map_err(db_err)?;
         self.event("owner.approved", name, json!({"owner": requested}))?;
+        crate::board::rename_owner(self.db, name, requested)?;
         Ok(Owner {
             name: requested.into(),
             binding: "approved".into(),
@@ -1394,6 +1405,14 @@ impl Service for StoreService {
     fn mcp(&self, client: &ClientInfo, op: McpOp) -> Result<(Value, Vec<Effect>), String> {
         let now = self.now_ms();
         match op {
+            McpOp::Board { handle, action } => self.write_json(now, |c| {
+                let agent = c.touch(&handle, client)?;
+                crate::board::run(c.db, now, &agent, action)
+            }),
+            McpOp::Holds { handle, action } => self.write_json(now, |c| {
+                let agent = c.touch(&handle, client)?;
+                crate::holds::run(c.db, now, &agent, action)
+            }),
             McpOp::Register {
                 owner,
                 client: name,
@@ -1410,7 +1429,15 @@ impl Service for StoreService {
                     doing,
                     provisional_key,
                 };
-                self.write_json(now, |c| c.register(client, &self.machine, r))
+                self.write_json(now, |c| {
+                    let registered = c.register(client, &self.machine, r)?;
+                    let agent = store::agent(c.db, &registered.handle)
+                        .map_err(db_err)?
+                        .ok_or(UNKNOWN_HANDLE)?;
+                    let mut value = to_json(&registered)?;
+                    value["board"] = crate::board::context(c.db, now, &agent)?;
+                    Ok(value)
+                })
             }
             McpOp::Heartbeat { handle, doing } => self.write_json(now, |c| {
                 c.touch(&handle, client)?;
@@ -1422,9 +1449,12 @@ impl Service for StoreService {
                     )
                     .map_err(db_err)?;
                 }
-                store::agent(c.db, &handle)
+                let agent = store::agent(c.db, &handle)
                     .map_err(db_err)?
-                    .ok_or_else(|| UNKNOWN_HANDLE.to_string())
+                    .ok_or_else(|| UNKNOWN_HANDLE.to_string())?;
+                let mut value = to_json(&agent)?;
+                value["board"] = crate::board::context(c.db, now, &agent)?;
+                Ok(value)
             }),
             McpOp::Ask { handle, ask } => self.write_json(now, |c| c.ask(client, &handle, &ask)),
             McpOp::RequestOwner {
@@ -1440,7 +1470,16 @@ impl Service for StoreService {
             McpOp::Cancel { handle, id } => {
                 self.write_json(now, |c| c.cancel(client, &handle, &id))
             }
-            McpOp::RelayList { handle } => self.write_json(now, |c| c.relay_list(client, &handle)),
+            McpOp::RelayList { handle } => self.write_json(now, |c| {
+                let result=c.relay_list(client,&handle)?;
+                let handoffs:Vec<_>=result.answers.iter().filter_map(|ask|ask.answer.as_ref().map(|answer|{
+                    let message=rules::codex_text(&ask.id,&ask.input.title,answer);
+                    // JSON quoting keeps every Notes entry on one physical line, including multiline replies.
+                    let notes_line=format!("(via desk, ask {}) owner={} {}",ask.id,json!(ask.owner),json!(message));
+                    json!({"ask_id":ask.id,"owner":ask.owner,"session_ref":ask.asking_session,"client":ask.asking_client,"message":message,"notes_line":notes_line})
+                })).collect();
+                Ok(json!({"answers":result.answers,"handoffs":handoffs,"instruction":"Relay only through routes your own instructions authorize. Record successful delivery after it happens; a failed send or prepared line is not delivery. Notes delivery does not remove the answer from the asking owner's checkpoint reads."}))
+            }),
             McpOp::RelayMark {
                 handle,
                 ask_id,
@@ -1459,6 +1498,24 @@ impl Service for StoreService {
     fn desk(&self, op: DeskOp) -> Result<(Value, Vec<Effect>), String> {
         let now = self.now_ms();
         match op {
+            DeskOp::Holds => self.write_json(now, |c| crate::holds::snapshot(c.db, now)),
+            DeskOp::SetHolds { config } => {
+                self.write_json(now, |c| crate::holds::set_config(c.db, now, config))
+            }
+            DeskOp::Board => self.write_json(now, |c| {
+                crate::board::expire(c.db, now)?;
+                crate::board::snapshot(c.db, now)
+            }),
+            DeskOp::Metrics => self.write_json(now, |c| crate::metrics::report(c.db, now)),
+            DeskOp::StartBaseline { label } => {
+                self.write_json(now, |c| crate::metrics::baseline(c.db, now, &label))
+            }
+            DeskOp::RecordVerdict { text } => {
+                self.write_json(now, |c| crate::metrics::verdict(c.db, now, &text))
+            }
+            DeskOp::SetLease { owner, seconds } => {
+                self.write_json(now, |c| crate::board::set_lease(c.db, now, &owner, seconds))
+            }
             DeskOp::List => self.write_json(now, |c| c.list()),
             DeskOp::OpenDigest => self.write_json(now, |c| c.open_digest()),
             DeskOp::Answer {
@@ -1526,6 +1583,7 @@ impl Service for StoreService {
     fn tick(&self, now: OffsetDateTime) -> Vec<Effect> {
         let now = store::to_ms(now);
         self.write(now, |c| {
+            crate::board::expire(c.db, now)?;
             c.apply_defaults()?;
             c.due_toasts()?;
             let expired =

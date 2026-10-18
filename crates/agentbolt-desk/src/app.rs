@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use agentbolt_core::channel::Names;
-use agentbolt_core::model::{Agent, AnswerVia, Ask, AskKind, Owner, Priority, Settings};
+use agentbolt_core::model::{Agent, AnswerVia, Ask, AskKind, AskStatus, Owner, Priority, Settings};
 use agentbolt_core::protocol::{DeskAnswer, MAX_BATCH_ANSWERS};
 use eframe::egui::{self, Color32, RichText};
 use serde_json::Value;
@@ -24,6 +24,9 @@ const POLL: Duration = Duration::from_millis(1500);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tab {
     Inbox,
+    Board,
+    Activity,
+    Holds,
     Agents,
     Settings,
 }
@@ -64,6 +67,23 @@ pub struct DeskApp {
     draft_retry: Option<Instant>,
     sending: HashSet<String>,
     agents: Vec<Agent>,
+    board: agentbolt_core::board::Snapshot,
+    board_inflight: bool,
+    last_board: Option<Instant>,
+    lease_drafts: HashMap<String, u32>,
+    metrics: Option<agentbolt_core::metrics::Report>,
+    metrics_inflight: bool,
+    last_metrics: Option<Instant>,
+    baseline_label: String,
+    verdict_draft: String,
+    holds: agentbolt_core::holds::Snapshot,
+    holds_inflight: bool,
+    last_holds: Option<Instant>,
+    hold_draft: Option<agentbolt_core::holds::Config>,
+    hold_excludes: String,
+    focus_file: String,
+    new_hold_repo: String,
+    new_hold_path: String,
     owners: Vec<Owner>,
     more_owners: u32,
     settings: Option<Settings>,
@@ -162,6 +182,23 @@ impl DeskApp {
             draft_retry: None,
             sending: HashSet::new(),
             agents: Vec::new(),
+            board: Default::default(),
+            board_inflight: false,
+            last_board: None,
+            lease_drafts: HashMap::new(),
+            metrics: None,
+            metrics_inflight: false,
+            last_metrics: None,
+            baseline_label: "Before adoption".into(),
+            verdict_draft: String::new(),
+            holds: Default::default(),
+            holds_inflight: false,
+            last_holds: None,
+            hold_draft: None,
+            hold_excludes: String::new(),
+            focus_file: String::new(),
+            new_hold_repo: String::new(),
+            new_hold_path: String::new(),
             owners: Vec::new(),
             more_owners: 0,
             settings: None,
@@ -211,9 +248,13 @@ impl DeskApp {
                     if self
                         .selected_inbox
                         .as_deref()
-                        .is_none_or(|s| !ids.contains(s))
+                        .is_none_or(|s| !ids.contains(s) && !self.recent.iter().any(|a| a.id == s))
                     {
-                        self.selected_inbox = self.inbox.first().map(|a| a.id.clone());
+                        self.selected_inbox = self
+                            .inbox
+                            .first()
+                            .or_else(|| self.recent.first())
+                            .map(|a| a.id.clone());
                     }
                 }
                 Resp::Status(s) => {
@@ -267,6 +308,53 @@ impl DeskApp {
                     self.agents_inflight = false;
                     self.agents = r.agents;
                 }
+                Resp::Board(r) => {
+                    self.board_inflight = false;
+                    self.board = r;
+                }
+                Resp::Metrics(r) => {
+                    self.metrics_inflight = false;
+                    self.metrics = Some(r);
+                }
+                Resp::Holds(r) => {
+                    self.holds_inflight = false;
+                    if self.hold_draft.is_none() {
+                        self.hold_excludes = r.config.excluded_paths.join("\n");
+                        self.hold_draft = Some(r.config.clone());
+                    }
+                    self.holds = r;
+                }
+                Resp::HoldsSaved(r) => {
+                    match r {
+                        Ok(()) => {
+                            self.note("Working-copy allowlist saved", false);
+                            self.hold_draft = None;
+                        }
+                        Err(e) => self.note(e, true),
+                    }
+                    self.last_holds = None;
+                }
+                Resp::FocusImported(r) => match r {
+                    Ok(config) => {
+                        self.hold_draft = Some(config);
+                        self.note("Eligible working copies imported. Review the list and exclusions, then Save to enable scanning.",false);
+                    }
+                    Err(e) => self.note(e, true),
+                },
+                Resp::MetricsSaved(r) => {
+                    match r {
+                        Ok(()) => self.note("Activity record saved", false),
+                        Err(e) => self.note(e, true),
+                    }
+                    self.last_metrics = None;
+                }
+                Resp::LeaseSaved(r) => {
+                    match r {
+                        Ok(()) => self.note("Inactivity ceiling saved", false),
+                        Err(e) => self.note(e, true),
+                    }
+                    self.last_board = None;
+                }
                 Resp::Owners(r) => {
                     self.owners_inflight = false;
                     self.owners = r.owners;
@@ -307,6 +395,9 @@ impl DeskApp {
                     match what {
                         "the Inbox" => self.list_inflight = false,
                         "the agents" => self.agents_inflight = false,
+                        "the Board" => self.board_inflight = false,
+                        "activity" => self.metrics_inflight = false,
+                        "work holds" => self.holds_inflight = false,
                         "the owners" => self.owners_inflight = false,
                         _ => {}
                     }
@@ -356,6 +447,15 @@ impl DeskApp {
             self.last_agents = Some(Instant::now());
             self.send(Req::Agents);
         }
+        if self.tab == Tab::Board
+            && seen
+            && !self.board_inflight
+            && self.last_board.is_none_or(|t| t.elapsed() >= POLL)
+        {
+            self.board_inflight = true;
+            self.last_board = Some(Instant::now());
+            self.send(Req::Board);
+        }
         if seen
             && !self.owners_inflight
             && self
@@ -365,6 +465,28 @@ impl DeskApp {
             self.owners_inflight = true;
             self.last_owners = Some(Instant::now());
             self.send(Req::Owners);
+        }
+        if self.tab == Tab::Activity
+            && seen
+            && !self.metrics_inflight
+            && self
+                .last_metrics
+                .is_none_or(|t| t.elapsed() >= Duration::from_secs(30))
+        {
+            self.metrics_inflight = true;
+            self.last_metrics = Some(Instant::now());
+            self.send(Req::Metrics);
+        }
+        if self.tab == Tab::Holds
+            && seen
+            && !self.holds_inflight
+            && self
+                .last_holds
+                .is_none_or(|t| t.elapsed() >= Duration::from_secs(5))
+        {
+            self.holds_inflight = true;
+            self.last_holds = Some(Instant::now());
+            self.send(Req::Holds);
         }
         ctx.request_repaint_after(POLL);
     }
@@ -389,12 +511,15 @@ impl DeskApp {
                 self.last_owners = None;
             }
             Tab::Agents => self.last_agents = None,
+            Tab::Board => self.last_board = None,
+            Tab::Activity => self.last_metrics = None,
+            Tab::Holds => self.last_holds = None,
             _ => {}
         }
     }
 
     fn top_bar(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             let tabs = [
                 (
                     Tab::Inbox,
@@ -404,6 +529,9 @@ impl DeskApp {
                     ),
                 ),
                 (Tab::Agents, "Agents".to_string()),
+                (Tab::Board, "Board".to_string()),
+                (Tab::Activity, "Activity".to_string()),
+                (Tab::Holds, "Work holds".to_string()),
                 (Tab::Settings, {
                     let pending = self
                         .owners
@@ -520,15 +648,16 @@ impl DeskApp {
                     }
                     if resp.clicked() {
                         *selected = Some(a.id.clone());
+                        self.review_batch = false;
                     }
                     ui.separator();
                 }
                 if !self.recent.is_empty() {
                     egui::CollapsingHeader::new(format!(
-                        "Recently answered ({})",
+                        "Recent questions ({})",
                         self.recent.len()
                     ))
-                    .default_open(false)
+                    .default_open(self.inbox.is_empty())
                     .show(ui, |ui| {
                         for a in &self.recent {
                             let said = a
@@ -544,7 +673,24 @@ impl DeskApp {
                                         .unwrap_or_default()
                                 })
                                 .unwrap_or_default();
-                            ui.label(format!("{}: {said}", a.input.title));
+                            let said = if a.status == AskStatus::Cancelled {
+                                "Withdrawn"
+                            } else {
+                                &said
+                            };
+                            if ui
+                                .add(
+                                    egui::Button::selectable(
+                                        self.selected_inbox.as_deref() == Some(a.id.as_str()),
+                                        format!("{}: {said}", a.input.title),
+                                    )
+                                    .wrap(),
+                                )
+                                .clicked()
+                            {
+                                self.selected_inbox = Some(a.id.clone());
+                                self.review_batch = false;
+                            }
                         }
                     });
                 }
@@ -594,6 +740,28 @@ impl DeskApp {
                 self.send(Req::SetMuted { owner: ask.owner.clone(), muted: !ask.muted });
             }
             ui.separator();
+            if !matches!(ask.status, AskStatus::Open | AskStatus::Digest) {
+                if let Some(answer) = &ask.answer {
+                    let label = match answer.via {
+                        AnswerVia::NotNeeded => "Marked Not needed",
+                        AnswerVia::Defaulted => "Default applied — no approval from Artem",
+                        AnswerVia::Desk => "Answered in the Desk",
+                        AnswerVia::Toast => "Answered from a notification",
+                    };
+                    ui.strong(label);
+                    ui.weak(&answer.answered_at);
+                    if let Some(choice) = &answer.choice { ui.add(egui::Label::new(choice).selectable(true).wrap()); }
+                    if let Some(values) = &answer.values { ui.add(egui::Label::new(values.to_string()).selectable(true).wrap()); }
+                    if let Some(note) = &answer.note { ui.label("Note"); ui.add(egui::Label::new(note).selectable(true).wrap()); }
+                    if answer.deliveries.is_empty() { ui.weak("Available for the agent to read; no delivery recorded yet."); }
+                    for delivery in &answer.deliveries {
+                        let status = if delivery.confirmed { "Delivery confirmed" } else if delivery.ok { "Accepted; receipt unconfirmed" } else { "Delivery failed" };
+                        ui.label(format!("{status} · {} · {}", delivery.to, delivery.at));
+                        if let Some(detail) = &delivery.detail { ui.add(egui::Label::new(detail).wrap()); }
+                    }
+                } else { ui.strong("Withdrawn by the agent"); }
+                return;
+            }
             let sending = self.sending.contains(&ask.id);
             let draft = self.drafts.entry(ask.id.clone()).or_default();
             ui.add_enabled_ui(!sending, |ui| {
@@ -646,8 +814,7 @@ impl DeskApp {
     }
 
     fn ask_pane(&mut self, ui: &mut egui::Ui) {
-        let asks = &self.inbox;
-        if asks.is_empty() {
+        if self.inbox.is_empty() && self.recent.is_empty() {
             ui.centered_and_justified(|ui| {
                 ui.label(RichText::new(view::EMPTY_INBOX).size(16.0).weak());
             });
@@ -660,8 +827,11 @@ impl DeskApp {
             .show(ui, |ui| self.ask_list(ui));
         let selected = &self.selected_inbox;
         let ask = selected.as_ref().and_then(|id| {
-            let list = &self.inbox;
-            list.iter().find(|a| &a.id == id).cloned()
+            self.inbox
+                .iter()
+                .chain(&self.recent)
+                .find(|a| &a.id == id)
+                .cloned()
         });
         egui::CentralPanel::default().show(ui, |ui| {
             if self.review_batch {
@@ -885,6 +1055,181 @@ impl DeskApp {
             && let Err(e) = os::open_chat(&target, cwd.as_deref())
         {
             self.note(e, true);
+        }
+    }
+
+    fn board_tab(&mut self, ui: &mut egui::Ui) {
+        let mut open = None;
+        let mut save = None;
+        egui::ScrollArea::vertical().auto_shrink([false,false]).show(ui,|ui| {
+            ui.heading("Agent handoffs");
+            ui.weak("Messages and requests between agents. They do not grant approval or replace the work ledger.");
+            if self.board.requests.is_empty() { ui.label("No handoffs yet."); }
+            for r in &self.board.requests {
+                egui::CollapsingHeader::new(format!("{} · {}",r.status,r.input.title)).id_salt(&r.id).show(ui,|ui| {
+                    ui.weak(format!("From {} · {}",r.owner,r.created_at));
+                    if let Some(role)=&r.input.to_role {ui.label(format!("For {role}"));}
+                    if let Some(repo)=&r.input.repo {ui.label(format!("{repo} · {}",r.input.paths.join(", ")));}
+                    if let Some(beads)=&r.input.beads_issue {ui.label(format!("Beads issue: {beads}"));}
+                    ui.add(egui::Label::new(&r.input.body).selectable(true).wrap());
+                    if let Some(claimant)=&r.claimant {
+                        let agent=self.board.agents.iter().find(|a|&a.id==claimant);
+                        ui.label(format!("Claimed by {}",agent.map_or(claimant.as_str(),|a|a.owner.as_str())));
+                        if let Some(a)=agent && let Some(target)=chat_button(ui,&a.client,a.session_ref.as_deref()) {open=Some((target,a.cwd.clone()));}
+                    }
+                    if let Some(until)=&r.lease_until {ui.label(format!("Lease until {until}"));}
+                    if r.lapsing {ui.colored_label(ui.visuals().warn_fg_color,"Lease expires within 15 minutes unless the agent checks in.");}
+                    if let Some(result)=&r.result {ui.strong("Result");ui.add(egui::Label::new(result).selectable(true).wrap());}
+                });
+            }
+            ui.separator(); ui.heading("Who is working");
+            for a in &self.board.agents {
+                egui::CollapsingHeader::new(format!("{} · {} · {}",a.owner,if a.alive {"active"} else {"inactive"},a.roles.join(", "))).id_salt(&a.id).show(ui,|ui| {
+                    ui.label(format!("{} on {}",a.client,a.machine));
+                    if let Some(doing)=&a.doing {ui.add(egui::Label::new(doing).wrap());}
+                    ui.weak(format!("Last seen {}",a.last_seen));
+                    if let Some(target)=chat_button(ui,&a.client,a.session_ref.as_deref()) {open=Some((target,a.cwd.clone()));}
+                    ui.horizontal_wrapped(|ui| {
+                        let seconds=self.lease_drafts.entry(a.owner.clone()).or_insert(a.lease_seconds);
+                        ui.label("Release claims after inactivity (seconds)");
+                        ui.add(egui::DragValue::new(seconds).range(60..=86_400).speed(60));
+                        if ui.button("Save ceiling").clicked() {save=Some(Req::SetLease{owner:a.owner.clone(),seconds:*seconds});}
+                    });
+                });
+            }
+            ui.separator(); ui.heading("Recent messages");
+            if self.board.messages.is_empty() {ui.label("No messages yet.");}
+            for m in self.board.messages.iter().rev() {
+                egui::CollapsingHeader::new(format!("{} · {}",m.owner,m.input.title)).id_salt(&m.id).show(ui,|ui| {
+                    use agentbolt_core::board::Destination;
+                    let to=match &m.input.to {Destination::Everyone=>"everyone".into(),Destination::Role(s)=>format!("role {s}"),Destination::Owner(s)=>format!("owner {s}"),Destination::Agent(s)=>s.clone()};
+                    ui.weak(format!("To {to} · {}",m.created_at));
+                    if let Some(thread)=&m.input.thread {ui.label(format!("Thread {thread}"));}
+                    ui.add(egui::Label::new(&m.input.body).selectable(true).wrap());
+                });
+            }
+        });
+        if let Some(req) = save {
+            self.send(req);
+        }
+        if let Some((target, cwd)) = open
+            && let Err(e) = os::open_chat(&target, cwd.as_deref())
+        {
+            self.note(e, true);
+        }
+    }
+
+    fn activity_tab(&mut self, ui: &mut egui::Ui) {
+        let mut request = None;
+        egui::ScrollArea::vertical().auto_shrink([false,false]).show(ui,|ui| {
+            ui.heading("Is the Desk helping?");
+            let Some(report)=&self.metrics else {ui.label("Loading recorded activity…");return;};
+            ui.add(egui::Label::new(&report.explanation).wrap());
+            let previous=report.baseline.as_ref().map_or(&report.previous,|b|&b.period);
+            ui.add_space(8.0);
+            egui::Grid::new("activity-comparison").striped(true).num_columns(3).show(ui,|ui| {
+                ui.strong("Measure");ui.strong("Latest 14 days");ui.strong(if report.baseline.is_some(){"Saved baseline"}else{"Previous 14 days"});ui.end_row();
+                for (label,a,b) in [
+                    ("Questions submitted",report.current.submitted,previous.submitted),
+                    ("Human answers",report.current.human_answers,previous.human_answers),
+                    ("Defaults",report.current.defaults,previous.defaults),
+                    ("Not needed",report.current.not_needed,previous.not_needed),
+                    ("Withdrawn",report.current.cancelled,previous.cancelled),
+                    ("Missed deadlines",report.current.unanswered_deadlines,previous.unanswered_deadlines),
+                    ("PR/merge overlap checks",report.current.collision_checks,previous.collision_checks),
+                    ("Checks finding overlap",report.current.overlapping_checks,previous.overlapping_checks),
+                    ("Checks with unknown scans",report.current.unknown_checks,previous.unknown_checks),
+                ] {ui.label(label);ui.label(a.to_string());ui.label(b.to_string());ui.end_row();}
+                ui.label("Median answer time");
+                for p in [&report.current,previous] {ui.label(p.median_answer_hours.map_or("No human answers".into(),|h|format!("{h:.1} hours")));}ui.end_row();
+                ui.label("Unanswered at deadline");
+                for p in [&report.current,previous] {ui.label(p.unanswered_deadline_share.map_or("No elapsed deadlines".into(),|v|format!("{:.0}%",v*100.0)));}ui.end_row();
+            });
+            ui.label(format!("{} reversible questions have waited over 48 hours.",report.reversible_waiting_over_48h));
+            ui.label(format!("{} irreversible questions are still open{}.",report.irreversible_open,report.oldest_irreversible_hours.map(|h|format!("; oldest {h:.1} hours")).unwrap_or_default()));
+            ui.separator();ui.heading("By agent owner");
+            egui::Grid::new("activity-owners").striped(true).show(ui,|ui| {
+                for title in ["Owner","Submitted","Not needed / human answers","Missed deadlines"] {ui.strong(title);}ui.end_row();
+                for o in &report.current.owners {
+                    ui.label(&o.owner);ui.label(o.submitted.to_string());ui.label(format!("{} / {}",o.not_needed,o.answered));ui.label(o.unanswered_deadlines.to_string());ui.end_row();
+                }
+            });
+            egui::CollapsingHeader::new("Questions submitted by day (UTC)").show(ui,|ui| {
+                for (day,count) in &report.current.submissions_by_day {ui.label(format!("{day}: {count}"));}
+            });
+            ui.separator();ui.heading("Adoption baseline");
+            if let Some(b)=&report.baseline {
+                ui.label(format!("{} · saved {}",b.label,b.recorded_at));
+                ui.label(format!("{:.1} of 14 observation days elapsed",report.observation_days.unwrap_or_default()));
+                ui.weak("The saved baseline stays fixed. This does not claim the adoption period has passed.");
+            } else {
+                ui.label("Record the preceding 14 days before beginning adoption. Only activity already in this store is included; missing earlier history is unknown.");
+                ui.text_edit_singleline(&mut self.baseline_label);
+                if ui.add_enabled(!self.baseline_label.trim().is_empty(),egui::Button::new("Record baseline and start observation")).clicked() {request=Some(Req::StartBaseline{label:self.baseline_label.clone()});}
+            }
+            ui.separator();ui.heading("Your verdict");
+            if let Some(v)=&report.verdict {ui.label(format!("{} · {}",v.recorded_at,v.text));}
+            ui.add(egui::TextEdit::multiline(&mut self.verdict_draft).hint_text("Does this work better for you?"));
+            if ui.add_enabled(!self.verdict_draft.trim().is_empty(),egui::Button::new("Save verdict")).clicked() {request=Some(Req::RecordVerdict{text:self.verdict_draft.clone()});}
+            if ui.button("Copy report as JSON").clicked() {ui.ctx().copy_text(serde_json::to_string_pretty(report).unwrap_or_default());}
+        });
+        if let Some(request) = request {
+            self.send(request);
+        }
+    }
+
+    fn holds_tab(&mut self, ui: &mut egui::Ui) {
+        let mut request = None;
+        egui::ScrollArea::vertical().auto_shrink([false,false]).show(ui,|ui|{
+            ui.heading("Work holds");
+            ui.label("Agents can check these holds before opening or merging a PR. A hold is advisory; it does not edit or lock your files.");
+            let now=agentbolt_core::store::to_ms(time::OffsetDateTime::now_utc());
+            for source in &self.holds.config.working_copies {
+                ui.strong(&source.repo);ui.label(&source.path);
+                if let Some(scan)=self.holds.scans.iter().find(|s|s.path==source.path){
+                    let stale=now.saturating_sub(scan.at_ms)>agentbolt_core::holds::FRESH_MS;
+                    if let Some(error)=&scan.error{ui.colored_label(ui.visuals().warn_fg_color,error);}
+                    if stale{ui.colored_label(ui.visuals().warn_fg_color,"Scan is stale; overlap status is unknown.");}
+                    ui.weak(format!("Last scan {} · {} changed paths",agentbolt_core::store::fmt_ms(scan.at_ms),scan.paths.len()));
+                }else{ui.weak("Waiting for the first scan; overlap status is unknown.");}
+            }
+            for hold in &self.holds.holds {
+                egui::CollapsingHeader::new(format!("{} · {} · {} paths",hold.owner,hold.repo,hold.paths.len())).id_salt(&hold.id).show(ui,|ui|{
+                    ui.label(&hold.note);
+                    if let Some(until)=&hold.until{ui.weak(format!("Until {until}, renewed while the agent is active"));}
+                    for path in &hold.paths{ui.add(egui::Label::new(path).selectable(true).wrap());}
+                });
+            }
+            ui.separator();ui.heading("Working-copy allowlist");
+            ui.label("Only the folders saved here are scanned, using read-only Git status and unpushed history. Scanning is off when the list is empty. Add closed or private roots to exclusions before importing a list.");
+            ui.label("Excluded roots, one absolute folder per line");
+            ui.add(egui::TextEdit::multiline(&mut self.hold_excludes).desired_rows(3));
+            ui.horizontal_wrapped(|ui|{
+                ui.label("FOCUS.json");ui.text_edit_singleline(&mut self.focus_file);
+                if ui.add_enabled(!self.focus_file.trim().is_empty(),egui::Button::new("Import eligible projects")).clicked(){request=Some(Req::ImportFocus{path:self.focus_file.clone(),excluded:self.hold_excludes.lines().map(str::trim).filter(|s|!s.is_empty()).map(str::to_owned).collect()});}
+            });
+            ui.weak("Import includes only invest/maintain entries with a GitHub repository and path. It does not save or scan until you review and press Save.");
+            if let Some(draft)=&mut self.hold_draft {
+                let mut remove=None;
+                for (i,source) in draft.working_copies.iter().enumerate(){ui.horizontal_wrapped(|ui|{
+                    ui.label(format!("{} · {}",source.repo,source.path));if ui.small_button("Remove").clicked(){remove=Some(i);}
+                });}
+                if let Some(i)=remove{draft.working_copies.remove(i);}
+                ui.label("Add a working copy");
+                ui.horizontal_wrapped(|ui|{
+                    ui.add(egui::TextEdit::singleline(&mut self.new_hold_repo).hint_text("GitHub owner/repository"));
+                    ui.add(egui::TextEdit::singleline(&mut self.new_hold_path).hint_text("Absolute local folder"));
+                    if ui.add_enabled(!self.new_hold_repo.trim().is_empty()&&!self.new_hold_path.trim().is_empty(),egui::Button::new("Add")).clicked(){
+                        draft.working_copies.push(agentbolt_core::holds::WorkingCopy{repo:self.new_hold_repo.trim().into(),path:self.new_hold_path.trim().into()});self.new_hold_repo.clear();self.new_hold_path.clear();
+                    }
+                });
+                if ui.button("Save allowlist and exclusions").clicked(){
+                    draft.excluded_paths=self.hold_excludes.lines().map(str::trim).filter(|s|!s.is_empty()).map(str::to_owned).collect();request=Some(Req::SetHolds(draft.clone()));
+                }
+            }
+        });
+        if let Some(request) = request {
+            self.send(request);
         }
     }
 
@@ -1232,6 +1577,9 @@ impl eframe::App for DeskApp {
         egui::CentralPanel::default().show(ui, |ui| match self.tab {
             Tab::Inbox => self.ask_pane(ui),
             Tab::Agents => self.agents_tab(ui),
+            Tab::Board => self.board_tab(ui),
+            Tab::Activity => self.activity_tab(ui),
+            Tab::Holds => self.holds_tab(ui),
             Tab::Settings => self.settings_tab(ui),
         });
         if self

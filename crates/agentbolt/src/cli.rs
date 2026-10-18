@@ -38,6 +38,13 @@ pub struct AskArgs {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
+    Holds {
+        channel: Option<String>,
+        owner: String,
+        repo: String,
+        paths: Vec<String>,
+        stage: String,
+    },
     Mcp(McpArgs),
     Install {
         channel: Option<String>,
@@ -72,6 +79,8 @@ Usage:
   agentbolt uninstall [--purge]                  remove the task, registry keys and install folder (--purge: data too)
   agentbolt start                                start the daemon through its sign-in task
   agentbolt status                               ask the daemon how it is
+  agentbolt holds --owner NAME --repo OWNER/REPO --path PATH... --stage pr_open|merge
+                                                exit 0 only when configured scans are fresh and paths are clear
   agentbolt clients [--yes]                      print (or run) the Claude Code and Codex registration commands
   agentbolt ask --owner NAME --title T [--body B] [--option A]... [--default A] --deadline RFC3339
                 [--reversible] [--priority P0|P1|P2] [--p0-reason R] [--kind K] [--evidence LABEL=URL]...
@@ -151,6 +160,39 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String>
                 }
             }
             Ok(Command::Mcp(m))
+        }
+        "holds" => {
+            let (mut channel, mut owner, mut repo, mut paths, mut stage) = (
+                None,
+                String::new(),
+                String::new(),
+                Vec::new(),
+                String::new(),
+            );
+            while let Some((flag, inline)) = a.next_flag() {
+                match flag.as_str() {
+                    "--channel" => channel = Some(a.value(&flag, inline)?),
+                    "--owner" => owner = a.value(&flag, inline)?,
+                    "--repo" => repo = a.value(&flag, inline)?,
+                    "--path" => paths.push(a.value(&flag, inline)?),
+                    "--stage" => stage = a.value(&flag, inline)?,
+                    other => return Err(unknown(other, "holds")),
+                }
+            }
+            if owner.trim().is_empty()
+                || repo.trim().is_empty()
+                || paths.is_empty()
+                || !matches!(stage.as_str(), "pr_open" | "merge")
+            {
+                return Err("holds needs --owner, --repo, --path and --stage pr_open|merge".into());
+            }
+            Ok(Command::Holds {
+                channel,
+                owner,
+                repo,
+                paths,
+                stage,
+            })
         }
         "install" => {
             let (mut channel, mut from, mut no_start) = (None, None, false);

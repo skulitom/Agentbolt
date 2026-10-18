@@ -213,6 +213,7 @@ pub fn client_commands(
         server.clone(),
     ];
     claude.extend(mcp.iter().cloned());
+    claude.extend(["--max-wait-ms".into(), "600000".into()]);
     let mut codex = vec!["mcp".into(), "add".into(), server.clone()];
     codex.extend(mcp);
     vec![

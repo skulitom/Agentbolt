@@ -16,6 +16,7 @@ mod child;
 mod codex;
 mod daemon;
 mod delivery;
+mod holds;
 #[cfg(windows)]
 mod supervisor;
 // The tray icon and toast XML are drawn and built everywhere (and tested on Linux CI), but shown only on Windows.
@@ -276,6 +277,7 @@ fn run() -> i32 {
         Err(e) => warning!("legacy MCP address unavailable; reopen old client sessions: {e}"),
     }
     runtime.spawn(daemon::tick_loop(shared.clone()));
+    runtime.spawn(holds::run(shared.clone()));
     runtime.spawn(daemon::effects_loop(
         shared.clone(),
         events,

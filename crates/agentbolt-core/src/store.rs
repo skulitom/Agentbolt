@@ -139,6 +139,46 @@ UPDATE deliveries SET confirmed = 1 WHERE ok = 1 AND (ask_id, target) IN (
     AND json_extract(e.data, '$.by') = 'relay' AND json_extract(e.data, '$.ok') = 1
 );
 "#,
+    r#"
+CREATE TABLE board_profiles (
+    handle TEXT PRIMARY KEY REFERENCES agents(handle) ON DELETE CASCADE,
+    roles_json TEXT NOT NULL DEFAULT '[]',
+    repo TEXT
+);
+CREATE TABLE board_limits (
+    owner TEXT PRIMARY KEY,
+    lease_seconds INTEGER NOT NULL DEFAULT 14400
+);
+CREATE TABLE board_requests (
+    id TEXT PRIMARY KEY,
+    owner TEXT NOT NULL,
+    input_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    created_ms INTEGER NOT NULL,
+    updated_ms INTEGER NOT NULL,
+    claimant TEXT,
+    fence INTEGER NOT NULL DEFAULT 0,
+    lease_ms INTEGER,
+    result TEXT
+);
+CREATE INDEX board_requests_status ON board_requests(status, updated_ms);
+CREATE INDEX board_requests_owner ON board_requests(owner, status);
+CREATE INDEX board_requests_claimant ON board_requests(claimant, status);
+CREATE TABLE board_messages (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT NOT NULL UNIQUE,
+    owner TEXT NOT NULL,
+    sender TEXT NOT NULL,
+    input_json TEXT NOT NULL,
+    created_ms INTEGER NOT NULL
+);
+CREATE INDEX board_messages_owner ON board_messages(owner);
+"#,
+    r#"
+CREATE TABLE hold_scans(source TEXT PRIMARY KEY, result_json TEXT NOT NULL);
+CREATE TABLE agent_holds(id TEXT PRIMARY KEY, owner TEXT NOT NULL, handle TEXT NOT NULL, repo TEXT NOT NULL, paths_json TEXT NOT NULL, note TEXT NOT NULL, expires_ms INTEGER NOT NULL);
+CREATE INDEX agent_holds_repo ON agent_holds(repo,expires_ms);
+"#,
 ];
 
 pub(crate) fn db_err(e: rusqlite::Error) -> String {
@@ -548,6 +588,8 @@ pub(crate) fn prune_provisional_owners(
         &format!(
             "DELETE FROM owners WHERE NOT {KEPT_OWNER} AND created_ms < ?1
                AND NOT EXISTS (SELECT 1 FROM asks WHERE asks.owner = owners.name)
+               AND NOT EXISTS (SELECT 1 FROM board_requests WHERE board_requests.owner = owners.name)
+               AND NOT EXISTS (SELECT 1 FROM board_messages WHERE board_messages.owner = owners.name)
                AND NOT EXISTS (SELECT 1 FROM agents WHERE agents.owner = owners.name AND agents.last_seen_ms >= ?1)"
         ),
         [before_ms],

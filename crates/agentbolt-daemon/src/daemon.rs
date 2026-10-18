@@ -22,6 +22,12 @@ pub const POLL: Duration = Duration::from_millis(250);
 
 /// What the daemon needs beyond the `Service` trait.
 pub trait DaemonService: Service {
+    fn hold_config(&self) -> Result<agentbolt_core::holds::Config, String> {
+        Ok(Default::default())
+    }
+    fn save_hold_scan(&self, _scan: agentbolt_core::holds::Scan) -> Result<(), String> {
+        Ok(())
+    }
     fn toast_allowed(&self, _ask_id: &str) -> bool {
         false
     }
