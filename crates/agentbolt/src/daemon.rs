@@ -155,18 +155,7 @@ fn classify(e: IpcError) -> CallError {
 /// `schtasks /Run /TN <task>`. Ok when Task Scheduler accepted the start.
 #[cfg(windows)]
 pub fn run_task(names: &Names) -> Result<(), String> {
-    crate::install::schtasks(&["/Run", "/TN", &names.task])
-        .map(|_| ())
-        .map_err(|e| {
-            if crate::install::task_exists(names) {
-                e
-            } else {
-                format!(
-                    "there's no task '{}'; install Agentbolt with `agentbolt install`.",
-                    names.task
-                )
-            }
-        })
+    agentbolt_ipc::windows_task::run(names, None)
 }
 
 #[cfg(not(windows))]

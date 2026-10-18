@@ -37,6 +37,8 @@ mod unix;
 #[cfg(windows)]
 mod win;
 #[cfg(windows)]
+pub mod windows_task;
+#[cfg(windows)]
 pub mod windows_util;
 
 #[cfg(unix)]

@@ -51,6 +51,15 @@ agentbolt status
 agentbolt uninstall        # removes it again (add --purge to delete your answers too)
 ```
 
+Upgrades preserve unsent Desk drafts and reopen visible windows in their original Windows sessions.
+If an older Desk cannot prepare its drafts, the installer stops before replacing programs and asks you
+to finish or copy those drafts, quit Agentbolt from the tray, then retry. Open MCP sessions can reconnect
+after replacement; restart older client sessions after upgrading so they also use the current startup path.
+
+The sign-in task is per Windows account and channel. Installation migrates an earlier task only after
+verifying its account, executable, arguments and working folder; unrelated tasks are left untouched.
+The 0.2 candidate is unsigned; code signing is deferred to a later release.
+
 ## What it does and doesn't promise
 - Only the Desk window and its link handler can answer: no MCP tool can. The pipes accept only this Windows user, the
   programs check each other's identity, and toast buttons carry single-use tokens.

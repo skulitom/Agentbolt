@@ -14,7 +14,7 @@ pub struct Names {
     pub aumid: String,
     /// URL scheme for toast buttons, e.g. `agentbolt` or `agentbolt-test1`.
     pub protocol: String,
-    /// Task Scheduler task name.
+    /// Historical Task Scheduler name; Windows now qualifies it with the process token's SID.
     pub task: String,
     /// Endpoint discovery key for `agentbolt mcp` clients (Windows resolves a private random pipe).
     pub mcp_pipe: String,

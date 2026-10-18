@@ -20,8 +20,9 @@ See [the verification log](docs/PRODUCTION-READINESS.md) for commands, baseline 
 The release is not yet ready; the rest of this checklist remains open unless explicitly recorded there.
 The independent security review found two medium Windows issues; fixes now use absolute OS utility paths,
 private instance locks and protected discovery of fresh pipe addresses. Regression and compatibility tests
-pass. Per-user scheduler task names/safe legacy migration and a full mixed-version installer/MCP exchange
-remain to do alongside open-Desk upgrade coordination.
+pass. Per-user scheduler task names, verified legacy migration, live open-Desk upgrade coordination and
+mixed-version MCP exchanges now pass. A follow-up review found two rollback races; both were fixed and
+covered by live regression fixtures. The follow-up review found no remaining actionable security issues.
 
 ## From Artem's first use (2026-10-18; PLAN.md v4, "Status, and Artem's feedback")
 1. **The Desk opens fast.** His words: "It took a while for the window to load."
@@ -71,8 +72,10 @@ remain to do alongside open-Desk upgrade coordination.
    from the daemon. Confirm the resumed turn's sandbox and approval policy equal the original's. Until confirmed, only
    owners marked codex-interactive on the Desk get it.
 3. **The sign-in task:** `/Run` from Anode and recovery from a killed worker pass. The isolated 72-hour
-   `PT0S` probe started 2026-10-18 19:53 UTC and cannot finish before 2026-10-21 19:54 UTC; see
-   `docs/SOAK-2026-10-18.json`. Do not change that pinned installation during measurement.
+   `PT0S` probe started 2026-10-18 19:53 UTC but was interrupted by a logged tray Quit at 20:45 UTC.
+   It does not count as a pass; a fresh uninterrupted run on the final candidate is required. The stopped
+   fixture remains installed because automatic approval review rejected its cleanup (“blocked by policy”).
+   See `docs/SOAK-2026-10-18.json`; do not restart or count later uptime toward that interrupted run.
 4. **Idle CPU:** the earlier warm build passed at 0.276% of one core over ten minutes. Repeat on the final
    candidate, including the supervisor and new lifecycle listener, with the Desk closed.
 5. **Toasts live:** they appear silently. A button answers through the `agentbolt://` handler with its single-use
@@ -82,21 +85,23 @@ remain to do alongside open-Desk upgrade coordination.
 
 ## Known gaps
 - **Done — restart on failure:** installed supervision recovered a killed worker in 2 seconds without a client
-  start. Children are contained before they run. The 72-hour check is still running.
+  start. Children are contained before they run. The interrupted 72-hour check must be replaced.
 - **Resolved — day boundary:** daily budgets, digest and fair-share day rollover were removed per Artem's feedback;
   the former DST calculation no longer controls admission.
 - **Done — blocking threads:** Codex deliveries have two dedicated workers and a bounded queue, with execution-time
   permission checks. Actual active/idle/finished-host delivery checks remain above.
 - **Done — batch answering and owner proposals:** live GUI/MCP fixtures verify edited batches, atomic answers,
   proposal rejection/approval, preserved state and refusal of cross-owner claims.
-- **Implemented — open-Desk upgrade:** the installer prepares every verified installed Desk before replacing
+- **Done — open-Desk upgrade:** the installer prepares every verified installed Desk before replacing
   files, waits for actual old processes and reopens visible windows in their original sessions. Live warm-Desk
   and cross-session tests preserve drafts and exchange MCP requests through an already-open old client.
-  Fault/rollback coverage and the final security review remain.
+  Third-file copy failure restores all original files without stopping existing processes. An older Desk
+  without lifecycle support is refused before mutation. Startup and changed-task rollback races are covered.
 - **Done — handler-key check:** the Desk displays it and the daemon rechecks registration before every toast.
   A live registration-change/repair check remains.
 - **Done — formatting:** isolated commit `729fc82`; format and lint checks pass.
-- **Pending — Windows scheduler isolation:** qualify task names per user and migrate only a verified legacy task.
+- **Done — Windows scheduler isolation:** task names include the token's user SID. Start, stop, delete and
+  migration verify the account, executable, arguments and working folder; changed task snapshots are refused.
 
 ## Release work
 - **Deferred by Artem (Desk answer, 2026-10-18 20:33 UTC):** code signing may wait until after 0.2.
@@ -105,8 +110,9 @@ remain to do alongside open-Desk upgrade coordination.
 - Distribution: winget and Scoop manifests, an MCP Registry entry (the MCP front-end starts on Linux, so Glama can
   score it), and a Claude Code plugin with an eval (an agent asked "check with me before you publish" uses
   `desk_ask`).
-- **Done — independent security review:** two medium Windows findings were fixed and covered by regression tests.
-  The new lifecycle/installer work must also be reviewed before release.
+- **Done — independent security review:** the original two medium Windows findings and two subsequent upgrade
+  rollback findings were fixed and tested. Follow-up review of lifecycle, task migration, rollback and uninstall
+  found no remaining actionable issue. Review later changes if they affect these boundaries.
 - **Out of scope for this handoff:** M2 to M7 in PLAN.md (answers back to Claude sessions, Compass use, holds, the
   agent Board, phone answers, other machines).
 

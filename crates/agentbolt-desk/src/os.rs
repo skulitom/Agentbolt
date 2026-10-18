@@ -22,8 +22,6 @@ mod imp {
     };
     use windows::core::{HSTRING, w};
 
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
     /// Open an https:// or claude:// link with its registered handler.
     pub fn open_url(url: &str) -> Result<(), String> {
         let r = unsafe {
@@ -54,20 +52,6 @@ mod imp {
             .spawn()
             .map(|_| ())
             .map_err(|e| format!("couldn't start Explorer: {e}"))
-    }
-
-    pub fn run_task(task: &str) -> Result<(), String> {
-        let out = Command::new(agentbolt_ipc::windows_util::schtasks().map_err(|e| e.to_string())?)
-            .args(["/Run", "/TN", task])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
-            .map_err(|e| format!("couldn't run schtasks: {e}"))?;
-        if out.status.success() {
-            Ok(())
-        } else {
-            let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            Err(format!("Task Scheduler couldn't start '{task}': {err}"))
-        }
     }
 
     pub fn message(title: &str, text: &str) {
@@ -132,10 +116,6 @@ mod imp {
             .map_err(|e| e.to_string())
     }
 
-    pub fn run_task(_task: &str) -> Result<(), String> {
-        Err("the sign-in task exists only on Windows".into())
-    }
-
     pub fn message(title: &str, text: &str) {
         eprintln!("{title}: {text}");
     }
@@ -185,7 +165,13 @@ pub fn trace_window_shown(title: &str) {
 }
 
 pub fn run_task(names: &Names) -> Result<(), String> {
-    imp::run_task(&names.task)
+    #[cfg(windows)]
+    return agentbolt_ipc::windows_task::run(names, None);
+    #[cfg(not(windows))]
+    {
+        let _ = names;
+        Err("the sign-in task exists only on Windows".into())
+    }
 }
 
 pub fn open_chat(

@@ -320,3 +320,62 @@ informed the session-preserving launch.
 Artem answered signing ask `ask_c4f58d78a5f04db5` through the Desk at **2026-10-18T20:33:49Z**:
 “Signing can be deferred beyond 0.2.” The candidate will be explicitly unsigned; signing is no longer a
 0.2 release gate, and no signed-build validation is claimed.
+
+## Per-user scheduler tasks and reviewed rollback boundaries
+
+Task names now include the actual process-token SID. COM inspection verifies the principal's resolved SID,
+interactive least-privilege logon and exactly one execution action with the installed daemon, expected
+working folder and channel arguments. Start, stop and deletion use the verified definition; mutations
+recheck its XML. Historical names are migrated only when verified; unrelated or inaccessible historical
+tasks are ignored. A collision on the new scoped name is refused before file replacement. New task XML
+uses the token SID instead of environment-provided account names. CLI and Desk share the same verifier.
+
+The independent follow-up review found two upgrade rollback races, now fixed:
+
+1. An automatic task start could open the new database while the installer still intended to roll files
+   back. A separate private startup gate is held from preflight through replacement/rollback. Every new
+   supervisor, worker and Desk checks it before initialization; workers retain it until store/pipe startup
+   completes. The installer releases it only after restoring old files or committing the new installation.
+   A refused worker exits with a transient failure, preserving supervision recovery.
+2. Rollback could overwrite a task changed since preflight. The installer now journals only its successful
+   task mutations. It restores a replacement only while that exact XML remains unchanged, restores a
+   removed legacy task only while its name is still absent, and skips untouched preflight snapshots.
+
+The reviewer rechecked these fixes and the surrounding lifecycle/pipe/token/installer code and reported
+**no remaining actionable security issue**. That pass was read-only; the following live tests supply the
+execution evidence:
+
+- Final release installer suite in Anode: **3 passed in 27.14 s**. Channel `insttest-1bcac26283b30` used a
+  visible standalone Desk in session 4, daemon in session 1 and the real older `b96ddc3` MCP binary held open.
+  A locked third source forced a copy failure after earlier replacements: every original byte was restored,
+  all existing processes stayed alive, the subsequent upgrade reopened the Desk and retained its draft,
+  and the held MCP process read a new Desk answer before uninstall cleaned the fixture.
+- Channel `insttest-1bcac1d50630c` verified legacy migration, preservation of wrong-image/argument/folder
+  historical tasks, and refusal of scoped decoys on install/start/uninstall. During a deliberately delayed
+  copy, direct new worker and supervisor launches exited 1 without creating a database. Changing the task
+  concurrently caused refusal and rollback preserved the changed XML and restored all program bytes.
+- `oldrefuse-1792356768310`: a real pre-lifecycle warm Desk from `b96ddc3` caused pre-mutation refusal;
+  all three SHA256 hashes and task XML remained identical. Verified task stop, uninstall/purge and removal
+  of that fixture's old Roaming preferences completed. The first harness attempt (`oldrefuse-1792356737782`)
+  stopped on PowerShell's stderr handling, before assertions, and also cleaned up; the corrected run passed.
+- Four Desk headless tests pass, including refusal during maintenance before any channel data is created.
+  The negative main-channel answer check refuses before acquiring a startup gate.
+
+Windows workspace tests, all-target clippy, formatting and the release build pass. Linux core/MCP/IPC tests
+and all-target clippy pass. `cargo-deny 0.20.2 check licenses` passes (three pre-existing unused allow-list
+warnings). The pinned 72-hour installation and the main installation were untouched.
+
+The same final code also passed a warm Desk/daemon session-4 reinstall and held-MCP exchange in **8.27 s**,
+channel `insttest-1502819b34c00`, followed by verified uninstall/purge.
+
+## Reliability run interrupted before 72 hours
+
+Read-only inspection at 2026-10-18 20:54 UTC found the original soak task Ready, last result 0, with no
+recorded processes alive. Its daemon log records `quit from the tray menu` at **20:45:27.7271105Z**;
+the supervisor records normal exit at **20:45:27.8352749Z**. The source of that tray action is unknown.
+The observation is interrupted, not a scheduler failure or a 72-hour pass. No restart was attempted;
+the final candidate needs a fresh uninterrupted run. The obsolete hourly monitor is paused.
+
+Automatic approval review rejected the cleanup command for this stopped fixture with **“blocked by policy”**.
+Its installation, registrations, data and original logs remain in place; no alternate deletion was attempted.
+The two earlier blocked cleanup folders (`codex02-gui-1018` and `warm-95688`) also remain unresolved.

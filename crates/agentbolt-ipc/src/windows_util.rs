@@ -181,6 +181,17 @@ impl InstanceLock {
         )
     }
 
+    /// Stops any newly launched supervisor/worker from touching the store during replacement or
+    /// rollback. Separate from the installer mutex, which remains held while the committed build starts.
+    pub fn startup(names: &Names) -> io::Result<Option<Self>> {
+        Self::acquire_in(
+            agentbolt_core::channel::env_dir("LOCALAPPDATA")
+                .map_err(io::Error::other)?
+                .join("Agentbolt-startup"),
+            &names.channel,
+        )
+    }
+
     fn acquire_in(directory: PathBuf, scope: &str) -> io::Result<Option<Self>> {
         if scope.is_empty()
             || !scope

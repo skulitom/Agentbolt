@@ -257,7 +257,10 @@ impl Names {
         assert_ne!(channel, "main");
         let local = PathBuf::from(std::env::var("LOCALAPPDATA").unwrap());
         Names {
-            task: format!("Agentbolt ({channel})"),
+            task: agentbolt_ipc::windows_task::name(
+                &agentbolt_core::channel::Names::for_channel(&channel).unwrap(),
+            )
+            .unwrap(),
             protocol_key: format!("Software\\Classes\\agentbolt-{channel}"),
             aumid_key: format!("Software\\Classes\\AppUserModelId\\Skulitom.Agentbolt.{channel}"),
             install: local.join("Programs").join(format!("Agentbolt-{channel}")),
@@ -282,6 +285,10 @@ impl Drop for Cleanup<'_> {
         let _ = run(&cli(), &["uninstall", "--channel", &n.channel, "--purge"]);
         let _ = schtasks(&["/End", "/TN", &n.task]);
         let _ = schtasks(&["/Delete", "/TN", &n.task, "/F"]);
+        // Every fixture uses a unique test channel, including any legacy-name decoys it registers.
+        let legacy = format!("Agentbolt ({})", n.channel);
+        let _ = schtasks(&["/End", "/TN", &legacy]);
+        let _ = schtasks(&["/Delete", "/TN", &legacy, "/F"]);
         for key in [&n.protocol_key, &n.aumid_key] {
             let _ = Command::new("reg.exe")
                 .args(["delete", &format!("HKCU\\{key}"), "/f"])
@@ -647,6 +654,63 @@ fn install_then_uninstall_on_a_throwaway_channel() {
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
     }
+    if real && std::env::var("AGENTBOLT_COPY_FAILURE_TEST").as_deref() == Ok("1") {
+        use std::os::windows::fs::OpenOptionsExt;
+        let broken = std::env::temp_dir().join(format!("agentbolt-{}-broken-source", n.channel));
+        std::fs::create_dir_all(&broken).unwrap();
+        let mut original = Vec::new();
+        for exe in agentbolt::install::EXES {
+            std::fs::copy(from.join(exe), broken.join(exe)).unwrap();
+            original.push((exe, std::fs::read(n.install.join(exe)).unwrap()));
+        }
+        let processes = agentbolt_ipc::windows_util::running_images(&[
+            n.install.join("agentbolt-daemon.exe"),
+            n.install.join("agentbolt-desk.exe"),
+        ])
+        .unwrap();
+        // The third source exists but cannot be read: fail after earlier files have been replaced.
+        let locked = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(broken.join("agentbolt-desk.exe"))
+            .unwrap();
+        let failed = run(
+            &cli(),
+            &[
+                "install",
+                "--channel",
+                &n.channel,
+                "--from",
+                &broken.display().to_string(),
+            ],
+        );
+        drop(locked);
+        std::fs::remove_dir_all(&broken).unwrap();
+        assert!(!failed.status.success(), "copy failure was ignored");
+        assert!(
+            text(&failed).contains("old programs were restored"),
+            "{}",
+            text(&failed)
+        );
+        for (exe, bytes) in original {
+            assert!(
+                std::fs::read(n.install.join(exe)).unwrap() == bytes,
+                "{exe} not restored"
+            );
+        }
+        assert!(
+            processes.iter().all(|p| !p.exited().unwrap()),
+            "copy failure stopped a prepared process"
+        );
+        assert!(
+            run(&installed_cli, &["status", "--channel", &n.channel])
+                .status
+                .success()
+        );
+        eprintln!(
+            "Third-file copy failure restored all original bytes and kept existing processes alive"
+        );
+    }
     let o = run(&cli(), &args);
     assert!(
         o.status.success(),
@@ -757,4 +821,236 @@ fn install_then_uninstall_on_a_throwaway_channel() {
     if !real {
         let _ = std::fs::remove_dir_all(&from);
     }
+}
+
+fn register_task_xml(n: &Names, name: &str, xml: &str) {
+    let path = std::env::temp_dir().join(format!("agentbolt-{}-task-fixture.xml", n.channel));
+    let mut bytes = vec![0xff, 0xfe];
+    for unit in xml.encode_utf16() {
+        bytes.extend_from_slice(&unit.to_le_bytes());
+    }
+    std::fs::write(&path, bytes).unwrap();
+    let result = schtasks(&[
+        "/Create",
+        "/TN",
+        name,
+        "/XML",
+        &path.display().to_string(),
+        "/F",
+    ]);
+    std::fs::remove_file(path).unwrap();
+    assert!(result.status.success(), "{}", text(&result));
+}
+
+#[test]
+fn scheduler_migrates_only_a_verified_legacy_task_and_refuses_scoped_decoys() {
+    if std::env::var("AGENTBOLT_INSTALL_TEST").as_deref() != Ok("1") {
+        eprintln!("skipped: set AGENTBOLT_INSTALL_TEST=1 for Task Scheduler fixtures");
+        return;
+    }
+    let n = Names::new();
+    let _cleanup = Cleanup(&n);
+    let (from, real) = source(&n);
+    let core_names = agentbolt_core::channel::Names::for_channel(&n.channel).unwrap();
+    let args = [
+        "install",
+        "--channel",
+        &n.channel,
+        "--from",
+        &from.display().to_string(),
+        "--no-start",
+    ];
+    let initial = run(&cli(), &args);
+    assert!(initial.status.success(), "{}", text(&initial));
+    let xml = String::from_utf8(schtasks(&["/Query", "/TN", &n.task, "/XML"]).stdout).unwrap();
+    let legacy = core_names.task.clone();
+    register_task_xml(&n, &legacy, &xml);
+    assert!(
+        schtasks(&["/Delete", "/TN", &n.task, "/F"])
+            .status
+            .success()
+    );
+    let before = agentbolt_ipc::windows_task::registrations(&core_names).unwrap();
+    assert_eq!(before.len(), 1);
+    assert_eq!(before[0].name, legacy);
+    let migrated = run(&cli(), &args);
+    assert!(migrated.status.success(), "{}", text(&migrated));
+    assert!(text(&migrated).contains("Migrated the verified historical task"));
+    assert!(!schtasks(&["/Query", "/TN", &legacy]).status.success());
+    assert_eq!(
+        agentbolt_ipc::windows_task::registrations(&core_names).unwrap()[0].name,
+        n.task
+    );
+
+    if real {
+        use std::os::windows::fs::OpenOptionsExt;
+        let blocked = std::env::temp_dir().join(format!("agentbolt-{}-delayed-copy", n.channel));
+        std::fs::create_dir_all(&blocked).unwrap();
+        for exe in agentbolt::install::EXES {
+            std::fs::copy(from.join(exe), blocked.join(exe)).unwrap();
+        }
+        let locked = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(blocked.join("agentbolt-desk.exe"))
+            .unwrap();
+        let installer = Command::new(cli())
+            .args([
+                "install",
+                "--channel",
+                &n.channel,
+                "--from",
+                &blocked.display().to_string(),
+                "--no-start",
+            ])
+            .env("AGENTBOLT_CHANNEL", &n.channel)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .unwrap();
+        let started = std::time::Instant::now();
+        while !std::fs::read_dir(&n.install).unwrap().flatten().any(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .starts_with("agentbolt-desk.exe.old-")
+        }) {
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(5),
+                "installer did not reach copying"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        // Launch the newly copied worker/supervisor directly, as Task Scheduler or an old host could.
+        // Both must fail transiently before opening a store. This is independent of CLI coordination.
+        for supervise in [false, true] {
+            let mut cmd = Command::new(n.install.join("agentbolt-daemon.exe"));
+            cmd.args(["--channel", &n.channel, "--headless"]);
+            if supervise {
+                cmd.arg("--supervise");
+            }
+            let mut process = TestProcess(cmd.creation_flags(CREATE_NO_WINDOW).spawn().unwrap());
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+            loop {
+                if let Some(status) = process.0.try_wait().unwrap() {
+                    assert_eq!(
+                        status.code(),
+                        Some(1),
+                        "maintenance must be a transient startup failure"
+                    );
+                    break;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "a new daemon entered an uncommitted installation"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        }
+        assert!(
+            !core_names.db_path().unwrap().exists(),
+            "uncommitted daemon opened the database"
+        );
+        // Change the task after preflight. Rollback must not overwrite this unrelated definition.
+        register_task_xml(&n, &n.task, &xml.replace("--supervise", "--unrelated"));
+        let changed = schtasks(&["/Query", "/TN", &n.task, "/XML"]).stdout;
+        drop(locked);
+        let result = installer.wait_with_output().unwrap();
+        assert!(!result.status.success(), "changed task was accepted");
+        assert!(
+            text(&result).contains("left untouched"),
+            "{}",
+            text(&result)
+        );
+        assert_eq!(
+            schtasks(&["/Query", "/TN", &n.task, "/XML"]).stdout,
+            changed,
+            "rollback replaced an unrelated task"
+        );
+        for exe in agentbolt::install::EXES {
+            assert!(
+                std::fs::read(from.join(exe)).unwrap()
+                    == std::fs::read(n.install.join(exe)).unwrap(),
+                "rollback failed for {exe}"
+            );
+        }
+        std::fs::remove_dir_all(blocked).unwrap();
+        register_task_xml(&n, &n.task, &xml);
+        eprintln!(
+            "Uncommitted worker/supervisor refused before database creation; rollback preserved a concurrently changed task"
+        );
+    }
+
+    // Same label and account do not grant ownership: require exactly our action, folder and arguments.
+    for decoy in [
+        xml.replace("agentbolt-daemon.exe", "unrelated.exe"),
+        xml.replace("--supervise", "--unrelated"),
+        xml.replace("</WorkingDirectory>", "-unrelated</WorkingDirectory>"),
+    ] {
+        register_task_xml(&n, &legacy, &decoy);
+        let stored = schtasks(&["/Query", "/TN", &legacy, "/XML"]).stdout;
+        let upgraded = run(&cli(), &args);
+        assert!(upgraded.status.success(), "{}", text(&upgraded));
+        assert_eq!(
+            schtasks(&["/Query", "/TN", &legacy, "/XML"]).stdout,
+            stored,
+            "unrelated historical task changed"
+        );
+        let ours = agentbolt_ipc::windows_task::registrations(&core_names).unwrap();
+        assert_eq!(ours.len(), 1);
+        assert_eq!(ours[0].name, n.task);
+    }
+    let good_bytes = std::fs::read(n.install.join("agentbolt.exe")).unwrap();
+    register_task_xml(
+        &n,
+        &n.task,
+        &xml.replace("agentbolt-daemon.exe", "unrelated.exe"),
+    );
+    let collision = schtasks(&["/Query", "/TN", &n.task, "/XML"]).stdout;
+    for operation in ["install", "uninstall", "start"] {
+        let result = if operation == "install" {
+            run(&cli(), &args)
+        } else {
+            run(&cli(), &[operation, "--channel", &n.channel])
+        };
+        assert!(
+            !result.status.success(),
+            "{operation} accepted an unrelated scoped task"
+        );
+        assert!(
+            text(&result).contains("left untouched"),
+            "{}",
+            text(&result)
+        );
+        assert_eq!(
+            schtasks(&["/Query", "/TN", &n.task, "/XML"]).stdout,
+            collision
+        );
+        assert_eq!(
+            std::fs::read(n.install.join("agentbolt.exe")).unwrap(),
+            good_bytes
+        );
+    }
+    // Restore the fixture's own valid task so the normal uninstall cleans up its files and registrations.
+    register_task_xml(&n, &n.task, &xml);
+    let foreign = schtasks(&["/Query", "/TN", &legacy, "/XML"]).stdout;
+    let removed = run(&cli(), &["uninstall", "--channel", &n.channel, "--purge"]);
+    assert!(removed.status.success(), "{}", text(&removed));
+    assert_eq!(
+        schtasks(&["/Query", "/TN", &legacy, "/XML"]).stdout,
+        foreign
+    );
+    assert!(!n.install.exists() && !n.data.exists() && !n.shortcut.exists());
+    assert!(
+        schtasks(&["/Delete", "/TN", &legacy, "/F"])
+            .status
+            .success()
+    );
+    if !real {
+        std::fs::remove_dir_all(from).unwrap();
+    }
+    eprintln!(
+        "Verified legacy migration, unrelated-task preservation and scoped-name refusal on {}",
+        n.channel
+    );
 }

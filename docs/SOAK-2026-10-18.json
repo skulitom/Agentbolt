@@ -12,7 +12,11 @@
   "supervisorPid": 66868,
   "warmDeskPid": 77176,
   "taskExecutionTimeLimit": "PT0S",
-  "state": "running",
+  "state": "interrupted",
+  "cleanupState": "blocked: automatic approval review rejected cleanup as blocked by policy; no alternative deletion attempted",
+  "monitorState": "paused",
+  "stoppedUtc": "2026-10-18T20:45:27.8352749Z",
+  "interruptionReason": "Daemon log records quit from the tray menu at 20:45:27.7271105Z; supervisor exited normally. This is not a completed 72-hour observation. Do not restart or count later uptime toward this run.",
   "binaries": [
     {
       "name": "agentbolt.exe",
@@ -38,6 +42,16 @@
       "daemonPid": 44196,
       "status": "0 open, 0 agents; event chain intact",
       "note": "Started from Anode session 4; InteractiveToken selected console session 1. No synthetic asks posted."
+    },
+    {
+      "atUtc": "2026-10-18T20:54:58Z",
+      "taskState": "Ready",
+      "lastTaskResult": 0,
+      "daemonPid": null,
+      "supervisorPid": null,
+      "warmDeskPid": null,
+      "status": "interrupted before 72 hours",
+      "note": "Read-only inspection found no fixture processes. Daemon and supervisor logs record normal tray Quit at 20:45 UTC. No restart or repair attempted. Fresh uninterrupted measurement is required on the final candidate."
     }
   ],
   "automationId": "agentbolt-72-hour-reliability-check"

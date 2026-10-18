@@ -65,3 +65,27 @@ fn bad_arguments_exit_without_a_window() {
         .unwrap();
     assert_eq!(out.status.code(), Some(2));
 }
+
+#[cfg(windows)]
+#[test]
+fn an_upgrade_blocks_fresh_desk_operations_before_any_data_is_created() {
+    let names = agentbolt_core::channel::Names::for_channel(&throwaway_channel()).unwrap();
+    let gate = agentbolt_ipc::windows_util::InstanceLock::startup(&names)
+        .unwrap()
+        .unwrap();
+    let out = desk()
+        .args([
+            "--channel",
+            &names.channel,
+            "--answer",
+            "a1",
+            "--choice",
+            "Yes",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("updating"));
+    assert!(!names.data_dir().unwrap().exists());
+    drop(gate);
+}

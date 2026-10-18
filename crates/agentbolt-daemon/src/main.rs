@@ -92,6 +92,14 @@ fn run() -> i32 {
     let Ok(names) = names_for(&args) else {
         return 2;
     };
+    // A new executable must not open/migrate the database while an installer can still roll it back.
+    // Check before creating data, logs or cleanup side effects; Task Scheduler and old MCP clients can
+    // launch us without going through the current CLI startup helpers.
+    #[cfg(windows)]
+    let startup = match agentbolt_ipc::windows_util::InstanceLock::startup(&names) {
+        Ok(Some(lock)) => lock,
+        _ => return 1,
+    };
     // No data folder (LOCALAPPDATA unset): nowhere to log or keep the store, so stop rather than use ".".
     let Ok(data_dir) = names.data_dir() else {
         return 1;
@@ -101,6 +109,7 @@ fn run() -> i32 {
     }
     #[cfg(windows)]
     if args.supervise {
+        drop(startup); // The worker takes its own gate before touching the database.
         log::init(data_dir.join("supervisor.log"));
         return supervisor::run(&names, args.headless);
     }
@@ -189,6 +198,9 @@ fn run() -> i32 {
             return 1;
         }
     };
+
+    #[cfg(windows)]
+    drop(startup); // Initialization is complete; installers can now enumerate this live writer.
 
     let paused = match shared.get_settings() {
         Ok(settings) => settings.toasts_off,

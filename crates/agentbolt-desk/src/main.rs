@@ -60,6 +60,22 @@ fn main() {
             std::process::exit(2);
         }
     };
+    if names.is_main() && matches!(parsed.mode, Mode::Answer { .. }) {
+        eprintln!(
+            "agentbolt-desk --answer is for test channels only; pass --channel <test channel>."
+        );
+        std::process::exit(2);
+    }
+    #[cfg(windows)]
+    match agentbolt_ipc::windows_util::InstanceLock::startup(&names) {
+        Ok(Some(gate)) => drop(gate),
+        _ => {
+            // Do not enter the newly copied build before the installer has committed it. In
+            // particular a warm preload must not create a second UI during draft preparation.
+            eprintln!("Agentbolt is updating; open the Desk again when the update finishes.");
+            std::process::exit(1);
+        }
+    }
     let code = match parsed.mode {
         Mode::Window => window(names, false),
         Mode::Warm => window(names, true),
@@ -90,12 +106,6 @@ fn main() {
             values,
             note,
         } => {
-            if names.is_main() {
-                eprintln!(
-                    "agentbolt-desk --answer is for test channels only; pass --channel <test channel>."
-                );
-                std::process::exit(2);
-            }
             let values = match values.map(|v| serde_json::from_str(&v)) {
                 None => None,
                 Some(Ok(v)) => Some(v),

@@ -255,6 +255,20 @@ mod win {
     /// No console window for the child (the MCP host or the Desk may have none of its own).
     pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+    fn startup_barrier(names: &Names) -> anyhow::Result<agentbolt_ipc::windows_util::InstanceLock> {
+        let until = Instant::now() + Duration::from_secs(15);
+        loop {
+            if let Some(lock) = agentbolt_ipc::windows_util::InstanceLock::startup(names)? {
+                return Ok(lock);
+            }
+            anyhow::ensure!(
+                Instant::now() < until,
+                "A daemon is still initializing; no installation files were changed"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
     /// Run schtasks.exe; Ok(stdout) on success, Err(its message) otherwise.
     pub fn schtasks(args: &[&str]) -> Result<String, String> {
         let out = Command::new(agentbolt_ipc::windows_util::schtasks().map_err(|e| e.to_string())?)
@@ -273,19 +287,6 @@ mod win {
                 err
             })
         }
-    }
-
-    pub fn task_exists(names: &Names) -> bool {
-        schtasks(&["/Query", "/TN", &names.task]).is_ok()
-    }
-
-    /// `DOMAIN\user` for the task's trigger and principal.
-    fn current_user() -> anyhow::Result<String> {
-        let user = std::env::var("USERNAME").context("USERNAME isn't set")?;
-        Ok(match std::env::var("USERDOMAIN") {
-            Ok(d) if !d.is_empty() => format!("{d}\\{user}"),
-            _ => user,
-        })
     }
 
     /// Retry a file operation while a just-stopped process lets go of the file.
@@ -314,6 +315,20 @@ mod win {
         }
         std::fs::write(&path, bytes).with_context(|| format!("writing {}", path.display()))?;
         Ok(path)
+    }
+
+    fn register_task_xml(names: &Names, name: &str, xml: &str) -> anyhow::Result<()> {
+        let file = write_task_file(xml, &names.channel)?;
+        let result = schtasks(&[
+            "/Create",
+            "/TN",
+            name,
+            "/XML",
+            &file.display().to_string(),
+            "/F",
+        ]);
+        let _ = std::fs::remove_file(file);
+        result.map(|_| ()).map_err(anyhow::Error::msg)
     }
 
     /// A stamp for `<exe>.old-<stamp>` names: seconds since 1970 plus this process's id, so two installs in one
@@ -429,12 +444,14 @@ mod win {
         let lnk = shortcut_path(names)?;
         let _install_lock = agentbolt_ipc::windows_util::InstanceLock::maintenance(names)?
             .ok_or_else(|| anyhow::anyhow!("Another installer is working on this channel"))?;
+        let startup = startup_barrier(names)?;
+        let task_name = agentbolt_ipc::windows_task::name(names).map_err(anyhow::Error::msg)?;
+        let old_tasks =
+            agentbolt_ipc::windows_task::registrations(names).map_err(anyhow::Error::msg)?;
         let mut upgrade = crate::install_upgrade::Upgrade::prepare(names, &dir)?;
-        let old_task_xml = schtasks(&["/Query", "/TN", &names.task, "/XML"]).ok();
         std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
         remove_old_copies(&dir);
         let same = |a: &Path, b: &Path| matches!((a.canonicalize(), b.canonicalize()), (Ok(x), Ok(y)) if x == y);
-        let had_task = old_task_xml.is_some();
         let swaps = if !same(from, &dir) {
             // The old daemon keeps running while the programs are swapped, so a failed copy leaves it working.
             let swaps = swap_in(from, &dir)?;
@@ -447,12 +464,15 @@ mod win {
             );
             None
         };
+        let mut replaced_task = None;
+        let mut removed_tasks = Vec::new();
+        let mut stopped_tasks = Vec::new();
         let before_start = (|| -> anyhow::Result<()> {
             upgrade.renew()?;
             upgrade.request_visible_warm_restore()?;
-            if had_task {
-                // Stop the old daemon so the task starts the new one below.
-                let _ = schtasks(&["/End", "/TN", &names.task]);
+            for (index, task) in old_tasks.iter().enumerate() {
+                task.stop(names).map_err(anyhow::Error::msg)?;
+                stopped_tasks.push(index);
             }
             upgrade.wait_for_daemons()?;
 
@@ -479,44 +499,60 @@ mod win {
             println!("Created the Start-menu shortcut {}", lnk.display());
 
             let xml = task_xml(
-                &current_user()?,
+                &agentbolt_ipc::windows_util::current_user_sid()?,
                 &dir.join(DAEMON_EXE),
                 &names.channel,
                 &dir,
             );
-            let file = write_task_file(&xml, &names.channel)?;
-            let created = schtasks(&[
-                "/Create",
-                "/TN",
-                &names.task,
-                "/XML",
-                &file.display().to_string(),
-                "/F",
-            ]);
-            let _ = std::fs::remove_file(&file);
-            created
-                .map_err(|e| anyhow::anyhow!("creating the sign-in task '{}': {e}", names.task))?;
-            println!("Created the sign-in task '{}'", names.task);
+            if let Some(old) = old_tasks.iter().find(|t| t.name == task_name) {
+                old.ensure_unchanged(names).map_err(anyhow::Error::msg)?;
+            } else {
+                agentbolt_ipc::windows_task::ensure_absent(&task_name)
+                    .map_err(anyhow::Error::msg)?;
+            }
+            register_task_xml(names, &task_name, &xml)?;
+            replaced_task = agentbolt_ipc::windows_task::registrations(names)
+                .map_err(anyhow::Error::msg)?
+                .into_iter()
+                .find(|t| t.name == task_name);
+            anyhow::ensure!(
+                replaced_task.is_some(),
+                "The newly registered task could not be verified"
+            );
+            for (index, task) in old_tasks.iter().enumerate() {
+                if task.name != task_name {
+                    task.delete(names).map_err(anyhow::Error::msg)?;
+                    removed_tasks.push(index);
+                    println!("Migrated the verified historical task '{}'", task.name);
+                }
+            }
+            println!("Created the sign-in task '{task_name}'");
             Ok(())
         })();
         if let Err(error) = before_start {
             if let Some(swaps) = swaps {
                 swaps.rollback()?;
             }
-            if let Some(xml) = old_task_xml {
-                let file = write_task_file(&xml, &names.channel)?;
-                let restored = schtasks(&[
-                    "/Create",
-                    "/TN",
-                    &names.task,
-                    "/XML",
-                    &file.display().to_string(),
-                    "/F",
-                ]);
-                let _ = std::fs::remove_file(file);
-                restored
-                    .map_err(anyhow::Error::msg)
-                    .context("restoring the earlier sign-in task")?;
+            // Undo only our successful mutations. A definition changed by someone else is never
+            // overwritten, even if that change is the reason the forward operation failed.
+            if let Some(replacement) = replaced_task {
+                replacement
+                    .ensure_unchanged(names)
+                    .map_err(anyhow::Error::msg)?;
+                if let Some(old) = old_tasks.iter().find(|t| t.name == task_name) {
+                    register_task_xml(names, &old.name, &old.xml)?;
+                } else {
+                    replacement.delete(names).map_err(anyhow::Error::msg)?;
+                }
+            }
+            for index in removed_tasks {
+                let task = &old_tasks[index];
+                agentbolt_ipc::windows_task::ensure_absent(&task.name)
+                    .map_err(anyhow::Error::msg)?;
+                register_task_xml(names, &task.name, &task.xml)?;
+            }
+            if !stopped_tasks.is_empty() {
+                drop(startup); // Rollback is now complete; only the restored version can start.
                 let _ = run_task_in_session(names, upgrade.daemon_session());
             }
             return Err(error.context(
@@ -525,6 +561,7 @@ mod win {
         }
         // Once the new daemon may have migrated or written the database, do not roll its files back
         // underneath it. Report start failure while leaving the complete new installation repairable.
+        drop(startup);
         if start {
             let started =
                 start_and_wait_in_session(names, Duration::from_secs(20), upgrade.daemon_session());
@@ -567,43 +604,7 @@ mod win {
     }
 
     fn run_task_in_session(names: &Names, session: Option<u32>) -> anyhow::Result<()> {
-        let Some(session) = session else {
-            return schtasks(&["/Run", "/TN", &names.task])
-                .map(|_| ())
-                .map_err(anyhow::Error::msg);
-        };
-        use windows::Win32::System::Com::{
-            CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
-            CoUninitialize,
-        };
-        use windows::Win32::System::TaskScheduler::{
-            ITaskService, TASK_RUN_USE_SESSION_ID, TaskScheduler,
-        };
-        use windows::Win32::System::Variant::VARIANT;
-        use windows::core::BSTR;
-        unsafe {
-            let initialized = CoInitializeEx(None, COINIT_APARTMENTTHREADED).is_ok();
-            let result = (|| -> anyhow::Result<()> {
-                let service: ITaskService =
-                    CoCreateInstance(&TaskScheduler, None, CLSCTX_INPROC_SERVER)?;
-                let empty = VARIANT::default();
-                service.Connect(&empty, &empty, &empty, &empty)?;
-                let task = service
-                    .GetFolder(&BSTR::from("\\"))?
-                    .GetTask(&BSTR::from(&names.task))?;
-                task.RunEx(
-                    &empty,
-                    TASK_RUN_USE_SESSION_ID.0,
-                    i32::try_from(session)?,
-                    &BSTR::from(agentbolt_ipc::windows_util::current_user_sid()?),
-                )?;
-                Ok(())
-            })();
-            if initialized {
-                CoUninitialize();
-            }
-            result
-        }
+        agentbolt_ipc::windows_task::run(names, session).map_err(anyhow::Error::msg)
     }
 
     pub fn start_and_wait_in_session(
@@ -693,13 +694,15 @@ mod win {
         }
         let _install_lock = agentbolt_ipc::windows_util::InstanceLock::maintenance(names)?
             .ok_or_else(|| anyhow::anyhow!("Another installer is working on this channel"))?;
+        let _startup = startup_barrier(names)?;
+        let tasks =
+            agentbolt_ipc::windows_task::registrations(names).map_err(anyhow::Error::msg)?;
         let mut upgrade = crate::install_upgrade::Upgrade::prepare(names, &dir)?;
         remove_uninstall_leftovers();
-        if task_exists(names) {
-            let _ = schtasks(&["/End", "/TN", &names.task]);
-            schtasks(&["/Delete", "/TN", &names.task, "/F"])
-                .map_err(|e| anyhow::anyhow!("deleting the sign-in task '{}': {e}", names.task))?;
-            println!("Deleted the sign-in task '{}'", names.task);
+        for task in &tasks {
+            task.stop(names).map_err(anyhow::Error::msg)?;
+            task.delete(names).map_err(anyhow::Error::msg)?;
+            println!("Deleted the sign-in task '{}'", task.name);
         }
         upgrade.wait_for_daemons()?;
         upgrade.finish(false)?;
