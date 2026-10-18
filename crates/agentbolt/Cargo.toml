@@ -1,0 +1,20 @@
+[package]
+name = "agentbolt"
+description = "Agentbolt: an always-on desk where any agent can ask you, and the CLI and MCP server agents use"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "agentbolt"
+path = "src/main.rs"
+
+[dependencies]
+agentbolt-core.workspace = true
+agentbolt-ipc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+rmcp.workspace = true

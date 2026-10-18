@@ -1,0 +1,43 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/agentbolt-core",
+    "crates/agentbolt-ipc",
+    "crates/agentbolt-daemon",
+    "crates/agentbolt-desk",
+    "crates/agentbolt",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/skulitom/Agentbolt"
+rust-version = "1.95"
+
+[workspace.dependencies]
+agentbolt-core = { path = "crates/agentbolt-core" }
+agentbolt-ipc = { path = "crates/agentbolt-ipc" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
+hmac = "0.13"
+sha2 = "0.11"
+hex = "0.4"
+rand = "0.9"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "io-std", "sync", "time", "net"] }
+interprocess = { version = "2.4", features = ["tokio"] }
+rmcp = { version = "3.5", features = ["server", "transport-io"] }
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "persistence"] }
+tray-icon = "0.26"
+ureq = "3.4"
+windows = "0.62"
+tauri-winrt-notification = "0.8"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
