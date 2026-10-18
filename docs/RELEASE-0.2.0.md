@@ -16,8 +16,11 @@ in their original Windows sessions. Windows Installed Apps can detect and remove
 
 Codex answer wake remains explicitly opt-in per owner. Live checks confirm receipt in active and idle loaded
 chats with their original sandbox and approval policy. An unloaded chat did not automatically resume on the
-tested Codex version even though its queue command succeeded. Answers remain in the Desk for the agent to
-read when the chat is resumed. Archived chats reject the queue command. See the live-client evidence before
+tested Codex version even though its queue command succeeded. Queue acceptance is now recorded separately
+from confirmed delivery; answers remain in normal checkpoint reads when the chat resumes. The database
+upgrade preserves explicit relay confirmations and resurfaces older unconfirmed queue records within the
+normal 14-day checkpoint window. Exact-ID reads remain available afterward. Archived chats reject the
+queue command. See the live-client evidence before
 relying on unattended wake for a particular host version.
 
 ## Install or upgrade on Windows x64

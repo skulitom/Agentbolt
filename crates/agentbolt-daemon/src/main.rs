@@ -209,7 +209,7 @@ fn run() -> i32 {
             false
         }
     };
-    let (open, digest) = shared.counts().unwrap_or((0, 0));
+    let open = shared.counts().unwrap_or(0);
 
     #[cfg(windows)]
     let handler = {
@@ -294,7 +294,6 @@ fn run() -> i32 {
         if let Some(rx) = ui_rx {
             let state = tray::TrayState {
                 open,
-                digest,
                 paused,
                 handler,
             };
@@ -303,14 +302,14 @@ fn run() -> i32 {
                 wait_for_shutdown(&shutdown);
             }
         } else {
-            let _ = (open, digest, handler);
+            let _ = (open, handler);
             wait_for_shutdown(&shutdown);
         }
     }
     #[cfg(not(windows))]
     {
         // Headless off Windows: runs until killed (SIGTERM/SIGINT end the process).
-        let _ = (open, digest);
+        let _ = open;
         wait_for_shutdown(&shutdown);
     }
 

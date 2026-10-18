@@ -8,6 +8,12 @@ use agentbolt_core::channel::Names;
 use crate::daemon::DaemonService;
 
 impl DaemonService for StoreService {
+    fn toast_allowed(&self, ask_id: &str) -> bool {
+        StoreService::toast_allowed(self, ask_id)
+    }
+    fn notification_counts(&self) -> Result<(u32, Option<String>), String> {
+        StoreService::notification_counts(self)
+    }
     fn codex_delivery_allowed(&self, ask_id: &str, thread: &str) -> bool {
         StoreService::codex_delivery_allowed(self, ask_id, thread)
     }

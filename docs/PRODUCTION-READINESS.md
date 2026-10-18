@@ -512,5 +512,26 @@ The added twelve answer/cancel races pass on Windows and Linux, including durabl
 The native audit exposed a form regression: an untouched optional boolean was serialized as false.
 The Desk now represents it as an optional value and offers Not answered / Yes / No. Tests check omission,
 explicit false and true, defaults, required-field validation, legacy Bool draft compatibility and persistence
-of unanswered/explicit-false drafts. All 19 Desk unit tests and all-target Desk clippy pass. A live GUI
-check remains necessary before this row can be closed.
+of unanswered/explicit-false drafts. All 19 Desk unit tests and all-target Desk clippy pass. The subsequent
+`7e4d081` GUI fixture also passed omission, draft restart, focus retention and the 860 × 620 layout checks;
+see `CANDIDATE-7e4d081.json` and `NATIVE-SCENARIO-AUDIT.md`.
+
+### Implementation-first correction
+
+At 22:01 UTC Artem requested all implementation before heavy testing. The current ten-minute probe was
+cancelled after 488 seconds without a completed result. The new 72-hour fixture was stopped and its monitor
+paused; both fresh fixtures uninstalled and purged successfully. Neither is counted as a pass. The earlier
+cleanup rejections recorded above remain unchanged. Manual desktop testing is deferred despite the earlier
+ready answer. Existing ZIPs remain historical snapshots, not the final build after these changes.
+
+The handoff-to-code audit is in `IMPLEMENTATION-AUDIT.md`. It found a lost-checkpoint bug: queue exit 0
+suppressed an answer from normal reads even when the host did not wake. Queue acceptance is now distinct
+from confirmed relay delivery, with migration retaining genuine relay confirmations. It also found muted
+owners included in phone counts and queued toasts bypassing later mute/pause/answer changes; both paths
+now consult current state. Digest fields/text were removed from internal notification code.
+
+Focused Windows regressions pass for checkpoint recovery after queue success, migration of released data
+without changing its event chain, notification mute/pause/answer rechecks, ntfy counts/rate limiting and tray
+text. Repository guard, formatting and core/daemon all-target clippy pass. The first new notification test
+used the wrong option for its synthetic question; correcting that fixture to Blue made it pass. Full-suite,
+Linux and packaged validation are deferred to the final implementation as requested.

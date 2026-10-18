@@ -92,17 +92,17 @@ pub struct RegisterResult {
     pub provisional: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub requested_owner: Option<String>,
-    /// Answered asks of this owner not yet delivered.
+    /// Answered asks without confirmed delivery to this owner or its asking session.
     pub answers: Vec<Ask>,
-    /// This owner's asks still open or in the digest.
+    /// This owner's open asks.
     pub open_asks: Vec<Ask>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AskResult {
     pub id: String,
-    /// "open" (in the Inbox), "digest" (held by the budget), "existing" (deduplicated) or "cap" (the owner
-    /// already has its limit of open asks; `existing` is its oldest).
+    /// "open" (in the Inbox), "existing" (deduplicated) or "cap" (the owner already has its limit;
+    /// `existing` is its oldest). Older daemons may return the legacy "digest" value.
     pub placed: String,
     /// When `placed` is "existing", or when the owner is at its cap: the ask it was matched to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -117,9 +117,9 @@ pub struct AskResult {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AnswersResult {
     /// Asks with an answer (`status` answered or defaulted, `answer` set). With no `ids`: this owner's answered
-    /// asks with no successful delivery yet (answered in the last 14 days, at most 50).
+    /// asks with no confirmed delivery to the asker (answered in the last 14 days, at most 50).
     pub answers: Vec<Ask>,
-    /// Ids of this owner's asks still open or in the digest (the requested ones, or all of them with no `ids`).
+    /// Ids of this owner's open asks (the requested ones, or all of them with no `ids`).
     #[serde(default)]
     pub waiting: Vec<String>,
     /// Requested ids of this owner's asks that were cancelled.
@@ -130,8 +130,8 @@ pub struct AnswersResult {
     pub unknown: Vec<String>,
 }
 
-/// Result of `McpOp::RelayList`: answered asks of other owners, answered in the last 14 days, with no successful
-/// delivery recorded yet (by `RelayMark`, to a session or to NOTES.md, or by the daemon's `codex queue`); newest
+/// Result of `McpOp::RelayList`: answered asks of other owners, answered in the last 14 days, with no confirmed
+/// delivery recorded yet (by `RelayMark`, to a session or to NOTES.md); newest
 /// first, at most 100. `RelayMark` returns an `AnswerResult`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RelayListResult {
@@ -143,6 +143,7 @@ pub struct StatusResult {
     pub version: String,
     pub channel: String,
     pub open: u32,
+    /// Legacy wire compatibility; 0.2 admits every ask directly to the Inbox.
     pub digest: u32,
     pub agents: u32,
     pub chain_ok: bool,
@@ -155,10 +156,10 @@ pub struct StatusResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", content = "args", rename_all = "snake_case")]
 pub enum DeskOp {
-    /// Inbox (open), digest, recent answered. Listing the Inbox marks those asks shown, so the Desk sends it only
+    /// Inbox and recent answers. Listing the Inbox marks those asks shown, so the Desk sends it only
     /// while its window is focused and not minimized (`Status` refreshes the counts otherwise).
     List,
-    /// Opening the digest marks its asks shown.
+    /// Legacy wire compatibility. Migrated asks are in the Inbox; no new digest asks are created.
     OpenDigest,
     Answer {
         ask_id: String,
@@ -204,6 +205,7 @@ pub enum DeskOp {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListResult {
     pub inbox: Vec<Ask>,
+    /// Legacy wire compatibility; zero after migration to the direct Inbox.
     pub digest_count: u32,
     pub recent: Vec<Ask>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

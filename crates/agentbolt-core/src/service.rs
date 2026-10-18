@@ -18,7 +18,9 @@ pub enum Effect {
     /// The Inbox changed: refresh the tray count and, if configured, the ntfy count push.
     InboxChanged {
         open: u32,
-        digest: u32,
+        /// Only unmuted owners contribute to the count-only phone notification.
+        notifiable: u32,
+        /// Earliest unmuted deadline.
         next_deadline: Option<String>,
     },
     /// Show a toast for this ask. Buttons carry per-button tokens (reversible choose/approve asks only).
@@ -49,8 +51,7 @@ pub trait Service: Send + Sync {
     ) -> Result<(serde_json::Value, Vec<Effect>), String>;
     /// Handle one Desk-pipe op. Only called for a client the IPC layer verified as the installed Desk.
     fn desk(&self, op: DeskOp) -> Result<(serde_json::Value, Vec<Effect>), String>;
-    /// Called about once a second: defaults at deadlines (only if shown and reversible), digest release
-    /// at the day boundary, handle expiry. Returns effects.
+    /// Called about once a second: defaults (only if shown and reversible), due toasts and handle expiry.
     fn tick(&self, now: time::OffsetDateTime) -> Vec<Effect>;
     /// The client connection closed (handles stay; liveness is per handle, PLAN.md rule 5).
     fn disconnected(&self, connection: u64);

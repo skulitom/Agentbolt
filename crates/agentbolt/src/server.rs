@@ -29,7 +29,7 @@ pub struct DeskServer {
     handles: Mutex<HashMap<String, String>>,
     instructions: String,
     /// Made once when the process starts: with no `--owner` and no host session id, every registration from this
-    /// process shares one provisional owner (`session:<key>`), so registering again buys no fresh budget.
+    /// process shares one provisional owner (`session:<key>`), so registering again cannot bypass its cap.
     process_key: String,
 }
 
@@ -55,7 +55,7 @@ pub async fn serve(args: McpArgs, names: Names) -> anyhow::Result<()> {
 }
 
 /// What the host told us about the caller on this request. Never taken from tool arguments: an agent can't pick
-/// its own session (and with it a fresh provisional owner and budget).
+/// its own session (and with it a fresh provisional owner and open-ask allowance).
 struct Caller {
     session_ref: Option<String>,
     client: String,

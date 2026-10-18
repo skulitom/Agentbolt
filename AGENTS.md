@@ -7,7 +7,7 @@ public summary is the README.
 ## Layout
 | Crate | What it is |
 |---|---|
-| `crates/agentbolt-core` | The data model, SQLite store, rules (budget, owners, dedupe, defaults), toast tokens, event chain and pipe protocol. Pure Rust, no OS or GUI dependencies. |
+| `crates/agentbolt-core` | The data model, SQLite store, rules (owner caps, mute, dedupe, defaults), toast tokens, event chain and pipe protocol. Pure Rust, no OS or GUI dependencies. |
 | `crates/agentbolt-ipc` | The local pipe transport: user-only named pipes on Windows, Unix sockets elsewhere. |
 | `crates/agentbolt-daemon` | `agentbolt-daemon.exe`: the only writer of the store; tray icon, toasts, delivery, ntfy count push. |
 | `crates/agentbolt-desk` | `agentbolt-desk.exe`: the Desk window and the `agentbolt://` handler. |

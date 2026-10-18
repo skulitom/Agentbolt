@@ -1,0 +1,63 @@
+{
+  "processes": [
+    {
+      "commandLine": "\"C:\\Users\\artem\\AppData\\Local\\Programs\\Agentbolt-soak-7e4d081-1018\\agentbolt-daemon.exe\" --channel soak-7e4d081-1018 --supervise",
+      "pid": 56588,
+      "startedUtc": "2026-10-18T21:56:49.1975050Z",
+      "session": 4,
+      "image": "C:\\Users\\artem\\AppData\\Local\\Programs\\Agentbolt-soak-7e4d081-1018\\agentbolt-daemon.exe"
+    },
+    {
+      "commandLine": "\"C:\\Users\\artem\\AppData\\Local\\Programs\\Agentbolt-soak-7e4d081-1018\\agentbolt-daemon.exe\" \"--channel\" \"soak-7e4d081-1018\"",
+      "pid": 123144,
+      "startedUtc": "2026-10-18T21:56:49.2171590Z",
+      "session": 4,
+      "image": "C:\\Users\\artem\\AppData\\Local\\Programs\\Agentbolt-soak-7e4d081-1018\\agentbolt-daemon.exe"
+    },
+    {
+      "commandLine": "\"C:\\Users\\artem\\AppData\\Local\\Programs\\Agentbolt-soak-7e4d081-1018\\agentbolt-desk.exe\" \"--channel\" \"soak-7e4d081-1018\" \"--warm\"",
+      "pid": 66980,
+      "startedUtc": "2026-10-18T21:56:49.4335320Z",
+      "session": 4,
+      "image": "C:\\Users\\artem\\AppData\\Local\\Programs\\Agentbolt-soak-7e4d081-1018\\agentbolt-desk.exe"
+    }
+  ],
+  "channel": "soak-7e4d081-1018",
+  "observations": [
+    {
+      "status": "Agentbolt 0.2.0 is running on channel soak-7e4d081-1018: 0 open, 0 agent(s); the event chain is intact.",
+      "atUtc": "2026-10-18T21:56:50.8557040+00:00",
+      "note": "Fresh candidate, explicit Anode session 4, no asks; do not restart or repair during measurement.",
+      "taskState": 4
+    }
+  ],
+  "startedUtc": "2026-10-18T21:56:49.0825348+00:00",
+  "state": "stopped",
+  "stopReason": "Artem requested all implementation before heavy testing at 2026-10-18 22:01 UTC. This partial run is not a reliability pass.",
+  "cleanup": "Actual candidate CLI uninstall --channel soak-7e4d081-1018 --purge exited 0; task, registrations, shortcut, programs and data removed.",
+  "installDirectory": "C:\\Users\\artem\\AppData\\Local\\Programs\\Agentbolt-soak-7e4d081-1018",
+  "binaries": [
+    {
+      "sha256": "f3f235eb93d0ddf60e3027d5ad24b119a31c73b0bcfdc96a1c52299c46b88579",
+      "name": "agentbolt.exe"
+    },
+    {
+      "sha256": "be283950863c26dd5000a3a4814f7daaf992440d9d9cb6abf9fdf24a0b46dfc1",
+      "name": "agentbolt-daemon.exe"
+    },
+    {
+      "sha256": "b25314440e43b5b17708cac4a3622a710d793976380e20ea05e2664ad5ca9383",
+      "name": "agentbolt-desk.exe"
+    }
+  ],
+  "sourceDirectory": "C:\\DEV\\Agentbolt\\target\\candidate-7e4d081\\extracted-windows",
+  "purpose": "Candidate 72-hour sign-in scheduler reliability check, stopped for implementation-first ordering",
+  "taskExecutionTimeLimit": "PT0S",
+  "sourceCommit": "7e4d0815a3b3e84e491d160280bf25e48510a12d",
+  "originalNotBeforeFinishUtc": "2026-10-21T21:57:49.0825348+00:00",
+  "session": 4,
+  "taskName": "Agentbolt (soak-7e4d081-1018) [S-1-5-21-3614297312-3082623692-3458564699-1001]",
+  "dataDirectory": "C:\\Users\\artem\\AppData\\Local\\Agentbolt\\soak-7e4d081-1018",
+  "automationId": "agentbolt-72-hour-reliability-check",
+  "monitorState": "paused"
+}

@@ -1,5 +1,5 @@
 //! The Desk window (eframe/egui): Inbox, Agents and Settings. It follows the system's light or dark
-//! theme, polls the daemon every 1.5 s while it's open, and exits when closed. It lists the Inbox (which marks
+//! theme, polls the daemon every 1.5 s while open, and hides on close when running warm. It lists the Inbox (which marks
 //! asks shown) only while the window is focused and not minimized; otherwise it refreshes the counts only.
 //!
 //! Ask text is untrusted: bodies are plain selectable text, never HTML or markdown, and links pass

@@ -497,7 +497,9 @@ fn toasts(fx: &[Effect]) -> Vec<(String, Vec<(String, String)>)> {
 fn inbox_changes(fx: &[Effect]) -> Vec<(u32, u32)> {
     fx.iter()
         .filter_map(|e| match e {
-            Effect::InboxChanged { open, digest, .. } => Some((*open, *digest)),
+            Effect::InboxChanged {
+                open, notifiable, ..
+            } => Some((*open, *notifiable)),
             _ => None,
         })
         .collect()
@@ -619,6 +621,81 @@ fn muted_agents_remain_in_inbox_at_bottom_and_cannot_unmute_by_registering() {
         })
         .is_err()
     );
+}
+
+#[test]
+fn notifications_recheck_mute_pause_and_answers_before_emission() {
+    let t = T::new();
+    let h = t.register("notification-owner");
+    let (ask, effects) = t.try_ask(&h, urgent(&t, "Queued notification")).unwrap();
+    assert!(!toasts(&effects).is_empty());
+    assert!(t.svc.toast_allowed(&ask.id));
+    assert_eq!(t.svc.notification_counts().unwrap().0, 1);
+
+    let (_, effects) = t
+        .desk(DeskOp::SetMuted {
+            owner: "notification-owner".into(),
+            muted: true,
+        })
+        .unwrap();
+    assert_eq!(inbox_changes(&effects), vec![(1, 0)]);
+    assert!(
+        !t.svc.toast_allowed(&ask.id),
+        "a queued toast cannot bypass mute"
+    );
+    assert_eq!(t.svc.notification_counts().unwrap(), (0, None));
+    let other = t.register("unmuted-owner");
+    let ordinary = t.ask(&other, t.input("Later unmuted question"));
+    assert_eq!(
+        t.svc.notification_counts().unwrap(),
+        (
+            1,
+            Some(
+                t.list()
+                    .inbox
+                    .iter()
+                    .find(|a| a.id == ordinary.id)
+                    .unwrap()
+                    .input
+                    .deadline
+                    .clone()
+            )
+        )
+    );
+    assert_eq!(
+        t.status().open,
+        2,
+        "muted questions remain on the Desk and tray"
+    );
+
+    t.desk(DeskOp::SetMuted {
+        owner: "notification-owner".into(),
+        muted: false,
+    })
+    .unwrap();
+    assert!(t.svc.toast_allowed(&ask.id));
+    t.desk(DeskOp::SetSettings {
+        settings: Settings {
+            toasts_off: true,
+            ..Settings::default()
+        },
+    })
+    .unwrap();
+    assert!(
+        !t.svc.toast_allowed(&ask.id),
+        "pause is rechecked even before its UI event arrives"
+    );
+    t.desk(DeskOp::SetSettings {
+        settings: Settings::default(),
+    })
+    .unwrap();
+    assert!(t.svc.toast_allowed(&ask.id));
+    t.answer(&ask.id, "Blue").unwrap();
+    assert!(
+        !t.svc.toast_allowed(&ask.id),
+        "an answered question cannot notify late"
+    );
+    assert!(!t.svc.toast_allowed("missing"));
 }
 
 #[test]
@@ -1631,7 +1708,7 @@ fn relay_calls_are_refused_to_every_other_owner() {
 }
 
 #[test]
-fn the_relay_lists_answers_until_any_delivery_succeeds() {
+fn queued_answers_remain_visible_until_delivery_is_confirmed() {
     let t = T::new();
     t.set_owner("compass-reception", "config", false, true);
     let relay = t.register("compass-reception");
@@ -1689,11 +1766,36 @@ fn the_relay_lists_answers_until_any_delivery_succeeds() {
         "and readable by id"
     );
 
-    // The daemon's own record (codex queue) counts the same way.
+    // Queue acceptance may not wake an unloaded chat. It is not proof of receipt.
     t.svc
         .record_delivery(&two.id, "owner-b-session", true, Some("queued"))
         .unwrap();
+    assert_eq!(list(&t), vec![two.id.clone()]);
+    for _ in 0..2 {
+        let answers = t.answers(&b, &[]).answers;
+        assert_eq!(answers.len(), 1);
+        assert_eq!(answers[0].id, two.id);
+        let delivery = &answers[0].answer.as_ref().unwrap().deliveries[0];
+        assert!(delivery.ok);
+        assert!(!delivery.confirmed);
+    }
+    let next_run = t.register_full(Some("owner-b"), Some("later-session"), None);
+    assert_eq!(
+        next_run.answers[0].id, two.id,
+        "checkpoint registration must recover it"
+    );
+    t.mcp(McpOp::RelayMark {
+        handle: relay.clone(),
+        ask_id: two.id.clone(),
+        to: "owner-b-session".into(),
+        ok: true,
+        detail: Some("Delivered to the session".into()),
+    })
+    .unwrap();
     assert!(list(&t).is_empty());
+    assert!(t.answers(&b, &[]).answers.is_empty());
+    let exact = t.answers(&b, &[&two.id]);
+    assert!(exact.answers[0].answer.as_ref().unwrap().deliveries[1].confirmed);
     assert!(
         t.svc
             .record_delivery(&open.id, "owner-b-session", true, None)
@@ -1943,7 +2045,7 @@ fn inbox_changed_is_sent_only_when_the_counts_change() {
     let next = fx.iter().find_map(|e| match e {
         Effect::InboxChanged {
             open: 1,
-            digest: 0,
+            notifiable: 1,
             next_deadline,
         } => next_deadline.clone(),
         _ => None,

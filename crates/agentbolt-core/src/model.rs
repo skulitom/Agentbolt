@@ -102,7 +102,7 @@ pub struct Ask {
     pub input: AskInput,
     pub status: AskStatus,
     pub created_at: String,
-    /// Set the first time the Desk shows it to Artem (Inbox or an opened digest). No default before this.
+    /// Set the first time the Desk shows it to Artem. No default before this.
     pub shown_at: Option<String>,
     pub answer: Option<Answer>,
 }
@@ -140,7 +140,11 @@ pub struct Answer {
 pub struct Delivery {
     pub to: String,
     pub at: String,
+    /// The transport accepted the attempt. This does not prove the asking agent received it.
     pub ok: bool,
+    /// A relay explicitly reported delivery. A successful Codex queue command is not confirmation.
+    #[serde(default)]
+    pub confirmed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
 }

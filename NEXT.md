@@ -3,6 +3,13 @@
 The design and milestones are in Compass's `work/2026-10-18-agentbolt/PLAN.md` (v4). 0.1 is M0 plus most of M1. This
 list is what's left before a public release. Do the first section first.
 
+**Current order (Artem, 22:01 UTC): finish all implementation before heavy validation.** The long CPU
+probe and 72-hour run were stopped, and the hourly monitor is paused. Complete the handoff-to-code audit
+and remaining changes with focused checks first; package and run the full release checks afterward.
+See [the implementation audit](docs/IMPLEMENTATION-AUDIT.md). It found and fixed queue acceptance hiding
+unread answers, phone counts including muted owners, and stale toasts bypassing mute/pause. Legacy Digest
+wording was removed from notification code; older-client wire compatibility remains.
+
 **0.2 work in progress:** isolated formatting commit `729fc82`; measured warm Desk startup now passes
 five Anode reopen cycles (11–13 ms window, 27–58 ms Inbox), including hidden-ask safety and crash cleanup.
 Validated chat navigation, direct Inbox, Not needed, persistent mute and per-owner toast batching are implemented.
@@ -77,20 +84,30 @@ covered by live regression fixtures. The follow-up review found no remaining act
    owners marked codex-interactive on the Desk get it. Active and loaded-idle cases now pass, with matching
    original/resumed policies. A completed unloaded chat did not resume despite queue exit 0; an archived chat
    rejected the command. Both answers remained durable. Keep the opt-in restriction and documented limitation.
+   The implementation audit also fixed successful queue attempts removing answers from no-ID checkpoint
+   reads. Queue acceptance and confirmed relay delivery are now separate, including database migration.
 3. **The sign-in task:** `/Run` from Anode and recovery from a killed worker pass. The isolated 72-hour
    `PT0S` probe started 2026-10-18 19:53 UTC but was interrupted by a logged tray Quit at 20:45 UTC.
    It does not count as a pass; a fresh uninterrupted run on the final candidate is required. The stopped
    fixture remains installed because automatic approval review rejected its cleanup (“blocked by policy”).
    See `docs/SOAK-2026-10-18.json`; do not restart or count later uptime toward that interrupted run.
+   A fresh candidate run started at 21:56:49 UTC on 2026-10-18, channel `soak-7e4d081-1018`, in Anode session 4.
+   It was stopped at Artem's implementation-first instruction; its fixture uninstalled and purged successfully.
+   The hourly monitor is paused. See `docs/SOAK-CANDIDATE-7e4d081.json`; this is not a reliability pass.
 4. **Idle CPU:** the extracted `e7e1ff0` candidate passed at 0.318% of one core over 600 seconds, including
    supervisor, daemon and hidden Desk. Five subsequent reopen cycles took 13–16 ms window / 30–59 ms Inbox.
-   Repeat after the final Agents-row layout fix so the evidence matches the final Desk binary.
+   The repeat on `7e4d081` was cancelled after 488 seconds at Artem's implementation-first instruction.
+   Its fixture was purged. Repeat against the final implementation during release validation.
 5. **Toasts live:** they appear silently. A button answers through the `agentbolt://` handler with its single-use
    token, a used or wrong-option token is refused, and the body click opens the Desk.
    Anode session 4 rejects toast emission with Windows error 0x803E0105 (notification platform unavailable)
    and has no isolated audio endpoint. A normal-session check remains necessary; this is not a pass.
+   The prepared checklist is `docs/NORMAL-DESKTOP-CHECKS.md`; Artem answered `ask_97958c01f34e55e5` ready
+   at 22:00 UTC. His subsequent implementation-first instruction defers this check. No test ran on `main`.
 6. **The native remake's scenarios** (`native/verification.md` on the `legacy-native-2026-10-18` tag), run against
-   Agentbolt.
+   Agentbolt. Mapped in `docs/NATIVE-SCENARIO-AUDIT.md`; fresh GUI checks now pass focus preservation, blank
+   required validation, 860 × 620 layout, one restored Desk/draft, exact numeric submission with untouched
+   optional boolean omitted, and a zero-TCP/UDP snapshot. Host/toast rows retain their explicit limitations.
 
 ## Known gaps
 - **Done — restart on failure:** installed supervision recovered a killed worker in 2 seconds without a client

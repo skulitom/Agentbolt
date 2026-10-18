@@ -22,6 +22,12 @@ pub const POLL: Duration = Duration::from_millis(250);
 
 /// What the daemon needs beyond the `Service` trait.
 pub trait DaemonService: Service {
+    fn toast_allowed(&self, _ask_id: &str) -> bool {
+        false
+    }
+    fn notification_counts(&self) -> Result<(u32, Option<String>), String> {
+        Err("notification counts unavailable".into())
+    }
     fn codex_delivery_allowed(&self, _ask_id: &str, _thread: &str) -> bool {
         false
     }
@@ -44,14 +50,14 @@ pub enum Event {
 
 /// Where the tray learns what to show. A no-op when there is no tray.
 pub trait Ui: Send + Sync + 'static {
-    fn counts(&self, open: u32, digest: u32);
+    fn counts(&self, open: u32);
     fn paused(&self, paused: bool);
 }
 
 pub struct NoUi;
 
 impl Ui for NoUi {
-    fn counts(&self, _open: u32, _digest: u32) {}
+    fn counts(&self, _open: u32) {}
     fn paused(&self, _paused: bool) {}
 }
 
@@ -122,13 +128,10 @@ impl Shared {
     }
 
     /// The Inbox counts right now (start-up tooltip).
-    pub fn counts(&self) -> Option<(u32, u32)> {
+    pub fn counts(&self) -> Option<u32> {
         let (value, effects) = self.svc.desk(DeskOp::Status).ok()?;
         self.emit(effects);
-        Some((
-            value["open"].as_u64()? as u32,
-            value["digest"].as_u64().unwrap_or(0) as u32,
-        ))
+        Some(value["open"].as_u64()? as u32)
     }
 }
 
@@ -308,9 +311,9 @@ pub async fn effects_loop(
             event = rx.recv() => {
                 let Some(event) = event else { return };
                 match event {
-                    Event::Effect(Effect::InboxChanged { open, digest, next_deadline }) => {
-                        ui.counts(open, digest);
-                        push.on_counts(ntfy::Counts { open, digest, next_deadline });
+                    Event::Effect(Effect::InboxChanged { open, notifiable, next_deadline }) => {
+                        ui.counts(open);
+                        push.on_counts(ntfy::Counts { open: notifiable, next_deadline });
                     }
                     Event::Effect(Effect::Toast { ask_id, tag, suppress_popup, title, body, buttons }) => {
                         if !toasts {
@@ -318,9 +321,13 @@ pub async fn effects_loop(
                         } else if paused {
                             info!("toast for ask {ask_id} skipped: notifications are paused");
                         } else {
-                            let names = shared.names.clone();
+                            let shared = shared.clone();
                             // Preserve replacement order: an older count must not overwrite a newer one.
-                            let _ = tokio::task::spawn_blocking(move || show_toast(&names, &ask_id, &tag, suppress_popup, &title, &body, &buttons)).await;
+                            let _ = tokio::task::spawn_blocking(move || {
+                                if shared.svc.toast_allowed(&ask_id) {
+                                    show_toast(&shared.names, &ask_id, &tag, suppress_popup, &title, &body, &buttons);
+                                }
+                            }).await;
                         }
                     }
                     Event::Effect(Effect::CodexQueue { ask_id, thread, text }) => {
@@ -337,16 +344,16 @@ pub async fn effects_loop(
                 }
             }
             _ = every.tick() => {
-                if let Some(counts) = push.due(Instant::now()) {
+                if push.due(Instant::now()).is_some() {
                     let shared = shared.clone();
-                    tokio::task::spawn_blocking(move || send_push(&shared, &counts));
+                    tokio::task::spawn_blocking(move || send_push(&shared));
                 }
             }
         }
     }
 }
 
-fn send_push(shared: &Shared, counts: &ntfy::Counts) {
+fn send_push(shared: &Shared) {
     let url = match shared.get_settings() {
         Ok(settings) => settings.ntfy_topic_url,
         Err(e) => {
@@ -357,12 +364,20 @@ fn send_push(shared: &Shared, counts: &ntfy::Counts) {
     let Some(url) = url.filter(|u| !u.trim().is_empty()) else {
         return;
     };
-    let body = ntfy::body(counts, time::OffsetDateTime::now_utc());
+    let counts = match shared.svc.notification_counts() {
+        Ok((open, next_deadline)) if open > 0 => ntfy::Counts {
+            open,
+            next_deadline,
+        },
+        Ok(_) => return,
+        Err(e) => {
+            warning!("ntfy: couldn't read counts: {e}");
+            return;
+        }
+    };
+    let body = ntfy::body(&counts, time::OffsetDateTime::now_utc());
     match ntfy::post(&url, &body) {
-        Ok(()) => info!(
-            "ntfy: pushed counts (open {}, digest {})",
-            counts.open, counts.digest
-        ),
+        Ok(()) => info!("ntfy: pushed counts ({} unmuted open)", counts.open),
         Err(e) => warning!("{e}"),
     }
 }
@@ -546,11 +561,8 @@ mod tests {
         #[derive(Default)]
         struct Seen(std::sync::Mutex<Vec<String>>);
         impl Ui for Seen {
-            fn counts(&self, open: u32, digest: u32) {
-                self.0
-                    .lock()
-                    .unwrap()
-                    .push(format!("counts {open} {digest}"));
+            fn counts(&self, open: u32) {
+                self.0.lock().unwrap().push(format!("counts {open}"));
             }
             fn paused(&self, paused: bool) {
                 self.0.lock().unwrap().push(format!("paused {paused}"));
@@ -575,7 +587,7 @@ mod tests {
         crate::testutil::wait_for("tray updates", || seen.0.lock().unwrap().len() >= 2).await;
         assert_eq!(
             *seen.0.lock().unwrap(),
-            vec!["counts 1 0".to_string(), "paused true".to_string()]
+            vec!["counts 1".to_string(), "paused true".to_string()]
         );
 
         // The tray's Pause item flips it back through the service.

@@ -548,5 +548,15 @@
     "archived": "queue exit 1; durable answer retained",
     "openChat": "unverified visible destination",
     "cleanup": "three chats archived; project MCP override removed; installed test channel uninstalled and purged"
+  },
+  "bundledCliDiagnostic": {
+    "cliVersion": "0.163.0-alpha.10.2",
+    "threadId": "01a150f5-2f16-74e2-a5c9-43c336a1c0ad",
+    "queuedMessageId": "01a15106-e1ec-7bb3-8617-4ec19eb0a3dd",
+    "queueExitCode": 0,
+    "observedState": "notLoaded; no automatic new turn during the bounded observation",
+    "throughAgentboltDaemon": false,
+    "meaning": "Direct host diagnostic only. Does not establish Agentbolt delivery or repair the unloaded limitation.",
+    "cleanup": "test chat archived again"
   }
 }

@@ -1,0 +1,99 @@
+{
+  "sourceCommit": "7e4d0815a3b3e84e491d160280bf25e48510a12d",
+  "recordedUtc": "2026-10-18T22:00:19.481842+00:00",
+  "published": false,
+  "status": "Historical candidate snapshot; superseded by implementation-first delivery and notification fixes. Rebuild during final validation.",
+  "codeSigned": false,
+  "archives": [
+    {
+      "file": "target/candidate-7e4d081/windows-x64/agentbolt-0.2.0-claude-plugin.zip",
+      "bytes": 8574,
+      "sha256": "81af9013b2d83639c513ca8170a70d7b25eb1b96b76bdfc6e1dbc9a5b55dc320"
+    },
+    {
+      "file": "target/candidate-7e4d081/windows-x64/agentbolt-0.2.0-windows-x64.zip",
+      "bytes": 8021687,
+      "sha256": "275aa1d42293d5bbe6d7b8a7a99be97dbbfe9a16420fcee3cd4d80047be0f3a4"
+    },
+    {
+      "file": "target/candidate-7e4d081/linux-x64/agentbolt-0.2.0-linux-x64.zip",
+      "bytes": 1184951,
+      "sha256": "d74ac403fe60d46a5d5390d3e3b824578714434e778dabc6335441c54edaa5e6"
+    }
+  ],
+  "archiveChecks": [
+    "ZIP CRCs and every SHA256SUMS entry",
+    "release metadata and per-binary hashes",
+    "PE/ELF x64 architecture and Linux executable permission",
+    "official winget, Scoop and MCP schemas",
+    "winget validate accepted final manifest",
+    "extracted Linux CLI version and live MCP tool discovery",
+    "extracted plugin strict validation; every source hash matches completed behavioral eval"
+  ],
+  "installer": {
+    "threeLiveTestsSeconds": 13.68,
+    "fullOpenDeskUpgradeRollbackAndOldMcpSeconds": 20.07,
+    "cleanup": "fixtures uninstalled and purged successfully"
+  },
+  "nativeGui": {
+    "fixture": {
+      "data": "C:\\Users\\artem\\AppData\\Local\\Agentbolt\\native-1792360443180",
+      "installed": "C:\\Users\\artem\\AppData\\Local\\Programs\\Agentbolt-native-1792360443180",
+      "source": "C:\\DEV\\Agentbolt\\target\\candidate-7e4d081\\extracted-windows\\agentbolt.exe",
+      "channel": "native-1792360443180",
+      "session": 4,
+      "createdAt": "2026-10-18T21:54:04.6087519+00:00",
+      "task": "Agentbolt (native-1792360443180) [S-1-5-21-3614297312-3082623692-3458564699-1001]"
+    },
+    "viewport": {
+      "width": 860,
+      "height": 620,
+      "scale": 100
+    },
+    "blankRequired": "Minutes is required; Send disabled",
+    "arrival": "focused note preserved while Inbox changed from one to two",
+    "restart": "one replacement Desk restores selected form, minutes 15, Unicode note and OptionalBool null",
+    "answer": {
+      "answered_at": "2026-10-18T21:55:34.38Z",
+      "ask_id": "ask_ba4aa6a41ada0fec",
+      "deliveries": [],
+      "note": "Synthetic draft — keep focus",
+      "values": {
+        "minutes": 15
+      },
+      "via": "desk"
+    },
+    "agentsLayout": "long owner one line; action buttons visible",
+    "cleanup": "actual installed CLI uninstall --purge exited 0; task, shortcut, registrations, programs and data removed"
+  },
+  "socketSnapshot": {
+    "udp": [],
+    "tcp": [],
+    "processes": [
+      {
+        "ProcessId": 116676,
+        "SessionId": 4,
+        "ExecutablePath": "C:\\Users\\artem\\AppData\\Local\\Programs\\Agentbolt-native-1792360443180\\agentbolt-daemon.exe"
+      },
+      {
+        "ProcessId": 112892,
+        "SessionId": 4,
+        "ExecutablePath": "C:\\Users\\artem\\AppData\\Local\\Programs\\Agentbolt-native-1792360443180\\agentbolt-daemon.exe"
+      },
+      {
+        "ProcessId": 123312,
+        "SessionId": 4,
+        "ExecutablePath": "C:\\Users\\artem\\AppData\\Local\\Programs\\Agentbolt-native-1792360443180\\agentbolt-desk.exe"
+      }
+    ],
+    "atUtc": "2026-10-18T21:55:08.2260963+00:00"
+  },
+  "idleCpu": "Cancelled after 488 seconds at Artem's implementation-first instruction; no completed result. Fixture uninstalled and purged successfully.",
+  "reliabilityRecord": "SOAK-CANDIDATE-7e4d081.json",
+  "remaining": [
+    "normal-session silent notification and activation",
+    "Claude Desktop host metadata/result branches and visible chat navigation",
+    "Codex visible chat navigation and unloaded wake limitation",
+    "72-hour uninterrupted observation"
+  ]
+}

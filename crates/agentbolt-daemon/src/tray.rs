@@ -23,7 +23,7 @@ use crate::log::{info, warning};
 use crate::winutil::HandlerKey;
 
 pub enum UiCmd {
-    Counts(u32, u32),
+    Counts(u32),
     Paused(bool),
 }
 
@@ -31,9 +31,9 @@ pub enum UiCmd {
 pub struct TrayUi(pub std::sync::Mutex<Sender<UiCmd>>);
 
 impl Ui for TrayUi {
-    fn counts(&self, open: u32, digest: u32) {
+    fn counts(&self, open: u32) {
         if let Ok(tx) = self.0.lock() {
-            let _ = tx.send(UiCmd::Counts(open, digest));
+            let _ = tx.send(UiCmd::Counts(open));
         }
     }
     fn paused(&self, paused: bool) {
@@ -45,7 +45,6 @@ impl Ui for TrayUi {
 
 pub struct TrayState {
     pub open: u32,
-    pub digest: u32,
     pub paused: bool,
     pub handler: HandlerKey,
 }
@@ -57,9 +56,6 @@ pub fn tooltip(names: &Names, s: &TrayState) -> String {
         format!("Agentbolt ({})", names.channel)
     };
     t.push_str(&format!(": {} waiting", s.open));
-    if s.digest > 0 {
-        t.push_str(&format!(", {} in the digest", s.digest));
-    }
     if s.paused {
         t.push_str(", paused");
     }
@@ -180,12 +176,11 @@ pub fn run(
         let mut changed = false;
         while let Ok(cmd) = rx.try_recv() {
             match cmd {
-                UiCmd::Counts(open, digest) => {
+                UiCmd::Counts(open) => {
                     if open != state.open {
                         let _ = tray.set_icon(make_icon(open));
                     }
                     state.open = open;
-                    state.digest = digest;
                 }
                 UiCmd::Paused(paused) => {
                     state.paused = paused;
@@ -213,17 +208,15 @@ mod tests {
         let test = Names::for_channel("ipctest-tip").unwrap();
         let mut s = TrayState {
             open: 2,
-            digest: 0,
             paused: false,
             handler: HandlerKey::Ours,
         };
         assert_eq!(tooltip(&main, &s), "Agentbolt: 2 waiting");
-        s.digest = 3;
         s.paused = true;
         s.handler = HandlerKey::Changed("evil.exe %1".into());
         assert_eq!(
             tooltip(&test, &s),
-            "Agentbolt (ipctest-tip): 2 waiting, 3 in the digest, paused - handler changed"
+            "Agentbolt (ipctest-tip): 2 waiting, paused - handler changed"
         );
         s.handler = HandlerKey::Missing;
         assert!(tooltip(&main, &s).ends_with("handler missing"));

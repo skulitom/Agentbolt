@@ -10,7 +10,7 @@ use time::format_description::well_known::Rfc3339;
 
 use crate::model::{Answer, AnswerVia, AskInput, AskKind, Field, Priority};
 
-/// Open + digest asks per owner (PLAN.md rule 1, "Caps attach to the owner").
+/// Open asks per owner (including legacy digest rows during migration).
 pub const OWNER_CAP: usize = 3;
 pub const ACKNOWLEDGED: &str = "Acknowledged";
 

@@ -213,7 +213,7 @@ pub fn parse_deadline(s: &str) -> Result<String, String> {
 }
 
 /// `desk_ask` arguments to the pipe's `AskInput`. Shape checks only; the daemon owns the rules
-/// (budget, caps, option and default checks, the link allowlist).
+/// (caps, option and default checks, the link allowlist).
 pub fn ask_input(args: &JsonObject) -> Result<AskInput, String> {
     let kind = parse_kind(&req_str(args, "kind")?)?;
     let title = req_str(args, "title")?;

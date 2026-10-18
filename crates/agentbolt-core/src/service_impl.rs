@@ -155,7 +155,7 @@ impl StoreService {
     }
 
     /// Record a delivery the daemon made (e.g. after `codex queue`). `to` is where it went: for Codex, the
-    /// thread. Any successful delivery takes the answer off the undelivered lists.
+    /// thread. Queue acceptance does not confirm receipt: keep the answer on checkpoint and relay lists.
     pub fn record_delivery(
         &self,
         ask_id: &str,
@@ -178,6 +178,23 @@ impl StoreService {
             && row.asking_session.as_deref() == Some(thread)
             && is_codex_chat(&row)
             && store::owner(&conn, &row.owner).is_ok_and(|o| o.is_some_and(|o| o.codex_interactive))
+    }
+
+    /// Queued notifications must respect answers, mute and pause changes made before emission.
+    pub fn toast_allowed(&self, ask_id: &str) -> bool {
+        let conn = self.lock();
+        let Ok(Some(row)) = store::ask_row(&conn, ask_id) else {
+            return false;
+        };
+        row.status == AskStatus::Open
+            && !row.muted
+            && rules::toast_worthy(&row.input, row.deadline_ms, self.now_ms())
+            && store::settings(&conn).is_ok_and(|s| !s.toasts_off)
+    }
+
+    /// Read current unmuted counts immediately before a phone push, not stale queued counts.
+    pub fn notification_counts(&self) -> Result<(u32, Option<String>), String> {
+        notification_counts(&self.lock()).map_err(db_err)
     }
 
     /// Mint fresh toast buttons (label, token) for an open or digest ask that may have them (reversible,
@@ -252,17 +269,8 @@ impl StoreService {
 
     fn inbox_effect(&self, conn: &Connection) -> rusqlite::Result<Option<Effect>> {
         let open = store::count(conn, "SELECT COUNT(*) FROM asks WHERE status = 'open'", [])?;
-        let digest = store::count(
-            conn,
-            "SELECT COUNT(*) FROM asks WHERE status = 'digest'",
-            [],
-        )?;
-        let next: Option<i64> = conn.query_row(
-            "SELECT MIN(deadline_ms) FROM asks WHERE status = 'open'",
-            [],
-            |r| r.get(0),
-        )?;
-        let snap = (open, digest, next.map(fmt_ms));
+        let (notifiable, next) = notification_counts(conn)?;
+        let snap = (open, notifiable, next);
         let mut last = self.last_inbox.lock().unwrap_or_else(|p| p.into_inner());
         if last.as_ref() == Some(&snap) {
             return Ok(None);
@@ -270,7 +278,7 @@ impl StoreService {
         *last = Some(snap.clone());
         Ok(Some(Effect::InboxChanged {
             open: snap.0,
-            digest: snap.1,
+            notifiable: snap.1,
             next_deadline: snap.2,
         }))
     }
@@ -386,16 +394,24 @@ fn opt_line(s: Option<String>, max: usize, what: &str) -> Result<Option<String>,
     }
 }
 
-/// For the asking owner's own lists (`desk_register`, `desk_answers` without ids): not yet delivered to the session
+/// For the asking owner's own lists (`desk_register`, `desk_answers` without ids): not yet confirmed delivered to the session
 /// that asked (or to the owner, when no session is known). A relay's "notes" delivery doesn't count here: the
 /// agent that asked may not read NOTES.md, so it must still find its answer.
-const UNDELIVERED_TO_ASKER: &str = "NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.ask_id = asks.id AND d.ok = 1
+const UNDELIVERED_TO_ASKER: &str = "NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.ask_id = asks.id AND d.ok = 1 AND d.confirmed = 1
                            AND (d.target = asks.asking_session OR (asks.asking_session IS NULL AND d.target = asks.owner)))";
 
-/// For the relay's list: no successful delivery recorded yet, wherever it went. The relay may only be able to
+/// For the relay's list: no confirmed delivery recorded yet, wherever it went. The relay may only be able to
 /// write an answer to NOTES.md (`to` = "notes"), and that counts here, or such answers would sit on its list forever.
-const UNDELIVERED_ANYWHERE: &str =
-    "NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.ask_id = asks.id AND d.ok = 1)";
+const UNDELIVERED_ANYWHERE: &str = "NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.ask_id = asks.id AND d.ok = 1 AND d.confirmed = 1)";
+
+fn notification_counts(conn: &Connection) -> rusqlite::Result<(u32, Option<String>)> {
+    conn.query_row(
+        "SELECT COUNT(*), MIN(a.deadline_ms) FROM asks a JOIN owners o ON o.name = a.owner
+         WHERE a.status = 'open' AND o.muted = 0",
+        [],
+        |r| Ok((r.get(0)?, r.get::<_, Option<i64>>(1)?.map(fmt_ms))),
+    )
+}
 
 /// The fields of `McpOp::Register`.
 struct Registration {
@@ -738,12 +754,21 @@ impl Ctx<'_> {
         if !is_answered(row.status) {
             return Err(format!("ask {ask_id} has no answer to deliver"));
         }
-        store::insert_delivery(self.db, ask_id, to, self.now, ok, detail.as_deref())
-            .map_err(db_err)?;
+        let confirmed = ok && by == "relay";
+        store::insert_delivery(
+            self.db,
+            ask_id,
+            to,
+            self.now,
+            ok,
+            confirmed,
+            detail.as_deref(),
+        )
+        .map_err(db_err)?;
         self.event(
             "delivery",
             ask_id,
-            json!({ "to": to, "ok": ok, "detail": detail, "by": by }),
+            json!({ "to": to, "ok": ok, "confirmed": confirmed, "detail": detail, "by": by }),
         )?;
         store::answer_for(self.db, ask_id)
             .map_err(db_err)?

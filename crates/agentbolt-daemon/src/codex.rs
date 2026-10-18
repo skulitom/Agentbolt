@@ -112,7 +112,9 @@ pub fn run(exe: &CodexExe, thread: &str, text: &str, wait: Duration) -> (bool, S
     let started = Instant::now();
     loop {
         match child.try_wait() {
-            Ok(Some(status)) if status.success() => return (true, "codex queue exited 0".into()),
+            Ok(Some(status)) if status.success() => {
+                return (true, "Codex accepted the queued message; receipt is unconfirmed. The answer remains available through desk_answers.".into());
+            }
             Ok(Some(status)) => return (false, format!("codex queue failed ({status})")),
             Ok(None) if started.elapsed() >= wait => {
                 // Leave it running (it may be carrying the turn); the delivery is unconfirmed.

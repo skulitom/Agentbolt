@@ -115,7 +115,7 @@ impl Service for FakeService {
                     json!({ "open": open }),
                     vec![Effect::InboxChanged {
                         open,
-                        digest: 0,
+                        notifiable: open,
                         next_deadline: None,
                     }],
                 ))

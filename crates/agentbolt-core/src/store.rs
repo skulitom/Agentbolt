@@ -131,6 +131,14 @@ CREATE TABLE owner_bindings (
     owner TEXT NOT NULL REFERENCES owners(name)
 ) WITHOUT ROWID;
 "#,
+    r#"
+ALTER TABLE deliveries ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 0;
+-- Older queue success records did not prove receipt. Preserve only explicit relay confirmations.
+UPDATE deliveries SET confirmed = 1 WHERE ok = 1 AND (ask_id, target) IN (
+    SELECT e.subject, json_extract(e.data, '$.to') FROM events e WHERE e.kind = 'delivery'
+    AND json_extract(e.data, '$.by') = 'relay' AND json_extract(e.data, '$.ok') = 1
+);
+"#,
 ];
 
 pub(crate) fn db_err(e: rusqlite::Error) -> String {
@@ -416,7 +424,7 @@ pub(crate) fn answer_for(conn: &Connection, ask_id: &str) -> rusqlite::Result<Op
 
 pub(crate) fn deliveries_for(conn: &Connection, ask_id: &str) -> rusqlite::Result<Vec<Delivery>> {
     let mut stmt = conn.prepare(
-        "SELECT target, at_ms, ok, detail FROM deliveries WHERE ask_id = ?1 ORDER BY id",
+        "SELECT target, at_ms, ok, detail, confirmed FROM deliveries WHERE ask_id = ?1 ORDER BY id",
     )?;
     let rows = stmt.query_map([ask_id], |r| {
         Ok(Delivery {
@@ -424,6 +432,7 @@ pub(crate) fn deliveries_for(conn: &Connection, ask_id: &str) -> rusqlite::Resul
             at: fmt_ms(r.get(1)?),
             ok: r.get(2)?,
             detail: r.get(3)?,
+            confirmed: r.get(4)?,
         })
     })?;
     rows.collect()
@@ -448,11 +457,12 @@ pub(crate) fn insert_delivery(
     target: &str,
     at_ms: i64,
     ok: bool,
+    confirmed: bool,
     detail: Option<&str>,
 ) -> rusqlite::Result<()> {
     conn.execute(
-        "INSERT INTO deliveries (ask_id, target, at_ms, ok, detail) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![ask_id, target, at_ms, ok, detail],
+        "INSERT INTO deliveries (ask_id, target, at_ms, ok, confirmed, detail) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![ask_id, target, at_ms, ok, confirmed, detail],
     )?;
     Ok(())
 }
@@ -680,9 +690,28 @@ mod migration_tests {
         .unwrap();
         conn.execute_batch(
             "INSERT INTO answers (ask_id, via, choice, answered_ms)
-                            VALUES ('old', 'desk', 'No', 1200);",
+                            VALUES ('old', 'desk', 'No', 1200);
+             INSERT INTO deliveries (ask_id, target, at_ms, ok, detail) VALUES
+                 ('old', 'original-host-session', 1300, 1, 'codex queue exited 0'),
+                 ('old', 'notes', 1400, 1, 'written to notes'),
+                 ('old', 'failed-target', 1500, 0, 'failed'),
+                 ('old', 'unknown-target', 1600, 1, 'legacy record without provenance');",
         )
         .unwrap();
+        for (at, target, ok, by) in [
+            (1300, "original-host-session", true, "daemon"),
+            (1400, "notes", true, "relay"),
+            (1500, "failed-target", false, "relay"),
+        ] {
+            crate::events::append(
+                &conn,
+                at,
+                "delivery",
+                "old",
+                &serde_json::json!({"to": target, "ok": ok, "by": by}),
+            )
+            .unwrap();
+        }
         migrate(&mut conn).unwrap();
         migrate(&mut conn).unwrap(); // A second launch must be harmless.
         let ask = ask_row(&conn, "old").unwrap().unwrap();
@@ -696,6 +725,18 @@ mod migration_tests {
             })
             .unwrap();
         assert_eq!(choice, "No");
+        let deliveries = deliveries_for(&conn, "old").unwrap();
+        assert_eq!(
+            deliveries
+                .iter()
+                .map(|d| (d.ok, d.confirmed))
+                .collect::<Vec<_>>(),
+            [(true, false), (true, true), (false, false), (true, false)]
+        );
+        assert!(
+            crate::events::verify_chain(&conn).is_ok(),
+            "migration leaves the audit chain intact"
+        );
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
