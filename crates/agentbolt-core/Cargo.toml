@@ -1,0 +1,18 @@
+[package]
+name = "agentbolt-core"
+description = "Agentbolt's data model, store, rules and pipe protocol (no OS or GUI dependencies)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+time.workspace = true
+rusqlite.workspace = true
+hmac.workspace = true
+sha2.workspace = true
+hex.workspace = true
+rand.workspace = true

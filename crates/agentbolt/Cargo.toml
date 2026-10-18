@@ -1,0 +1,38 @@
+[package]
+name = "agentbolt"
+description = "Agentbolt: an always-on desk where any agent can ask you, and the CLI and MCP server agents use"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "agentbolt"
+path = "src/lib.rs"
+
+[[bin]]
+name = "agentbolt"
+path = "src/main.rs"
+
+[dependencies]
+agentbolt-core.workspace = true
+agentbolt-ipc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+rmcp.workspace = true
+time.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Registry",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_Storage_EnhancedStorage",
+] }

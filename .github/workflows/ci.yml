@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - name: Test (all crates)
+        run: cargo test --workspace --locked
+        env:
+          AGENTBOLT_CHANNEL: ci
+      - name: Clippy
+        run: cargo clippy --workspace --locked -- -D warnings
+
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - name: Core tests and the repo guard
+        run: cargo test -p agentbolt-core --locked
+      - name: The MCP front-end builds and lists its tools on Linux (Glama; Anode B-049)
+        run: cargo test -p agentbolt --locked --test mcp_stdio
+
+  licenses:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses
