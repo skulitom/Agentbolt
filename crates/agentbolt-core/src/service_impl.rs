@@ -347,6 +347,7 @@ impl StoreService {
             digest,
             agents,
             chain_ok,
+            notification_warning: None,
         };
         Ok((to_json(&r)?, Vec::new()))
     }
@@ -1076,6 +1077,7 @@ impl Ctx<'_> {
             inbox: self.full_all(&inbox)?,
             digest_count,
             recent: self.full_all(&recent)?,
+            notification_warning: None,
         })
     }
 

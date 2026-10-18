@@ -7,7 +7,8 @@ list is what's left before a public release. Do the first section first.
 five Anode reopen cycles (11–13 ms window, 27–58 ms Inbox), including hidden-ask safety and crash cleanup.
 Validated chat navigation, direct Inbox, Not needed, persistent mute and per-owner toast batching are implemented.
 Dedicated Codex delivery workers and execution-time wake-permission checks are implemented.
-Live-client navigation and the new GUI controls remain unverified. The full ten-minute CPU/reopen probe now
+Mute, unmute, Not needed, its count and draft retention passed live GUI checks; live-client navigation remains
+unverified. Notification registration is rechecked per toast and flagged on the Desk. The full ten-minute CPU/reopen probe now
 passes after a foreground-permission fix (0.276% of one core; 10–14 ms window, 23–61 ms Inbox afterward).
 See [the verification log](docs/PRODUCTION-READINESS.md) for commands, baseline and remaining evidence.
 The release is not yet ready; the rest of this checklist remains open unless explicitly recorded there.

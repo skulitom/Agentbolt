@@ -204,12 +204,6 @@ fn run() -> i32 {
         info!("toasts for {}: {}", names.aumid, toast::setting(&names));
         key
     };
-    // Toast buttons only while the handler key is ours: a missing or changed key would hand a button's token to
-    // whatever it names. The body click (open the Desk) stays.
-    #[cfg(windows)]
-    let handler_ok = handler == winutil::HandlerKey::Ours;
-    #[cfg(not(windows))]
-    let handler_ok = false;
 
     #[cfg(windows)]
     let (ui, ui_rx): (Arc<dyn Ui>, Option<std::sync::mpsc::Receiver<tray::UiCmd>>) =
@@ -245,7 +239,6 @@ fn run() -> i32 {
         ui,
         paused,
         !args.headless,
-        handler_ok,
     ));
     info!(
         "serving {} and {}",

@@ -308,6 +308,7 @@ mod tests {
             digest: 1,
             agents: 3,
             chain_ok: true,
+            notification_warning: None,
         };
         assert_eq!(
             status_line(&s),

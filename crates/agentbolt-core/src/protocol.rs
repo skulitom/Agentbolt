@@ -139,6 +139,9 @@ pub struct StatusResult {
     pub digest: u32,
     pub agents: u32,
     pub chain_ok: bool,
+    /// OS notification registration health, supplied by the daemon (not the store).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notification_warning: Option<String>,
 }
 
 /// Operations on the Desk pipe.
@@ -186,6 +189,8 @@ pub struct ListResult {
     pub inbox: Vec<Ask>,
     pub digest_count: u32,
     pub recent: Vec<Ask>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notification_warning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

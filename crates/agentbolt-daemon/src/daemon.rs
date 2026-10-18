@@ -197,6 +197,25 @@ impl Handler for McpHandler {
 
 pub struct DeskHandler(pub Arc<Shared>);
 
+fn notification_warning(names: &Names) -> Option<String> {
+    #[cfg(windows)]
+    {
+        use crate::winutil::{HandlerKey, handler_key};
+        match handler_key(names) {
+            HandlerKey::Ours => None,
+            HandlerKey::Missing | HandlerKey::Changed(_) => Some(format!(
+                "Notification actions need repair. Run agentbolt install --channel {}. You can still answer here.",
+                names.channel
+            )),
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = names;
+        None
+    }
+}
+
 impl Handler for DeskHandler {
     async fn handle(&self, _client: &ClientInfo, op: Value) -> Result<Value, String> {
         let op: DeskOp =
@@ -205,7 +224,17 @@ impl Handler for DeskHandler {
             DeskOp::SetSettings { settings } => Some(settings.clone()),
             _ => None,
         };
-        let value = self.0.desk(op).await?;
+        let health = matches!(op, DeskOp::List | DeskOp::Status);
+        let mut value = self.0.desk(op).await?;
+        if health {
+            let names = self.0.names.clone();
+            let warning = tokio::task::spawn_blocking(move || notification_warning(&names))
+                .await
+                .map_err(|e| format!("notification health check: {e}"))?;
+            if let Some(map) = value.as_object_mut() {
+                map.insert("notification_warning".into(), warning.into());
+            }
+        }
         if let Some(settings) = new_settings {
             self.0.settings_changed(settings);
         }
@@ -258,15 +287,13 @@ pub fn toast_buttons(buttons: Vec<(String, String)>, handler_ok: bool) -> Vec<(S
 }
 
 /// Act on effects: the tray count, the ntfy push (at most one a minute), toasts, Codex delivery.
-/// `toasts` = false in headless mode: toast effects are logged and dropped. `handler_ok` = false when the
-/// handler key is missing or points elsewhere: toasts are shown without buttons.
+/// `toasts` = false in headless mode: toast effects are logged and dropped.
 pub async fn effects_loop(
     shared: Arc<Shared>,
     mut rx: mpsc::UnboundedReceiver<Event>,
     ui: Arc<dyn Ui>,
     mut paused: bool,
     toasts: bool,
-    handler_ok: bool,
 ) {
     let mut push = ntfy::PushState::default();
     let delivery = crate::delivery::Pool::new(shared.clone())
@@ -291,10 +318,6 @@ pub async fn effects_loop(
                         } else if paused {
                             info!("toast for ask {ask_id} skipped: notifications are paused");
                         } else {
-                            if !handler_ok && !buttons.is_empty() {
-                                info!("toast for ask {ask_id}: no buttons, the {}:// handler isn't ours", shared.names.protocol);
-                            }
-                            let buttons = toast_buttons(buttons, handler_ok);
                             let names = shared.names.clone();
                             // Preserve replacement order: an older count must not overwrite a newer one.
                             let _ = tokio::task::spawn_blocking(move || show_toast(&names, &ask_id, &tag, suppress_popup, &title, &body, &buttons)).await;
@@ -354,9 +377,14 @@ fn show_toast(
     buttons: &[(String, String)],
 ) {
     #[cfg(windows)]
-    match crate::toast::show(names, tag, suppress_popup, title, body, buttons) {
-        Ok(()) => info!("toast shown for ask {ask_id} ({} buttons)", buttons.len()),
-        Err(e) => warning!("ask {ask_id}: {e}"),
+    {
+        // Check at emission, not at daemon startup: never put fresh tokens into a changed handler.
+        let handler_ok = crate::winutil::handler_key(names) == crate::winutil::HandlerKey::Ours;
+        let buttons = toast_buttons(buttons.to_vec(), handler_ok);
+        match crate::toast::show(names, tag, suppress_popup, title, body, &buttons) {
+            Ok(()) => info!("toast shown for ask {ask_id} ({} buttons)", buttons.len()),
+            Err(e) => warning!("ask {ask_id}: {e}"),
+        }
     }
     #[cfg(not(windows))]
     {
@@ -532,14 +560,7 @@ mod tests {
         fake.set_waiting(&["a1"]);
         let (names, shared, rx) = start(fake.clone()).await;
         let seen = Arc::new(Seen::default());
-        tokio::spawn(effects_loop(
-            shared.clone(),
-            rx,
-            seen.clone(),
-            false,
-            false,
-            true,
-        ));
+        tokio::spawn(effects_loop(shared.clone(), rx, seen.clone(), false, false));
 
         // An ask (the fake emits InboxChanged), then the Desk turns toasts off.
         let mut mcp = Client::connect_to(&names, Pipe::Mcp, &me()).await.unwrap();

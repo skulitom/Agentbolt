@@ -102,14 +102,26 @@ including 36 simultaneous Inbox asks, repeated bound-owner P0s, ordering and an 
 Not needed and persistent owner mute are implemented on asks, Agents and owner settings. Not needed
 works for every ask kind, approves no option, is counted per owner and revokes outstanding answer tokens.
 Mute survives re-registration, suppresses new toasts and orders that owner's asks below unmuted asks.
-Core regression tests and all-target lint pass; the new controls still need live GUI verification.
+Core regression tests and all-target lint pass. A live Anode check on `codex02-gui-1018` verified mute on
+both asks from one owner, unmute from Settings, note retention when selecting another ask and returning,
+Not needed with that note, no option approved, matching MCP result branches and a dismissal count of one.
+The test used supplied host metadata; it does not prove real-client metadata or chat navigation.
+The owned Desk and headless daemon were stopped. Automatic approval review rejected cleanup of the test
+data folder; `C:\Users\artem\AppData\Local\Agentbolt\codex02-gui-1018` remains. No task or handler was registered.
 Toast batching is implemented with a persistent ten-minute owner cooldown and one opaque owner tag.
 Additional eligible asks replace the Notification Center entry with “N more waiting” and `SuppressPopup`;
 the daemon serializes these replacements. P2 asks become eligible at two hours before their deadline, even
 without another MCP call. Tests cover the exact cooldown boundary, separate owners, daemon restart,
 no repeated tick alerts and the existing notification's buttons answering only its displayed ask.
-Windows workspace tests and all-target lint pass. Live toast rendering/activation and the new GUI controls
-remain unverified.
+Windows workspace tests and all-target lint pass. Live toast rendering/activation remains unverified.
+
+## Notification registration health
+
+The daemon now rechecks the complete protocol command before each toast, including the executable,
+channel and URL argument. A changed registration receives no fresh button tokens. Inbox and status
+responses carry the current warning to the Desk, which explains how to repair notification actions;
+repair clears it on the next refresh. Regression tests reject wrong programs, channels, placeholders and
+extra arguments. Live registration-change/repair verification remains pending.
 
 ## Delivery isolation
 

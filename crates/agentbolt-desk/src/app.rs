@@ -71,6 +71,7 @@ pub struct DeskApp {
     settings_draft: SettingsDraft,
     notice: Option<Notice>,
     conn: Conn,
+    notification_warning: Option<String>,
     list_inflight: bool,
     last_list: Option<Instant>,
     agents_inflight: bool,
@@ -134,6 +135,7 @@ impl DeskApp {
             settings_draft: SettingsDraft::default(),
             notice: None,
             conn: Conn::Unknown,
+            notification_warning: None,
             list_inflight: false,
             last_list: None,
             agents_inflight: false,
@@ -159,6 +161,7 @@ impl DeskApp {
         while let Ok(resp) = self.worker.rx.try_recv() {
             match resp {
                 Resp::List(mut r) => {
+                    self.notification_warning = r.notification_warning.take();
                     crate::startup::mark("inbox_received");
                     crate::startup::record("inbox_refreshed");
                     self.list_inflight = false;
@@ -177,6 +180,7 @@ impl DeskApp {
                     }
                 }
                 Resp::Status(s) => {
+                    self.notification_warning = s.notification_warning;
                     self.list_inflight = false;
                     self.conn = Conn::Up;
                     self.open_count = Some(s.open);
@@ -890,6 +894,9 @@ impl eframe::App for DeskApp {
         egui::Panel::top("tabs").show(ui, |ui| {
             ui.add_space(4.0);
             self.top_bar(ui);
+            if let Some(warning) = &self.notification_warning {
+                ui.colored_label(ui.visuals().warn_fg_color, warning);
+            }
             ui.add_space(2.0);
         });
         if let Some(n) = &self.notice

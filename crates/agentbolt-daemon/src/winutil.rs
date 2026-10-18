@@ -1,6 +1,6 @@
 //! Windows-only start-up pieces: the `Global\` single-instance mutex and the `agentbolt://` handler-key check.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use agentbolt_core::channel::Names;
 use windows::Win32::Foundation::{
@@ -49,9 +49,10 @@ pub fn handler_key(names: &Names) -> HandlerKey {
         None => HandlerKey::Missing,
         Some(command) => {
             let expected = agentbolt_ipc::PeerCheck::sibling(agentbolt_ipc::DESK_EXE);
-            match command_program(&command) {
-                Some(program) if expected.accepts(Some(Path::new(&program))) => HandlerKey::Ours,
-                _ => HandlerKey::Changed(command),
+            if handler_command_matches(&command, &expected, &names.channel) {
+                HandlerKey::Ours
+            } else {
+                HandlerKey::Changed(command)
             }
         }
     }
@@ -95,35 +96,49 @@ fn read_default_value(subkey: &str) -> Option<String> {
     Some(String::from_utf16_lossy(&buf[..len]))
 }
 
-/// The program of a shell command line: the quoted first token, or everything up to the first space.
-pub fn command_program(command: &str) -> Option<PathBuf> {
-    let command = command.trim_start();
-    let program = if let Some(rest) = command.strip_prefix('"') {
-        rest.split('"').next()?
-    } else {
-        command.split_whitespace().next()?
+/// Accept only the installer's complete handler command, including this channel and the URL placeholder.
+/// Checking the program alone could accept a registration with wrong or injected arguments.
+fn handler_command_matches(
+    command: &str,
+    expected: &agentbolt_ipc::PeerCheck,
+    channel: &str,
+) -> bool {
+    let Some((program, args)) = command
+        .trim()
+        .strip_prefix('"')
+        .and_then(|s| s.split_once('"'))
+    else {
+        return false;
     };
-    (!program.is_empty()).then(|| PathBuf::from(program))
+    !program.is_empty()
+        && expected.accepts(Some(Path::new(program)))
+        && args == format!(" --channel {channel} --url \"%1\"")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
-    fn the_program_is_read_from_quoted_and_bare_commands() {
-        assert_eq!(
-            command_program(r#""C:\Program Files\Agentbolt\agentbolt-desk.exe" --channel t "%1""#),
-            Some(PathBuf::from(
-                r"C:\Program Files\Agentbolt\agentbolt-desk.exe"
-            ))
-        );
-        assert_eq!(
-            command_program(r"C:\x\agentbolt-desk.exe %1"),
-            Some(PathBuf::from(r"C:\x\agentbolt-desk.exe"))
-        );
-        assert_eq!(command_program("   "), None);
-        assert_eq!(command_program(r#""""#), None);
+    fn handler_requires_the_correct_program_channel_and_url_arguments() {
+        let expected = agentbolt_ipc::PeerCheck::Image(vec![PathBuf::from(
+            r"C:\Program Files\Agentbolt\agentbolt-desk.exe",
+        )]);
+        let good = r#""C:\Program Files\Agentbolt\agentbolt-desk.exe" --channel t --url "%1""#;
+        assert!(handler_command_matches(good, &expected, "t"));
+        for bad in [
+            good.replace("agentbolt-desk.exe", "other.exe"),
+            good.replace("--channel t", "--channel main"),
+            good.replace(" --url", ""),
+            good.replace("%1", "%2"),
+            format!("{good} --headless"),
+            "\"\" --channel t --url \"%1\"".into(),
+            "\"C:\\Program Files\\Agentbolt\\agentbolt-desk.exe".into(),
+            String::new(),
+        ] {
+            assert!(!handler_command_matches(&bad, &expected, "t"), "{bad}");
+        }
     }
 
     #[test]
