@@ -31,8 +31,8 @@ agent ──stdio──► agentbolt mcp ──user-only pipe──► agentbolt
 - **Answers are durable.** An agent that ended its session gets the answer at its next start. Silence is never a yes. A
   question can take its default at the deadline only if it can be undone and you've been shown it, and an answer
   applied that way carries no authority of yours.
-- **Noise control:** at most 5 questions a day reach the Inbox (the rest wait in a daily digest), each agent gets a fair
-  share, and duplicates are merged.
+- **Inbox:** every question appears immediately, ordered by priority and then deadline. Each owner can have
+  three open questions; duplicates are merged. There is no daily budget or Digest.
 
 ## Install
 ```powershell

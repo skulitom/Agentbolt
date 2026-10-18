@@ -81,3 +81,16 @@ navigation into those real clients remain unverified.**
 
 Sign-in reliability, installed upgrade behavior, live-client navigation/delivery, signing, packaging and
 remaining `NEXT.md` items are still pending.
+
+## Direct Inbox
+
+Daily budget, fair-share allocation, daily P0 bypass and the Digest UI are removed. Every accepted ask goes
+straight to the Inbox, ordered by priority then deadline. The three-open-ask owner cap, dedupe, deadline
+defaults and provisional-owner P0-to-P1 downgrade remain. The obsolete UTC day-boundary code is also removed;
+there is no longer a daily limit requiring a DST-aware boundary.
+
+Opening a 0.1 database moves held Digest asks to the Inbox in an audited transaction without marking them
+shown. Existing notification settings and answers survive. Legacy wire fields remain for compatibility with
+already running 0.1 clients; new asks never enter Digest. Windows workspace tests and all-target lint pass,
+including 36 simultaneous Inbox asks, repeated bound-owner P0s, ordering and an upgrade with unseen asks.
+Per-owner toast batching, Not needed and mute are the remaining parts of the third feedback item.

@@ -5,6 +5,8 @@ list is what's left before a public release. Do the first section first.
 
 **0.2 work in progress:** isolated formatting commit `729fc82`; measured warm Desk startup now passes
 five Anode reopen cycles (11–13 ms window, 27–58 ms Inbox), including hidden-ask safety and crash cleanup.
+Validated chat navigation and direct Inbox are implemented; live-client navigation remains unverified.
+The ten-minute CPU sample passed (0.323% of one core), but its subsequent reopen check needs investigation.
 See [the verification log](docs/PRODUCTION-READINESS.md) for commands, baseline and remaining evidence.
 The release is not yet ready; the rest of this checklist remains open unless explicitly recorded there.
 

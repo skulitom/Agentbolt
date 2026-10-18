@@ -601,23 +601,13 @@ pub(crate) fn set_meta(conn: &Connection, key: &str, value: &str) -> rusqlite::R
 
 pub(crate) fn settings(conn: &Connection) -> rusqlite::Result<Settings> {
     let stored = meta(conn, "settings")?.and_then(|s| serde_json::from_str::<Settings>(&s).ok());
-    Ok(stored.unwrap_or(Settings {
-        daily_budget: rules::DEFAULT_BUDGET,
-        ..Settings::default()
-    }))
+    Ok(stored.unwrap_or_default())
 }
 
 pub(crate) fn set_settings(conn: &Connection, s: &Settings) -> rusqlite::Result<()> {
     let json = serde_json::to_string(s)
         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
     set_meta(conn, "settings", &json)
-}
-
-/// Minutes east of UTC used for the local day boundary (default 0 = UTC).
-pub(crate) fn utc_offset_minutes(conn: &Connection) -> rusqlite::Result<i32> {
-    Ok(meta(conn, "utc_offset_minutes")?
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0))
 }
 
 #[cfg(test)]

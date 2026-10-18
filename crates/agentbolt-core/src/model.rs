@@ -31,7 +31,7 @@ pub enum Priority {
 pub enum AskStatus {
     /// In the Inbox, waiting for Artem.
     Open,
-    /// Held back by the daily budget; shown in the daily digest.
+    /// Legacy 0.1 value, migrated into the Inbox when the store opens.
     Digest,
     Answered,
     /// The deadline passed after Artem had been shown it, and it was reversible.
@@ -78,7 +78,7 @@ pub struct AskInput {
     pub deadline: String,
     pub reversible: bool,
     pub priority: Priority,
-    /// Required for P0: why it can't wait for the budget.
+    /// Required for P0: why it is urgent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub p0_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -175,8 +175,6 @@ pub struct Owner {
 pub struct Settings {
     /// Full ntfy topic URL for the count-only push, e.g. `https://ntfy.sh/<secret-topic>`. None = off.
     pub ntfy_topic_url: Option<String>,
-    /// Inbox budget per day (default 5).
-    pub daily_budget: u32,
     /// Silence toasts (they are always silent; this turns them off entirely).
     pub toasts_off: bool,
 }

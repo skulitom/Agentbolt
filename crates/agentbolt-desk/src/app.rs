@@ -1,4 +1,4 @@
-//! The Desk window (eframe/egui): Inbox, Digest, Agents and Settings. It follows the system's light or dark
+//! The Desk window (eframe/egui): Inbox, Agents and Settings. It follows the system's light or dark
 //! theme, polls the daemon every 1.5 s while it's open, and exits when closed. It lists the Inbox (which marks
 //! asks shown) only while the window is focused and not minimized; otherwise it refreshes the counts only.
 //!
@@ -22,7 +22,6 @@ const POLL: Duration = Duration::from_millis(1500);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tab {
     Inbox,
-    Digest,
     Agents,
     Settings,
 }
@@ -51,7 +50,6 @@ struct Notice {
 #[derive(Default)]
 struct SettingsDraft {
     ntfy: String,
-    budget: u32,
     toasts_off: bool,
 }
 
@@ -62,11 +60,8 @@ pub struct DeskApp {
     inbox: Vec<Ask>,
     /// Open asks by the last count (a List, or a Status while the window wasn't seen).
     open_count: Option<u32>,
-    digest_count: u32,
     recent: Vec<Ask>,
-    digest: Option<Vec<Ask>>,
     selected_inbox: Option<String>,
-    selected_digest: Option<String>,
     drafts: HashMap<String, Draft>,
     sending: HashSet<String>,
     agents: Vec<Agent>,
@@ -128,11 +123,8 @@ impl DeskApp {
             tab: Tab::Inbox,
             inbox: Vec::new(),
             open_count: None,
-            digest_count: 0,
             recent: Vec::new(),
-            digest: None,
             selected_inbox: None,
-            selected_digest: None,
             drafts: HashMap::new(),
             sending: HashSet::new(),
             agents: Vec::new(),
@@ -174,7 +166,6 @@ impl DeskApp {
                     view::sort_asks(&mut r.inbox);
                     self.inbox = r.inbox;
                     self.open_count = Some(self.inbox.len() as u32);
-                    self.digest_count = r.digest_count;
                     self.recent = r.recent;
                     let ids: HashSet<&str> = self.inbox.iter().map(|a| a.id.as_str()).collect();
                     if self
@@ -189,18 +180,6 @@ impl DeskApp {
                     self.list_inflight = false;
                     self.conn = Conn::Up;
                     self.open_count = Some(s.open);
-                    self.digest_count = s.digest;
-                }
-                Resp::Digest(mut r) => {
-                    view::sort_asks(&mut r.digest);
-                    if self
-                        .selected_digest
-                        .as_deref()
-                        .is_none_or(|s| !r.digest.iter().any(|a| a.id == s))
-                    {
-                        self.selected_digest = r.digest.first().map(|a| a.id.clone());
-                    }
-                    self.digest = Some(r.digest);
                 }
                 Resp::Answered { ask_id, result } => {
                     self.sending.remove(&ask_id);
@@ -217,9 +196,6 @@ impl DeskApp {
                                 false,
                             );
                             self.inbox.retain(|a| a.id != ask_id);
-                            if let Some(d) = &mut self.digest {
-                                d.retain(|a| a.id != ask_id);
-                            }
                             self.drafts.remove(&ask_id);
                             self.last_list = None;
                         }
@@ -244,7 +220,6 @@ impl DeskApp {
                 Resp::Settings(s) => {
                     self.settings_draft = SettingsDraft {
                         ntfy: s.ntfy_topic_url.clone().unwrap_or_default(),
-                        budget: s.daily_budget,
                         toasts_off: s.toasts_off,
                     };
                     self.settings = Some(s);
@@ -283,7 +258,6 @@ impl DeskApp {
     fn title_of(&self, id: &str) -> String {
         self.inbox
             .iter()
-            .chain(self.digest.iter().flatten())
             .find(|a| a.id == id)
             .map(|a| a.input.title.clone())
             .unwrap_or_else(|| id.to_string())
@@ -345,15 +319,6 @@ impl DeskApp {
                         self.open_count.unwrap_or(self.inbox.len() as u32)
                     ),
                 ),
-                (
-                    Tab::Digest,
-                    format!(
-                        "Digest ({})",
-                        self.digest
-                            .as_ref()
-                            .map_or(self.digest_count as usize, Vec::len)
-                    ),
-                ),
                 (Tab::Agents, "Agents".to_string()),
                 (Tab::Settings, "Settings".to_string()),
             ];
@@ -385,22 +350,14 @@ impl DeskApp {
         });
     }
 
-    fn ask_list(&mut self, ui: &mut egui::Ui, digest: bool) {
-        let asks = if digest {
-            self.digest.clone().unwrap_or_default()
-        } else {
-            self.inbox.clone()
-        };
+    fn ask_list(&mut self, ui: &mut egui::Ui) {
+        let asks = self.inbox.clone();
         let now = time::OffsetDateTime::now_utc();
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 for a in &asks {
-                    let selected = if digest {
-                        &mut self.selected_digest
-                    } else {
-                        &mut self.selected_inbox
-                    };
+                    let selected = &mut self.selected_inbox;
                     let is_sel = selected.as_deref() == Some(a.id.as_str());
                     let (due, overdue) = view::relative_deadline(&a.input.deadline, now);
                     let frame = egui::Frame::new().inner_margin(egui::Margin::symmetric(6, 4));
@@ -440,7 +397,7 @@ impl DeskApp {
                     }
                     ui.separator();
                 }
-                if !digest && !self.recent.is_empty() {
+                if !self.recent.is_empty() {
                     egui::CollapsingHeader::new(format!(
                         "Recently answered ({})",
                         self.recent.len()
@@ -550,42 +507,22 @@ impl DeskApp {
         })
     }
 
-    fn ask_pane(&mut self, ui: &mut egui::Ui, digest: bool) {
-        let asks = if digest {
-            self.digest.as_deref().unwrap_or_default()
-        } else {
-            &self.inbox
-        };
+    fn ask_pane(&mut self, ui: &mut egui::Ui) {
+        let asks = &self.inbox;
         if asks.is_empty() {
             ui.centered_and_justified(|ui| {
-                ui.label(
-                    RichText::new(if digest {
-                        view::EMPTY_DIGEST
-                    } else {
-                        view::EMPTY_INBOX
-                    })
-                    .size(16.0)
-                    .weak(),
-                );
+                ui.label(RichText::new(view::EMPTY_INBOX).size(16.0).weak());
             });
             return;
         }
-        egui::Panel::left(if digest { "digest-list" } else { "inbox-list" })
+        egui::Panel::left("inbox-list")
             .resizable(true)
             .default_size(320.0)
             .min_size(220.0)
-            .show(ui, |ui| self.ask_list(ui, digest));
-        let selected = if digest {
-            &self.selected_digest
-        } else {
-            &self.selected_inbox
-        };
+            .show(ui, |ui| self.ask_list(ui));
+        let selected = &self.selected_inbox;
         let ask = selected.as_ref().and_then(|id| {
-            let list = if digest {
-                self.digest.as_deref().unwrap_or_default()
-            } else {
-                &self.inbox
-            };
+            let list = &self.inbox;
             list.iter().find(|a| &a.id == id).cloned()
         });
         egui::CentralPanel::default().show(ui, |ui| match ask {
@@ -599,31 +536,6 @@ impl DeskApp {
                 ui.weak("Pick an ask on the left.");
             }
         });
-    }
-
-    fn digest_tab(&mut self, ui: &mut egui::Ui) {
-        if self.digest.is_none() {
-            ui.add_space(12.0);
-            ui.label(
-                RichText::new(format!(
-                    "{} ask(s) wait in the daily digest.",
-                    self.digest_count
-                ))
-                .size(16.0),
-            );
-            ui.weak("They came in after the day's Inbox budget was used. Opening the digest counts as showing them to you, so reversible asks can take their defaults at their deadlines after this.");
-            ui.add_space(8.0);
-            if ui.button("Open the digest").clicked() {
-                self.send(Req::OpenDigest);
-            }
-            return;
-        }
-        ui.horizontal(|ui| {
-            if ui.button("Refresh").clicked() {
-                self.send(Req::OpenDigest);
-            }
-        });
-        self.ask_pane(ui, true);
     }
 
     fn agents_tab(&mut self, ui: &mut egui::Ui) {
@@ -694,9 +606,6 @@ impl DeskApp {
                 ui.label("Phone push (count only)");
                 ui.add(egui::TextEdit::singleline(&mut d.ntfy).hint_text("https://ntfy.sh/your-secret-topic").desired_width(360.0));
                 ui.end_row();
-                ui.label("Inbox budget per day");
-                ui.add(egui::DragValue::new(&mut d.budget).range(1..=50));
-                ui.end_row();
                 ui.label("Notifications");
                 ui.checkbox(&mut d.toasts_off, "off");
                 ui.end_row();
@@ -710,7 +619,6 @@ impl DeskApp {
             if ui.add_enabled(self.settings.is_some() && ntfy_ok, egui::Button::new("Save")).clicked() {
                 let s = Settings {
                     ntfy_topic_url: (!ntfy.is_empty()).then_some(ntfy),
-                    daily_budget: d.budget.max(1),
                     toasts_off: d.toasts_off,
                 };
                 self.send(Req::SetSettings(s));
@@ -723,7 +631,7 @@ impl DeskApp {
                     self.send(Req::Owners);
                 }
             });
-            ui.weak("An owner is a stable name for a routine, project or client. Answers, budgets and caps attach to it.");
+            ui.weak("An owner is a stable name for a routine, project or client. Answers and open-ask caps attach to it.");
             if self.owners.is_empty() {
                 ui.weak("No owners yet.");
                 return;
@@ -965,8 +873,7 @@ impl eframe::App for DeskApp {
             });
         }
         egui::CentralPanel::default().show(ui, |ui| match self.tab {
-            Tab::Inbox => self.ask_pane(ui, false),
-            Tab::Digest => self.digest_tab(ui),
+            Tab::Inbox => self.ask_pane(ui),
             Tab::Agents => self.agents_tab(ui),
             Tab::Settings => self.settings_tab(ui),
         });

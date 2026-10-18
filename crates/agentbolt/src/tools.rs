@@ -82,7 +82,7 @@ pub fn tools() -> Vec<Tool> {
             "Ask Artem",
             "Ask Artem a question you can't settle from the files: a choice, an approval or missing \
              information. Always give options where you can, a recommended default and a deadline; you get an \
-             id at once and keep working. Over his daily budget it waits in his digest, never refused. An ask \
+             id at once and keep working. It enters his Inbox immediately; each owner has a cap of 3 open asks. An ask \
              that can't be undone never takes its default.",
             json!({"type": "object", "properties": {
                 "handle": {"type": "string", "description": HANDLE},
@@ -94,7 +94,7 @@ pub fn tools() -> Vec<Tool> {
                 "default": {"description": "Your recommended answer: an option's text, or {field: value} for a form"},
                 "deadline": {"type": "string", "description": "RFC 3339, e.g. 2026-10-20T18:00:00+01:00"},
                 "reversible": {"type": "boolean", "description": "Can it be undone? Only reversible asks take their default"},
-                "priority": {"type": "string", "enum": ["P0", "P1", "P2"], "description": "Default P1. P0 skips the budget once a day and needs p0_reason"},
+                "priority": {"type": "string", "enum": ["P0", "P1", "P2"], "description": "Default P1. P0 needs p0_reason and a bound owner; provisional P0 is stored as P1"},
                 "p0_reason": {"type": "string"},
                 "evidence": {"type": "array", "description": "https://, claude:// links or file paths",
                              "items": {"type": "object", "properties": {"label": {"type": "string"}, "url": {"type": "string"}},

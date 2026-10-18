@@ -12,8 +12,8 @@ use crate::model::{
     Settings,
 };
 use crate::protocol::{
-    AgentsResult, AnswerResult, AnswersResult, AskResult, DeskOp, DigestResult, ListResult, McpOp,
-    OwnersResult, RegisterResult, RelayListResult, StatusResult,
+    AgentsResult, AnswerResult, AnswersResult, AskResult, DeskOp, ListResult, McpOp, OwnersResult,
+    RegisterResult, RelayListResult, StatusResult,
 };
 use crate::service::{ClientInfo, Effect, Service};
 use crate::service_impl::{Clock, StoreService, UNKNOWN_HANDLE};
@@ -202,10 +202,6 @@ impl T {
         de(self.desk(DeskOp::List).unwrap().0)
     }
 
-    fn open_digest(&self) -> DigestResult {
-        de(self.desk(DeskOp::OpenDigest).unwrap().0)
-    }
-
     fn answers(&self, handle: &str, ids: &[&str]) -> AnswersResult {
         let op = McpOp::Answers {
             handle: handle.into(),
@@ -221,14 +217,6 @@ impl T {
             id: id.into(),
         })
         .map(|(_, fx)| fx)
-    }
-
-    fn set_budget(&self, n: u32) {
-        let s = Settings {
-            daily_budget: n,
-            ..Settings::default()
-        };
-        self.desk(DeskOp::SetSettings { settings: s }).unwrap();
     }
 
     fn set_owner(&self, name: &str, binding: &str, codex_interactive: bool, relay: bool) {
@@ -271,225 +259,94 @@ fn inbox_changes(fx: &[Effect]) -> Vec<(u32, u32)> {
         .collect()
 }
 
-// ---- rule 1: budget, digest, fair share, P0 ----
+// ---- v4: direct Inbox, owner cap, dedupe, priority ----
 
 #[test]
-fn over_the_budget_asks_go_to_the_digest_and_are_never_refused() {
+fn every_ask_enters_the_inbox_without_a_daily_or_fair_share_limit() {
     let t = T::new();
-    t.set_budget(2);
-    let a = t.register("owner-a");
-    let b = t.register("owner-b");
-    assert_eq!(t.placed(&a, "First"), "open");
-    assert_eq!(t.placed(&a, "Second"), "open");
-    let held = t.ask(&b, t.input("Third"));
-    assert_eq!(held.placed, "digest");
-    assert!(held.id.starts_with("ask_") && held.existing.is_none());
-    let s = t.status();
-    assert_eq!((s.open, s.digest), (2, 1));
-    let l = t.list();
-    assert_eq!(l.inbox.len(), 2);
-    assert_eq!(l.digest_count, 1);
-    assert_eq!(t.open_digest().digest[0].id, held.id);
+    for n in 0..12 {
+        let handle = t.register(&format!("owner-{n}"));
+        for i in 0..3 {
+            assert_eq!(t.placed(&handle, &format!("Question {i}")), "open");
+        }
+    }
+    assert_eq!((t.status().open, t.status().digest), (36, 0));
+    assert_eq!(t.list().inbox.len(), 36);
 }
 
 #[test]
-fn the_fair_share_stops_one_owner_taking_the_day() {
-    let t = T::new(); // budget 5
-    let (a, b, c) = (
-        t.register("owner-a"),
-        t.register("owner-b"),
-        t.register("owner-c"),
-    );
+fn inbox_orders_by_priority_then_deadline_and_bound_p0_is_not_limited_per_day() {
+    let t = T::new();
+    let h = t.register("priority-owner");
+    let p2 = t.ask(&h, t.due_in(t.input("Soon P2"), Duration::hours(1)));
+    let mut urgent = t.input("Later P0");
+    urgent.priority = Priority::P0;
+    urgent.p0_reason = Some("Time sensitive decision".into());
+    let later = t.ask(&h, urgent.clone());
+    urgent.title = "Earlier P0".into();
+    let earlier = t.ask(&h, t.due_in(urgent.clone(), Duration::hours(3)));
+    let inbox = t.list().inbox;
     assert_eq!(
-        t.placed(&a, "a1"),
-        "open",
-        "alone, an owner may take the whole budget"
+        inbox.iter().map(|a| &a.id).collect::<Vec<_>>(),
+        [&earlier.id, &later.id, &p2.id]
     );
-    assert_eq!(t.placed(&b, "b1"), "open");
-    assert_eq!(
-        t.placed(&a, "a2"),
-        "open",
-        "two owners: a share of ceil(5 / 2) = 3 each"
-    );
-    assert_eq!(t.placed(&a, "a3"), "open");
-    assert_eq!(
-        t.placed(&a, "a4"),
-        "cap",
-        "a has 3 open asks: the owner cap answers before the share"
-    );
-    assert_eq!(t.placed(&b, "b2"), "open");
-    assert_eq!(t.placed(&c, "c1"), "digest", "the budget of 5 is used");
-    assert_eq!(t.list().inbox.len(), 5);
+    assert_eq!(inbox[0].input.priority, Priority::P0);
+    assert_eq!(inbox[1].input.priority, Priority::P0);
+    let provisional = t.register_full(None, Some("new-session"), None);
+    t.ask(&provisional.handle, urgent);
+    let inbox = t.list().inbox;
+    let stored = inbox.iter().find(|a| a.owner == provisional.owner).unwrap();
+    assert_eq!(stored.input.priority, Priority::P1);
 }
 
 #[test]
-fn the_fair_share_holds_an_owner_below_its_cap() {
-    let t = T::new();
-    t.set_budget(4);
-    let (a, b, c) = (
-        t.register("owner-a"),
-        t.register("owner-b"),
-        t.register("owner-c"),
-    );
-    assert_eq!(t.placed(&a, "a1"), "open");
-    assert_eq!(t.placed(&b, "b1"), "open");
-    assert_eq!(t.placed(&c, "c1"), "open");
-    assert_eq!(
-        t.placed(&a, "a2"),
-        "open",
-        "three owners: a share of ceil(4 / 3) = 2 each"
-    );
-    assert_eq!(
-        t.placed(&a, "a3"),
-        "digest",
-        "a is at its share of 2, below its cap of 3"
-    );
-    assert_eq!(t.placed(&b, "b2"), "digest", "the budget of 4 is used");
-    assert_eq!(t.list().inbox.len(), 4);
-}
-
-#[test]
-fn p0_skips_the_budget_once_per_owner_per_day() {
-    let t = T::new();
-    t.set_budget(1);
-    let a = t.register("owner-a");
-    let b = t.register("owner-b");
-    // Deadlines 3 days out, so nothing defaults when the clock moves a day.
-    let p0 = |title: &str| AskInput {
-        priority: Priority::P0,
-        p0_reason: Some("prod is down".into()),
-        ..t.due_in(t.input(title), Duration::days(3))
+fn legacy_digest_moves_to_inbox_without_being_shown_and_settings_survive() {
+    let dir = std::env::temp_dir().join(format!(
+        "agentbolt-upgrade-{}",
+        crate::tokens::random_hex(6)
+    ));
+    let path = dir.join("agentbolt.db");
+    let id = {
+        let t = T::with(StoreService::open(&path).unwrap());
+        let h = t.register("old-owner");
+        let id = t.ask(&h, t.input("Previously held back")).id;
+        let conn = t.svc.conn_for_tests();
+        conn.execute(
+            "UPDATE asks SET status = 'digest', inbox_ms = NULL WHERE id = ?1",
+            [&id],
+        )
+        .unwrap();
+        store::set_meta(
+            &conn,
+            "settings",
+            r#"{"daily_budget":1,"toasts_off":true,"ntfy_topic_url":"https://ntfy.sh/kept"}"#,
+        )
+        .unwrap();
+        id
     };
-
-    let mut no_reason = t.input("No reason");
-    no_reason.priority = Priority::P0;
-    assert!(t.try_ask(&a, no_reason).unwrap_err().contains("p0_reason"));
-
-    let normal = t.ask(&a, t.input("Normal"));
-    assert_eq!(normal.placed, "open");
-    let first = t.ask(&a, p0("Urgent one"));
-    assert_eq!(first.placed, "open", "P0 skips the full budget");
-    let second = t.ask(&a, p0("Urgent two"));
-    assert_eq!(
-        second.placed, "digest",
-        "a second P0 that day is a P1 and meets the budget"
-    );
-    let held = t.open_digest().digest;
-    assert_eq!(held[0].input.priority, Priority::P1);
-    assert_eq!(
-        held[0].input.p0_reason.as_deref(),
-        Some("prod is down"),
-        "the stated reason is kept"
-    );
-    assert_eq!(
-        t.ask(&b, p0("Owner b's urgent")).placed,
-        "open",
-        "the skip is per owner"
-    );
-
-    // Next day: the skip is back, and the held ask is promoted first.
-    t.answer(&normal.id, "Yes").unwrap();
-    t.answer(&first.id, "Yes").unwrap();
-    t.advance(Duration::days(1));
-    t.tick();
-    assert_eq!(t.ask_status(&second.id), AskStatus::Open);
-    assert_eq!(t.ask(&a, p0("Urgent three")).placed, "open");
+    {
+        let t = T::with(StoreService::open(&path).unwrap());
+        let conn = t.svc.conn_for_tests();
+        let row = store::ask_row(&conn, &id).unwrap().unwrap();
+        assert_eq!(row.status, AskStatus::Open);
+        assert!(row.shown_ms.is_none());
+        let settings = store::settings(&conn).unwrap();
+        assert!(settings.toasts_off);
+        assert_eq!(
+            settings.ntfy_topic_url.as_deref(),
+            Some("https://ntfy.sh/kept")
+        );
+        assert!(
+            serde_json::to_value(settings)
+                .unwrap()
+                .get("daily_budget")
+                .is_none()
+        );
+        drop(conn);
+        assert!(t.svc.verify_chain().is_ok());
+    }
+    std::fs::remove_dir_all(dir).unwrap();
 }
-
-#[test]
-fn digest_asks_are_promoted_by_deadline_as_the_budget_frees() {
-    let t = T::new();
-    t.set_budget(1);
-    let (a, b, c) = (
-        t.register("owner-a"),
-        t.register("owner-b"),
-        t.register("owner-c"),
-    );
-    t.ask(&a, t.input("a1"));
-    let late = t.ask(&b, t.due_in(t.input("b1"), Duration::days(3)));
-    let soon = t.ask(&c, t.due_in(t.input("c1"), Duration::days(2)));
-    assert_eq!(
-        (late.placed.as_str(), soon.placed.as_str()),
-        ("digest", "digest")
-    );
-
-    assert!(inbox_changes(&t.tick()).len() <= 1);
-    assert_eq!(
-        t.ask_status(&soon.id),
-        AskStatus::Digest,
-        "nothing frees within the day"
-    );
-
-    t.advance(Duration::days(1));
-    let fx = t.tick();
-    assert_eq!(
-        t.ask_status(&soon.id),
-        AskStatus::Open,
-        "the earlier deadline goes first"
-    );
-    assert_eq!(t.ask_status(&late.id), AskStatus::Digest);
-    assert!(inbox_changes(&fx).contains(&(2, 1)), "{fx:?}");
-
-    t.advance(Duration::days(1));
-    t.tick();
-    assert_eq!(t.ask_status(&late.id), AskStatus::Open);
-}
-
-#[test]
-fn cancelling_an_unseen_inbox_ask_frees_its_slot() {
-    let t = T::new();
-    t.set_budget(1);
-    let (a, b, c) = (
-        t.register("owner-a"),
-        t.register("owner-b"),
-        t.register("owner-c"),
-    );
-    let first = t.ask(&a, t.input("a1"));
-    let held = t.ask(&b, t.input("b1"));
-    assert_eq!(held.placed, "digest");
-    let fx = t.cancel(&a, &first.id).unwrap();
-    assert_eq!(
-        t.ask_status(&held.id),
-        AskStatus::Open,
-        "the unseen slot went to the digest ask"
-    );
-    assert!(inbox_changes(&fx).contains(&(1, 0)));
-
-    // Once Artem has seen an Inbox ask, its slot stays used even if it is cancelled.
-    t.list();
-    let third = t.ask(&c, t.input("c1"));
-    assert_eq!(third.placed, "digest");
-    t.cancel(&b, &held.id).unwrap();
-    assert_eq!(t.ask_status(&third.id), AskStatus::Digest);
-}
-
-#[test]
-fn the_local_day_follows_the_stored_utc_offset() {
-    let t = T::new();
-    t.set_budget(1);
-    t.set(datetime!(2026-10-19 21:30 UTC));
-    let (a, b) = (t.register("owner-a"), t.register("owner-b"));
-    t.ask(&a, t.input("a1"));
-    let held = t.ask(&b, t.input("b1"));
-    t.set(datetime!(2026-10-19 22:30 UTC));
-    t.tick();
-    assert_eq!(
-        t.ask_status(&held.id),
-        AskStatus::Digest,
-        "still 19 October in UTC"
-    );
-    t.svc.set_utc_offset_minutes(120).unwrap();
-    assert_eq!(t.svc.utc_offset_minutes(), 120);
-    t.tick();
-    assert_eq!(
-        t.ask_status(&held.id),
-        AskStatus::Open,
-        "00:30 on 20 October at UTC+2"
-    );
-    assert!(t.svc.set_utc_offset_minutes(15 * 60).is_err());
-}
-
-// ---- rule 2: caps and dedupe ----
 
 #[test]
 fn an_owner_over_its_cap_gets_its_oldest_open_ask_back() {
@@ -653,82 +510,6 @@ fn config_owners_are_bound_and_the_desk_can_approve_provisional_ones() {
         })
         .is_err()
     );
-}
-
-#[test]
-fn provisional_owners_get_no_p0_skip_and_share_one_fair_share() {
-    let t = T::new();
-    t.set_budget(4);
-    let bound = t.register("compass-storefront");
-    // Five fresh provisional owners, as an agent minting a new one per register would get.
-    let fresh: Vec<RegisterResult> = (0..5)
-        .map(|i| t.register_full(None, Some(&format!("s{i}")), None))
-        .collect();
-    assert!(fresh.iter().all(|r| r.provisional));
-
-    let p0 = |title: &str| AskInput {
-        priority: Priority::P0,
-        p0_reason: Some("urgent".into()),
-        ..t.input(title)
-    };
-    let (r, _) = t.try_ask(&fresh[0].handle, p0("Provisional P0")).unwrap();
-    let note = r.note.clone().unwrap_or_default();
-    assert!(
-        note.contains("P1") && note.contains("provisional"),
-        "{note}"
-    );
-    let conn_priority = |id: &str| {
-        let conn = t.svc.conn_for_tests();
-        store::ask_row(&conn, id).unwrap().unwrap().input.priority
-    };
-    assert_eq!(conn_priority(&r.id), Priority::P1, "stored as P1");
-    {
-        let conn = t.svc.conn_for_tests();
-        let skip: bool = conn
-            .query_row("SELECT p0_skip FROM asks WHERE id = ?1", [&r.id], |row| {
-                row.get(0)
-            })
-            .unwrap();
-        assert!(!skip, "no P0 skip for a provisional owner");
-    }
-    assert_eq!(
-        r.placed, "open",
-        "it took a normal slot of the provisional bucket"
-    );
-
-    // Two buckets are active (the bound owner and "provisional"): a share of ceil(4 / 2) = 2 each, for all the
-    // provisional owners together.
-    assert_eq!(t.placed(&bound, "b1"), "open");
-    assert_eq!(
-        t.placed(&fresh[1].handle, "f1"),
-        "open",
-        "the provisional bucket's second slot"
-    );
-    for (i, f) in fresh.iter().enumerate().skip(2) {
-        assert_eq!(
-            t.placed(&f.handle, &format!("f{i}")),
-            "digest",
-            "a fresh owner buys no fresh share"
-        );
-    }
-    assert_eq!(
-        t.placed(&bound, "b2"),
-        "open",
-        "the bound owner still has its share"
-    );
-    assert_eq!(t.list().inbox.len(), 4);
-
-    // The cap stays per owner: three each, provisional or not.
-    let one = &fresh[0].handle;
-    assert_eq!(t.placed(one, "x2"), "digest");
-    assert_eq!(t.placed(one, "x3"), "digest");
-    assert_eq!(t.placed(one, "x4"), "cap");
-
-    // Once Artem approves an owner it is out of the bucket and may use its P0 skip.
-    t.set_owner(&fresh[4].owner, "approved", false, false);
-    let (r, _) = t.try_ask(&fresh[4].handle, p0("Approved P0")).unwrap();
-    assert_eq!((r.placed.as_str(), r.note.as_deref()), ("open", None));
-    assert_eq!(conn_priority(&r.id), Priority::P0);
 }
 
 #[test]
@@ -943,35 +724,6 @@ fn irreversible_asks_never_default() {
         "stays open, overdue"
     );
     assert!(t.answers(&a, &[&asked.id]).answers.is_empty());
-}
-
-#[test]
-fn digest_asks_default_only_after_the_digest_is_opened() {
-    let t = T::new();
-    t.set_budget(1);
-    let (a, b) = (t.register("owner-a"), t.register("owner-b"));
-    t.ask(&a, t.input("a1"));
-    let held = t.ask(&b, t.due_in(t.input("b1"), Duration::hours(1)));
-    assert_eq!(held.placed, "digest");
-    t.list();
-    t.advance(Duration::hours(2));
-    t.tick();
-    assert_eq!(
-        t.ask_status(&held.id),
-        AskStatus::Digest,
-        "listing the Inbox doesn't show the digest"
-    );
-    let d = t.open_digest();
-    assert!(d.digest[0].shown_at.is_some());
-    t.tick();
-    assert_eq!(
-        t.ask_status(&held.id),
-        AskStatus::Digest,
-        "just shown: the grace runs first"
-    );
-    t.advance(Duration::hours(1));
-    t.tick();
-    assert_eq!(t.ask_status(&held.id), AskStatus::Defaulted);
 }
 
 #[test]
@@ -1295,7 +1047,6 @@ fn which_asks_get_toasts_and_buttons() {
 
     t.desk(DeskOp::SetSettings {
         settings: Settings {
-            daily_budget: 10,
             toasts_off: true,
             ntfy_topic_url: None,
         },
@@ -1476,7 +1227,6 @@ fn the_relay_lists_answers_until_any_delivery_succeeds() {
 #[test]
 fn the_relay_list_keeps_a_14_day_window_and_the_newest_100() {
     let t = T::new();
-    t.set_budget(50);
     t.set_owner("compass-reception", "config", false, true);
     let relay = t.register("compass-reception");
     let old_owner = t.register("old-owner");
@@ -1708,26 +1458,11 @@ fn settings_round_trip_and_are_checked() {
         s,
         Settings {
             ntfy_topic_url: None,
-            daily_budget: 5,
+
             toasts_off: false
         }
     );
     let set = |s: Settings| t.desk(DeskOp::SetSettings { settings: s });
-    assert!(
-        set(Settings {
-            daily_budget: 0,
-            ..s.clone()
-        })
-        .unwrap_err()
-        .contains("daily_budget")
-    );
-    assert!(
-        set(Settings {
-            daily_budget: 51,
-            ..s.clone()
-        })
-        .is_err()
-    );
     assert!(
         set(Settings {
             ntfy_topic_url: Some("http://ntfy.sh/x".into()),
@@ -1737,7 +1472,7 @@ fn settings_round_trip_and_are_checked() {
     );
     let good = Settings {
         ntfy_topic_url: Some("https://ntfy.sh/secret-topic".into()),
-        daily_budget: 3,
+
         toasts_off: true,
     };
     set(good.clone()).unwrap();

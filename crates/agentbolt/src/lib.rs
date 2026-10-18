@@ -29,11 +29,10 @@ pub async fn status(names: &Names) -> anyhow::Result<StatusResult> {
 
 pub fn status_line(s: &StatusResult) -> String {
     format!(
-        "Agentbolt {} is running on channel {}: {} open, {} in the digest, {} agent(s); the event chain is {}.",
+        "Agentbolt {} is running on channel {}: {} open, {} agent(s); the event chain is {}.",
         s.version,
         s.channel,
         s.open,
-        s.digest,
         s.agents,
         if s.chain_ok {
             "intact"
@@ -312,7 +311,7 @@ mod tests {
         };
         assert_eq!(
             status_line(&s),
-            "Agentbolt 0.1.0 is running on channel t1: 2 open, 1 in the digest, 3 agent(s); the event chain is intact."
+            "Agentbolt 0.1.0 is running on channel t1: 2 open, 3 agent(s); the event chain is intact."
         );
     }
 }

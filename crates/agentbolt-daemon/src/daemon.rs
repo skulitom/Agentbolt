@@ -29,10 +29,6 @@ pub trait DaemonService: Service {
         ok: bool,
         detail: Option<&str>,
     ) -> Result<(), String>;
-    /// The budget's local day (minutes east of UTC); refreshed hourly for daylight saving.
-    fn set_utc_offset_minutes(&self, _minutes: i32) -> Result<(), String> {
-        Ok(())
-    }
 }
 
 /// Something for the effects task to act on.
@@ -238,20 +234,12 @@ impl Handler for DeskHandler {
     }
 }
 
-/// Call `Service::tick` about once a second, and refresh the local UTC offset hourly.
+/// Call `Service::tick` about once a second.
 pub async fn tick_loop(shared: Arc<Shared>) {
     let mut every = tokio::time::interval(Duration::from_secs(1));
     every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut ticks: u64 = 0;
     loop {
         every.tick().await;
-        ticks += 1;
-        if ticks.is_multiple_of(3600)
-            && let Some(minutes) = crate::store::local_offset_minutes()
-            && let Err(e) = shared.svc.set_utc_offset_minutes(minutes)
-        {
-            warning!("utc offset: {e}");
-        }
         let svc = shared.svc.clone();
         match tokio::task::spawn_blocking(move || svc.tick(time::OffsetDateTime::now_utc())).await {
             Ok(effects) => shared.emit(effects),
@@ -530,7 +518,7 @@ mod tests {
         let mut desk = Client::connect_to(&names, Pipe::Desk, &me()).await.unwrap();
         let settings = Settings {
             toasts_off: true,
-            daily_budget: 5,
+
             ..Settings::default()
         };
         desk.call(&DeskOp::SetSettings { settings }).await.unwrap();

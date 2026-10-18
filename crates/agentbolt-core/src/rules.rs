@@ -1,5 +1,5 @@
 //! Pure rules (PLAN.md "Rules for asks and work", "What an answer means", "The Desk"): input validation, the
-//! link allowlist, answer validation, defaults, dedupe, the fair share, the local day and toast eligibility.
+//! link allowlist, answer validation, defaults, dedupe and toast eligibility.
 //! No database access here; `service_impl` applies these against the store.
 
 use std::collections::HashSet;
@@ -10,8 +10,6 @@ use time::format_description::well_known::Rfc3339;
 
 use crate::model::{Answer, AnswerVia, AskInput, AskKind, Field, Priority};
 
-pub const DEFAULT_BUDGET: u32 = 5;
-pub const MAX_BUDGET: u32 = 50;
 /// Open + digest asks per owner (PLAN.md rule 1, "Caps attach to the owner").
 pub const OWNER_CAP: usize = 3;
 pub const ACKNOWLEDGED: &str = "Acknowledged";
@@ -38,9 +36,6 @@ pub const URGENT_MS: i64 = 2 * 60 * 60 * 1000;
 /// A shown, reversible ask takes its default no sooner than this long after Artem was first shown it, even when
 /// it was already overdue: opening the Desk after a day away mustn't default everything within a second.
 pub const DEFAULT_GRACE_MS: i64 = 60 * 60 * 1000;
-/// The one fair-share bucket every provisional (unbound, unapproved) owner shares, so a fresh owner per session
-/// can't buy itself another share of the day.
-pub const PROVISIONAL_BUCKET: &str = "provisional";
 /// The Desk lists every bound or approved owner, plus at most this many of the most recent provisional ones.
 pub const DESK_PROVISIONAL_OWNERS: u32 = 50;
 /// Provisional owners with no asks and no activity for this long are pruned from the store.
@@ -302,7 +297,7 @@ pub fn validate_ask(input: &AskInput, now_ms: i64) -> Result<(AskInput, i64), St
         return Err(format!("p0_reason takes at most {MAX_REASON} characters"));
     }
     if a.priority == Priority::P0 && a.p0_reason.is_none() {
-        return Err("a P0 ask needs p0_reason: why it can't wait for the daily budget".into());
+        return Err("a P0 ask needs p0_reason: why it is urgent".into());
     }
     a.dedupe_key = a
         .dedupe_key
@@ -559,28 +554,10 @@ pub fn is_duplicate(existing: &AskInput, new: &AskInput) -> bool {
     }
 }
 
-/// How many of today's Inbox slots one owner may take: the whole budget while it is the only active owner,
-/// else max(1, budget / active owners).
-pub fn fair_share(budget: u32, active_owners: u32) -> u32 {
-    if active_owners >= 2 {
-        budget.div_ceil(active_owners).max(1)
-    } else {
-        budget
-    }
-}
-
 /// When a shown, reversible ask may take its default: its deadline, but never before `DEFAULT_GRACE_MS` after it
 /// was first shown.
 pub fn default_due_ms(deadline_ms: i64, shown_ms: i64) -> i64 {
     deadline_ms.max(shown_ms.saturating_add(DEFAULT_GRACE_MS))
-}
-
-/// The local day containing `now_ms`, as [start, end) in Unix milliseconds, for a fixed offset east of UTC.
-/// A fixed offset ignores daylight-saving changes (good enough for v1: the boundary moves by an hour twice a year).
-pub fn day_bounds(now_ms: i64, utc_offset_minutes: i32) -> (i64, i64) {
-    let off = utc_offset_minutes as i64 * 60_000;
-    let start = (now_ms + off).div_euclid(DAY_MS) * DAY_MS - off;
-    (start, start + DAY_MS)
 }
 
 // ---- toasts and delivery text ----
@@ -972,21 +949,6 @@ mod tests {
         b.title = "Something else".into();
         b.dedupe_key = Some("k1".into());
         assert!(is_duplicate(&a, &b), "same key, different title");
-    }
-
-    #[test]
-    fn fair_share_and_days() {
-        assert_eq!(fair_share(5, 1), 5);
-        assert_eq!(fair_share(5, 2), 3);
-        assert_eq!(fair_share(5, 3), 2);
-        assert_eq!(fair_share(5, 9), 1);
-        assert_eq!(fair_share(1, 0), 1);
-        let (s, e) = day_bounds(NOW, 0);
-        assert!(s <= NOW && NOW < e && e - s == DAY_MS && s % DAY_MS == 0);
-        let (s1, _) = day_bounds(NOW, 60);
-        assert_eq!((s1 + 60 * 60_000) % DAY_MS, 0);
-        let (s2, _) = day_bounds(NOW, -300);
-        assert!(s2 <= NOW && NOW < s2 + DAY_MS);
     }
 
     #[test]

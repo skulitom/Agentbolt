@@ -333,7 +333,6 @@ impl PathCache {
 
 /// The empty-state line for each list.
 pub const EMPTY_INBOX: &str = "Nothing waiting. Agents ask you here.";
-pub const EMPTY_DIGEST: &str = "The digest is empty. Asks over the daily budget wait here.";
 pub const EMPTY_AGENTS: &str = "No agents have registered yet.";
 
 #[cfg(test)]

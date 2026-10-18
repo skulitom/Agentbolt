@@ -2,11 +2,7 @@
 //! "The Desk"). Every operation runs in one SQLite transaction and appends its audit events in it; effects
 //! (tray count, toasts, `codex queue`) are returned only after the commit.
 //!
-//! Time: operations read the injectable clock (`with_clock`); `tick` uses the `now` it is given. The local day
-//! (for the daily budget) uses a fixed UTC offset stored in the database (`set_utc_offset_minutes`, default 0 =
-//! UTC); a fixed offset ignores daylight saving, which is good enough for v1.
-
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -82,6 +78,19 @@ impl StoreService {
         let clock: Clock = Arc::new(OffsetDateTime::now_utc);
         let secret = {
             let tx = conn.transaction().map_err(db_err)?;
+            let now = store::to_ms(clock());
+            let legacy = store::ask_rows(&tx, "status = 'digest'", []).map_err(db_err)?;
+            for row in legacy {
+                tx.execute("UPDATE asks SET status = 'open', inbox_ms = COALESCE(inbox_ms, ?1) WHERE id = ?2", params![now, row.id]).map_err(db_err)?;
+                events::append(
+                    &tx,
+                    now,
+                    "ask.migrated_to_inbox",
+                    &row.id,
+                    &json!({"owner":row.owner}),
+                )
+                .map_err(db_err)?;
+            }
             let stored = store::meta(&tx, "toast_secret").map_err(db_err)?;
             let secret = match stored
                 .and_then(|h| hex::decode(h).ok())
@@ -143,31 +152,6 @@ impl StoreService {
     pub fn with_machine(mut self, machine: impl Into<String>) -> Self {
         self.machine = machine.into();
         self
-    }
-
-    /// Minutes east of UTC for the budget's local day (e.g. 60 for BST). Stored in the database.
-    pub fn set_utc_offset_minutes(&self, minutes: i32) -> Result<(), String> {
-        if !(-14 * 60..=14 * 60).contains(&minutes) {
-            return Err("a UTC offset is between -14:00 and +14:00".into());
-        }
-        let now = self.now_ms();
-        self.write(now, |c| {
-            if store::utc_offset_minutes(c.db).map_err(db_err)? != minutes {
-                store::set_meta(c.db, "utc_offset_minutes", &minutes.to_string())
-                    .map_err(db_err)?;
-                c.event(
-                    "settings.utc_offset",
-                    "settings",
-                    json!({ "minutes": minutes }),
-                )?;
-            }
-            Ok(())
-        })
-        .map(|_| ())
-    }
-
-    pub fn utc_offset_minutes(&self) -> i32 {
-        store::utc_offset_minutes(&self.lock()).unwrap_or(0)
     }
 
     /// Record a delivery the daemon made (e.g. after `codex queue`). `to` is where it went: for Codex, the
@@ -442,13 +426,6 @@ impl Ctx<'_> {
         store::settings(self.db).map_err(db_err)
     }
 
-    fn bounds(&self) -> Result<(i64, i64), String> {
-        Ok(rules::day_bounds(
-            self.now,
-            store::utc_offset_minutes(self.db).map_err(db_err)?,
-        ))
-    }
-
     /// Check a handle and renew its lease (rule 5: any call made with a handle renews it).
     fn touch(&self, handle: &str, client: &ClientInfo) -> Result<Agent, String> {
         let row: Option<(i64, Option<i64>)> = self
@@ -498,120 +475,6 @@ impl Ctx<'_> {
         )
         .map_err(db_err)?;
         self.full_all(&rows)
-    }
-
-    // ---- the budget ----
-
-    /// Whether `owner` is provisional (neither bound by config nor approved on the Desk). An owner with no row
-    /// counts as provisional.
-    fn is_provisional(&self, owner: &str) -> Result<bool, String> {
-        Ok(store::owner(self.db, owner)
-            .map_err(db_err)?
-            .is_none_or(|o| o.binding == "pending"))
-    }
-
-    /// May `owner` take one of today's Inbox slots? Over the budget or over its fair share, no. Every
-    /// provisional owner shares one fair-share bucket (`rules::PROVISIONAL_BUCKET`), so minting fresh owners
-    /// buys no extra share of the day.
-    fn can_take_slot(
-        &self,
-        owner: &str,
-        budget: u32,
-        (start, end): (i64, i64),
-    ) -> Result<bool, String> {
-        // A slot is used by an ask placed in the Inbox today without the P0 skip, unless it was cancelled
-        // before Artem saw it (that slot frees again).
-        const USED: &str = "inbox_ms >= ?1 AND inbox_ms < ?2 AND p0_skip = 0
-                            AND NOT (status = 'cancelled' AND shown_ms IS NULL)";
-        const PROVISIONAL: &str = "COALESCE((SELECT o.binding FROM owners o WHERE o.name = asks.owner), 'pending') = 'pending'";
-        let used = store::count(
-            self.db,
-            &format!("SELECT COUNT(*) FROM asks WHERE {USED}"),
-            [start, end],
-        )
-        .map_err(db_err)?;
-        if used >= budget {
-            return Ok(false);
-        }
-        // Buckets: "owner:<name>" for bound owners, the provisional bucket for the rest (no name collides).
-        let bucket = |name: &str, provisional: bool| {
-            if provisional {
-                rules::PROVISIONAL_BUCKET.to_string()
-            } else {
-                format!("owner:{name}")
-            }
-        };
-        let mut active: BTreeSet<String> = {
-            let mut stmt = self
-                .db
-                .prepare(&format!(
-                    "SELECT DISTINCT owner, {PROVISIONAL} FROM asks
-                     WHERE (created_ms >= ?1 AND created_ms < ?2) OR (inbox_ms >= ?1 AND inbox_ms < ?2)
-                        OR status = 'digest'"
-                ))
-                .map_err(db_err)?;
-            let owners = stmt
-                .query_map([start, end], |r| {
-                    Ok(bucket(&r.get::<_, String>(0)?, r.get::<_, bool>(1)?))
-                })
-                .map_err(db_err)?;
-            owners.collect::<rusqlite::Result<_>>().map_err(db_err)?
-        };
-        let provisional = self.is_provisional(owner)?;
-        active.insert(bucket(owner, provisional));
-        let share = rules::fair_share(budget, active.len() as u32);
-        let own = if provisional {
-            store::count(
-                self.db,
-                &format!("SELECT COUNT(*) FROM asks WHERE {USED} AND {PROVISIONAL}"),
-                [start, end],
-            )
-        } else {
-            store::count(
-                self.db,
-                &format!("SELECT COUNT(*) FROM asks WHERE {USED} AND owner = ?3"),
-                params![start, end, owner],
-            )
-        }
-        .map_err(db_err)?;
-        Ok(own < share)
-    }
-
-    fn p0_used_today(&self, owner: &str, (start, end): (i64, i64)) -> Result<bool, String> {
-        let n = store::count(
-            self.db,
-            "SELECT COUNT(*) FROM asks WHERE owner = ?1 AND p0_skip = 1 AND inbox_ms >= ?2 AND inbox_ms < ?3",
-            params![owner, start, end],
-        )
-        .map_err(db_err)?;
-        Ok(n > 0)
-    }
-
-    /// Move digest asks into the Inbox, earliest deadline first, while today's budget and shares allow.
-    fn promote(&mut self) -> Result<(), String> {
-        let settings = self.settings()?;
-        let bounds = self.bounds()?;
-        let digest = store::ask_rows(
-            self.db,
-            "status = 'digest' ORDER BY deadline_ms, created_ms, rowid",
-            [],
-        )
-        .map_err(db_err)?;
-        for mut row in digest {
-            if !self.can_take_slot(&row.owner, settings.daily_budget, bounds)? {
-                continue;
-            }
-            self.db
-                .execute(
-                    "UPDATE asks SET status = 'open', inbox_ms = ?1 WHERE id = ?2",
-                    params![self.now, row.id],
-                )
-                .map_err(db_err)?;
-            self.event("ask.promoted", &row.id, json!({ "owner": row.owner }))?;
-            row.status = AskStatus::Open;
-            self.maybe_toast(&row, &settings)?;
-        }
-        Ok(())
     }
 
     // ---- toasts ----
@@ -897,8 +760,6 @@ impl Ctx<'_> {
     ) -> Result<AskResult, String> {
         let agent = self.touch(handle, client)?;
         let (mut input, deadline_ms) = rules::validate_ask(input, self.now)?;
-        // Asks already waiting in the digest go before this one.
-        self.promote()?;
 
         let pending = self.pending_of(&agent.owner)?;
         if let Some(dup) = pending
@@ -923,31 +784,14 @@ impl Ctx<'_> {
         }
 
         let settings = self.settings()?;
-        let bounds = self.bounds()?;
-        let mut p0_skip = false;
         let mut demoted = None;
-        if input.priority == Priority::P0 {
-            if agent.provisional {
-                // A provisional owner costs nothing to mint, so it gets no P0 skip at all.
-                input.priority = Priority::P1;
-                demoted = Some(
-                    "Stored as P1: P0 skips the budget only for an owner bound by the server's --owner or \
-                     approved by Artem on the Desk; this one is provisional.",
-                );
-            } else if self.p0_used_today(&agent.owner, bounds)? {
-                // Once per owner per day; a second P0 that day is a P1.
-                input.priority = Priority::P1;
-                demoted = Some("Stored as P1: this owner already used its one P0 skip today.");
-            } else {
-                p0_skip = true;
-            }
+        if input.priority == Priority::P0 && agent.provisional {
+            input.priority = Priority::P1;
+            demoted = Some(
+                "Stored as P1: P0 requires an owner bound by the server's --owner or approved on the Desk.",
+            );
         }
-        let status =
-            if p0_skip || self.can_take_slot(&agent.owner, settings.daily_budget, bounds)? {
-                AskStatus::Open
-            } else {
-                AskStatus::Digest
-            };
+        let status = AskStatus::Open;
         let id = format!("ask_{}", tokens::random_hex(8));
         store::insert_ask(
             self.db,
@@ -958,7 +802,7 @@ impl Ctx<'_> {
                 asking_client: Some(&agent.client),
                 asking_cwd: agent.cwd.as_deref(),
                 input: &input,
-                p0_skip,
+                p0_skip: false,
                 deadline_ms,
                 status,
                 created_ms: self.now,
@@ -972,7 +816,6 @@ impl Ctx<'_> {
             json!({
                 "owner": agent.owner,
                 "placed": status_str(status),
-                "p0_skip": p0_skip,
                 "demoted_from_p0": demoted.is_some(),
                 "note": demoted,
                 "provisional": agent.provisional,
@@ -1047,8 +890,6 @@ impl Ctx<'_> {
             .map_err(db_err)?;
         self.revoke_toasts(id)?;
         self.event("ask.cancelled", id, json!({ "owner": agent.owner }))?;
-        // An Inbox ask cancelled before Artem saw it frees its slot.
-        self.promote()?;
         let row = self.row(id)?.ok_or("the cancelled ask vanished")?;
         self.full(&row)
     }
@@ -1107,7 +948,7 @@ impl Ctx<'_> {
     fn list(&self) -> Result<ListResult, String> {
         let mut inbox = store::ask_rows(
             self.db,
-            "status = 'open' ORDER BY deadline_ms, priority, created_ms, rowid",
+            "status = 'open' ORDER BY priority, deadline_ms, created_ms, rowid",
             [],
         )
         .map_err(db_err)?;
@@ -1252,12 +1093,6 @@ impl Ctx<'_> {
     }
 
     fn set_settings(&mut self, s: Settings) -> Result<Settings, String> {
-        if !(1..=rules::MAX_BUDGET).contains(&s.daily_budget) {
-            return Err(format!(
-                "daily_budget takes 1-{} asks a day",
-                rules::MAX_BUDGET
-            ));
-        }
         let ntfy_topic_url = s
             .ntfy_topic_url
             .map(|u| u.trim().to_string())
@@ -1283,10 +1118,8 @@ impl Ctx<'_> {
         self.event(
             "settings.set",
             "settings",
-            json!({ "daily_budget": s.daily_budget, "toasts_off": s.toasts_off, "ntfy": s.ntfy_topic_url.is_some() }),
+            json!({ "toasts_off": s.toasts_off, "ntfy": s.ntfy_topic_url.is_some() }),
         )?;
-        // A larger budget may let digest asks in now.
-        self.promote()?;
         Ok(s)
     }
 }
@@ -1389,7 +1222,6 @@ impl Service for StoreService {
         let now = store::to_ms(now);
         self.write(now, |c| {
             c.apply_defaults()?;
-            c.promote()?;
             let expired =
                 c.db.execute(
                     "DELETE FROM agents WHERE last_seen_ms < ?1",
