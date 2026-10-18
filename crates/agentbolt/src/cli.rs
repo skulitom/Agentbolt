@@ -39,11 +39,25 @@ pub struct AskArgs {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     Mcp(McpArgs),
-    Install { channel: Option<String>, from: Option<PathBuf>, no_start: bool },
-    Uninstall { channel: Option<String>, purge: bool },
-    Start { channel: Option<String> },
-    Status { channel: Option<String> },
-    Clients { channel: Option<String>, yes: bool },
+    Install {
+        channel: Option<String>,
+        from: Option<PathBuf>,
+        no_start: bool,
+    },
+    Uninstall {
+        channel: Option<String>,
+        purge: bool,
+    },
+    Start {
+        channel: Option<String>,
+    },
+    Status {
+        channel: Option<String>,
+    },
+    Clients {
+        channel: Option<String>,
+        yes: bool,
+    },
     Ask(Box<AskArgs>),
     Help,
     Version,
@@ -77,7 +91,9 @@ impl Args {
         let item = self.items.get(self.pos)?.clone();
         self.pos += 1;
         match item.split_once('=') {
-            Some((flag, value)) if flag.starts_with("--") => Some((flag.to_string(), Some(value.to_string()))),
+            Some((flag, value)) if flag.starts_with("--") => {
+                Some((flag.to_string(), Some(value.to_string())))
+            }
             _ => Some((item, None)),
         }
     }
@@ -86,7 +102,11 @@ impl Args {
         if let Some(v) = inline {
             return Ok(v);
         }
-        let v = self.items.get(self.pos).cloned().ok_or_else(|| format!("{flag} needs a value"))?;
+        let v = self
+            .items
+            .get(self.pos)
+            .cloned()
+            .ok_or_else(|| format!("{flag} needs a value"))?;
         self.pos += 1;
         Ok(v)
     }
@@ -110,7 +130,12 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String>
         "help" | "--help" | "-h" => Ok(Command::Help),
         "version" | "--version" | "-V" => Ok(Command::Version),
         "mcp" => {
-            let mut m = McpArgs { channel: None, owner: None, client: None, max_wait_ms: DEFAULT_MAX_WAIT_MS };
+            let mut m = McpArgs {
+                channel: None,
+                owner: None,
+                client: None,
+                max_wait_ms: DEFAULT_MAX_WAIT_MS,
+            };
             while let Some((flag, inline)) = a.next_flag() {
                 match flag.as_str() {
                     "--channel" => m.channel = Some(a.value(&flag, inline)?),
@@ -118,7 +143,9 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String>
                     "--client" => m.client = Some(nonempty(&flag, a.value(&flag, inline)?)?),
                     "--max-wait-ms" => {
                         let v = a.value(&flag, inline)?;
-                        m.max_wait_ms = v.parse().map_err(|_| format!("--max-wait-ms takes milliseconds, not '{v}'"))?;
+                        m.max_wait_ms = v
+                            .parse()
+                            .map_err(|_| format!("--max-wait-ms takes milliseconds, not '{v}'"))?;
                     }
                     other => return Err(unknown(other, "mcp")),
                 }
@@ -138,7 +165,11 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String>
                     other => return Err(unknown(other, "install")),
                 }
             }
-            Ok(Command::Install { channel, from, no_start })
+            Ok(Command::Install {
+                channel,
+                from,
+                no_start,
+            })
         }
         "uninstall" => {
             let (mut channel, mut purge) = (None, false);
@@ -162,7 +193,11 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String>
                     other => return Err(unknown(other, &sub)),
                 }
             }
-            Ok(if sub == "start" { Command::Start { channel } } else { Command::Status { channel } })
+            Ok(if sub == "start" {
+                Command::Start { channel }
+            } else {
+                Command::Status { channel }
+            })
         }
         "clients" => {
             let (mut channel, mut yes) = (None, false);
@@ -218,26 +253,38 @@ fn parse_ask(a: &mut Args) -> Result<AskArgs, String> {
             "--dedupe-key" => r.dedupe_key = Some(a.value(&flag, inline)?),
             "--evidence" => {
                 let v = a.value(&flag, inline)?;
-                let (label, url) =
-                    v.split_once('=').ok_or_else(|| format!("--evidence takes LABEL=URL, not '{v}'"))?;
+                let (label, url) = v
+                    .split_once('=')
+                    .ok_or_else(|| format!("--evidence takes LABEL=URL, not '{v}'"))?;
                 r.evidence.push((label.to_string(), url.to_string()));
             }
             other => return Err(unknown(other, "ask")),
         }
     }
-    for (name, value) in [("--owner", &r.owner), ("--title", &r.title), ("--deadline", &r.deadline)] {
+    for (name, value) in [
+        ("--owner", &r.owner),
+        ("--title", &r.title),
+        ("--deadline", &r.deadline),
+    ] {
         if value.trim().is_empty() {
             return Err(format!("ask needs {name}"));
         }
     }
     if !matches!(r.priority.as_str(), "P0" | "P1" | "P2") {
-        return Err(format!("--priority takes P0, P1 or P2, not '{}'", r.priority));
+        return Err(format!(
+            "--priority takes P0, P1 or P2, not '{}'",
+            r.priority
+        ));
     }
     Ok(r)
 }
 
 fn nonempty(flag: &str, v: String) -> Result<String, String> {
-    if v.trim().is_empty() { Err(format!("{flag} needs a value")) } else { Ok(v) }
+    if v.trim().is_empty() {
+        Err(format!("{flag} needs a value"))
+    } else {
+        Ok(v)
+    }
 }
 
 fn unknown(flag: &str, sub: &str) -> String {
@@ -262,7 +309,15 @@ mod tests {
 
     #[test]
     fn mcp_flags_parse_in_both_spellings() {
-        let c = p(&["mcp", "--owner", "compass-storefront", "--client=codex", "--max-wait-ms", "90000"]).unwrap();
+        let c = p(&[
+            "mcp",
+            "--owner",
+            "compass-storefront",
+            "--client=codex",
+            "--max-wait-ms",
+            "90000",
+        ])
+        .unwrap();
         assert_eq!(
             c,
             Command::Mcp(McpArgs {
@@ -272,32 +327,76 @@ mod tests {
                 max_wait_ms: 90_000,
             })
         );
-        let Command::Mcp(m) = p(&["mcp"]).unwrap() else { panic!() };
+        let Command::Mcp(m) = p(&["mcp"]).unwrap() else {
+            panic!()
+        };
         assert_eq!(m.max_wait_ms, DEFAULT_MAX_WAIT_MS);
         assert_eq!(m.owner, None);
     }
 
     #[test]
     fn bad_flags_are_refused_with_a_reason() {
-        assert!(p(&["mcp", "--owner"]).unwrap_err().contains("needs a value"));
-        assert!(p(&["mcp", "--max-wait-ms", "soon"]).unwrap_err().contains("milliseconds"));
-        assert!(p(&["mcp", "--bogus"]).unwrap_err().contains("isn't an option"));
+        assert!(
+            p(&["mcp", "--owner"])
+                .unwrap_err()
+                .contains("needs a value")
+        );
+        assert!(
+            p(&["mcp", "--max-wait-ms", "soon"])
+                .unwrap_err()
+                .contains("milliseconds")
+        );
+        assert!(
+            p(&["mcp", "--bogus"])
+                .unwrap_err()
+                .contains("isn't an option")
+        );
         assert!(p(&["frobnicate"]).unwrap_err().contains("unknown command"));
-        assert!(p(&["uninstall", "--purge=yes"]).unwrap_err().contains("takes no value"));
+        assert!(
+            p(&["uninstall", "--purge=yes"])
+                .unwrap_err()
+                .contains("takes no value")
+        );
     }
 
     #[test]
     fn install_uninstall_clients_parse() {
         assert_eq!(
-            p(&["install", "--channel", "t1", "--from", "C:\\b", "--no-start"]).unwrap(),
-            Command::Install { channel: Some("t1".into()), from: Some(PathBuf::from("C:\\b")), no_start: true }
+            p(&[
+                "install",
+                "--channel",
+                "t1",
+                "--from",
+                "C:\\b",
+                "--no-start"
+            ])
+            .unwrap(),
+            Command::Install {
+                channel: Some("t1".into()),
+                from: Some(PathBuf::from("C:\\b")),
+                no_start: true
+            }
         );
         assert_eq!(
             p(&["uninstall", "--channel=t1", "--purge"]).unwrap(),
-            Command::Uninstall { channel: Some("t1".into()), purge: true }
+            Command::Uninstall {
+                channel: Some("t1".into()),
+                purge: true
+            }
         );
-        assert_eq!(p(&["clients"]).unwrap(), Command::Clients { channel: None, yes: false });
-        assert_eq!(p(&["status", "--channel", "x"]).unwrap(), Command::Status { channel: Some("x".into()) });
+        assert_eq!(
+            p(&["clients"]).unwrap(),
+            Command::Clients {
+                channel: None,
+                yes: false
+            }
+        );
+        assert_eq!(
+            p(&["status", "--channel", "x"]).unwrap(),
+            Command::Status {
+                channel: Some("x".into())
+            }
+        );
         assert_eq!(p(&[]).unwrap(), Command::Help);
         assert_eq!(p(&["--version"]).unwrap(), Command::Version);
     }
@@ -305,8 +404,23 @@ mod tests {
     #[test]
     fn ask_needs_owner_title_and_deadline() {
         let c = p(&[
-            "ask", "--owner", "me", "--title", "Ship it?", "--option", "Ship", "--option", "Wait", "--default",
-            "Ship", "--deadline", "2026-10-20T18:00:00Z", "--reversible", "--priority", "p0", "--evidence",
+            "ask",
+            "--owner",
+            "me",
+            "--title",
+            "Ship it?",
+            "--option",
+            "Ship",
+            "--option",
+            "Wait",
+            "--default",
+            "Ship",
+            "--deadline",
+            "2026-10-20T18:00:00Z",
+            "--reversible",
+            "--priority",
+            "p0",
+            "--evidence",
             "PR=https://github.com/x/y/pull/1",
         ])
         .unwrap();
@@ -314,13 +428,37 @@ mod tests {
         assert_eq!(a.options, vec!["Ship", "Wait"]);
         assert_eq!(a.priority, "P0");
         assert!(a.reversible);
-        assert_eq!(a.evidence, vec![("PR".to_string(), "https://github.com/x/y/pull/1".to_string())]);
-        assert!(p(&["ask", "--title", "x", "--deadline", "d"]).unwrap_err().contains("--owner"));
-        assert!(p(&["ask", "--owner", "o", "--title", "x"]).unwrap_err().contains("--deadline"));
+        assert_eq!(
+            a.evidence,
+            vec![(
+                "PR".to_string(),
+                "https://github.com/x/y/pull/1".to_string()
+            )]
+        );
         assert!(
-            p(&["ask", "--owner", "o", "--title", "x", "--deadline", "d", "--priority", "P9"])
+            p(&["ask", "--title", "x", "--deadline", "d"])
                 .unwrap_err()
-                .contains("P0, P1 or P2")
+                .contains("--owner")
+        );
+        assert!(
+            p(&["ask", "--owner", "o", "--title", "x"])
+                .unwrap_err()
+                .contains("--deadline")
+        );
+        assert!(
+            p(&[
+                "ask",
+                "--owner",
+                "o",
+                "--title",
+                "x",
+                "--deadline",
+                "d",
+                "--priority",
+                "P9"
+            ])
+            .unwrap_err()
+            .contains("P0, P1 or P2")
         );
     }
 

@@ -8,18 +8,24 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use agentbolt_core::channel::Names;
-use tokio::net::windows::named_pipe::{ClientOptions, NamedPipeClient, NamedPipeServer, ServerOptions};
+use tokio::net::windows::named_pipe::{
+    ClientOptions, NamedPipeClient, NamedPipeServer, ServerOptions,
+};
 use windows::Win32::Foundation::{
-    CloseHandle, ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_PIPE_BUSY, HANDLE, HLOCAL, LocalFree,
+    CloseHandle, ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_PIPE_BUSY, HANDLE, HLOCAL,
+    LocalFree,
 };
 use windows::Win32::Security::Authorization::{
     ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
 };
-use windows::Win32::Security::{GetTokenInformation, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER, TokenUser};
+use windows::Win32::Security::{
+    GetTokenInformation, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER,
+    TokenUser,
+};
 use windows::Win32::System::Pipes::{GetNamedPipeClientProcessId, GetNamedPipeServerProcessId};
 use windows::Win32::System::Threading::{
-    GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
-    QueryFullProcessImageNameW,
+    GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_NAME_WIN32,
+    PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 use windows::core::{BOOL, HSTRING, PWSTR};
 
@@ -49,8 +55,15 @@ impl UserOnlyDescriptor {
         let sid = current_user_sid()?;
         let sddl = HSTRING::from(format!("D:P(A;;GA;;;{sid})"));
         let mut sd = PSECURITY_DESCRIPTOR::default();
-        unsafe { ConvertStringSecurityDescriptorToSecurityDescriptorW(&sddl, SDDL_REVISION_1, &mut sd, None) }
-            .map_err(io::Error::other)?;
+        unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                &sddl,
+                SDDL_REVISION_1,
+                &mut sd,
+                None,
+            )
+        }
+        .map_err(io::Error::other)?;
         Ok(Self(sd))
     }
 
@@ -85,8 +98,14 @@ pub(crate) fn current_user_sid() -> io::Result<String> {
         }
         // u64 storage keeps TOKEN_USER suitably aligned.
         let mut buf = vec![0u64; (len as usize).div_ceil(8)];
-        GetTokenInformation(token.0, TokenUser, Some(buf.as_mut_ptr().cast()), len, &mut len)
-            .map_err(io::Error::other)?;
+        GetTokenInformation(
+            token.0,
+            TokenUser,
+            Some(buf.as_mut_ptr().cast()),
+            len,
+            &mut len,
+        )
+        .map_err(io::Error::other)?;
         let user = &*(buf.as_ptr() as *const TOKEN_USER);
         let mut text = PWSTR::null();
         ConvertSidToStringSidW(user.User.Sid, &mut text).map_err(io::Error::other)?;
@@ -134,14 +153,19 @@ impl Listener {
                 IpcError::Io(e)
             }
         })?;
-        Ok(Self { path, descriptor, next })
+        Ok(Self {
+            path,
+            descriptor,
+            next,
+        })
     }
 
     /// Wait for a client; returns its stream and process id.
     pub(crate) async fn accept(&mut self) -> Result<(NamedPipeServer, Option<u32>), AcceptError> {
         let connected = self.next.connect().await;
         // Always keep one instance listening, whatever happened to this one.
-        let fresh = create_instance(&self.path, &self.descriptor, false).map_err(AcceptError::Fatal)?;
+        let fresh =
+            create_instance(&self.path, &self.descriptor, false).map_err(AcceptError::Fatal)?;
         let stream = std::mem::replace(&mut self.next, fresh);
         connected.map_err(AcceptError::Transient)?;
         let mut pid = 0u32;
@@ -152,12 +176,23 @@ impl Listener {
     }
 }
 
-fn create_instance(path: &std::path::Path, sd: &UserOnlyDescriptor, first: bool) -> io::Result<NamedPipeServer> {
+fn create_instance(
+    path: &std::path::Path,
+    sd: &UserOnlyDescriptor,
+    first: bool,
+) -> io::Result<NamedPipeServer> {
     let mut attrs = sd.attributes();
     let mut options = ServerOptions::new();
-    options.first_pipe_instance(first).reject_remote_clients(true);
+    options
+        .first_pipe_instance(first)
+        .reject_remote_clients(true);
     // SAFETY: attrs is a valid SECURITY_ATTRIBUTES whose descriptor lives as long as the listener.
-    unsafe { options.create_with_security_attributes_raw(path, (&mut attrs as *mut SECURITY_ATTRIBUTES).cast()) }
+    unsafe {
+        options.create_with_security_attributes_raw(
+            path,
+            (&mut attrs as *mut SECURITY_ATTRIBUTES).cast(),
+        )
+    }
 }
 
 /// Close a refused client's instance without reading from it.
@@ -169,7 +204,10 @@ pub(crate) fn drop_client(stream: NamedPipeServer) {
 // ---- client ---------------------------------------------------------------------------------------------------
 
 /// Open the pipe, waiting briefly while every instance is busy. Returns the stream and the server's pid.
-pub(crate) async fn connect(names: &Names, name: &str) -> Result<(NamedPipeClient, Option<u32>), IpcError> {
+pub(crate) async fn connect(
+    names: &Names,
+    name: &str,
+) -> Result<(NamedPipeClient, Option<u32>), IpcError> {
     let path = pipe_path(names, name);
     let deadline = Instant::now() + Duration::from_secs(5);
     let stream = loop {
@@ -179,7 +217,10 @@ pub(crate) async fn connect(names: &Names, name: &str) -> Result<(NamedPipeClien
             Err(e) if e.raw_os_error() == Some(ERROR_FILE_NOT_FOUND.0 as i32) => {
                 return Err(IpcError::NotRunning(names.channel.clone()));
             }
-            Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY.0 as i32) && Instant::now() < deadline => {
+            Err(e)
+                if e.raw_os_error() == Some(ERROR_PIPE_BUSY.0 as i32)
+                    && Instant::now() < deadline =>
+            {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
             Err(e) => return Err(IpcError::Io(e)),
@@ -200,10 +241,17 @@ pub(crate) fn process_image(pid: u32) -> Option<PathBuf> {
         let mut buf = vec![0u16; 1024];
         loop {
             let mut len = buf.len() as u32;
-            match QueryFullProcessImageNameW(process.0, PROCESS_NAME_WIN32, PWSTR(buf.as_mut_ptr()), &mut len) {
+            match QueryFullProcessImageNameW(
+                process.0,
+                PROCESS_NAME_WIN32,
+                PWSTR(buf.as_mut_ptr()),
+                &mut len,
+            ) {
                 Ok(()) => {
                     use std::os::windows::ffi::OsStringExt;
-                    return Some(PathBuf::from(std::ffi::OsString::from_wide(&buf[..len as usize])));
+                    return Some(PathBuf::from(std::ffi::OsString::from_wide(
+                        &buf[..len as usize],
+                    )));
                 }
                 Err(_) if buf.len() < 32 * 1024 => buf.resize(buf.len() * 4, 0),
                 Err(_) => return None,

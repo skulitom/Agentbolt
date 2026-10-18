@@ -35,12 +35,19 @@ pub fn status_line(s: &StatusResult) -> String {
         s.open,
         s.digest,
         s.agents,
-        if s.chain_ok { "intact" } else { "BROKEN (check the Desk)" }
+        if s.chain_ok {
+            "intact"
+        } else {
+            "BROKEN (check the Desk)"
+        }
     )
 }
 
 fn runtime() -> anyhow::Result<tokio::runtime::Runtime> {
-    Ok(tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build()?)
+    Ok(tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()?)
 }
 
 fn names_for(channel: Option<&str>) -> anyhow::Result<Names> {
@@ -55,7 +62,9 @@ pub fn ask_input(a: &AskArgs) -> anyhow::Result<AskInput> {
         None => AskKind::Text,
     };
     let default = match (&a.default, kind) {
-        (Some(d), AskKind::Form) => serde_json::from_str(d).context("--default for a form is a JSON object")?,
+        (Some(d), AskKind::Form) => {
+            serde_json::from_str(d).context("--default for a form is a JSON object")?
+        }
         (Some(d), _) => Value::String(d.clone()),
         (None, AskKind::Inform) => Value::Null,
         (None, _) => bail!("ask needs --default: your recommended answer"),
@@ -64,7 +73,14 @@ pub fn ask_input(a: &AskArgs) -> anyhow::Result<AskInput> {
         kind,
         title: a.title.clone(),
         body: a.body.clone(),
-        evidence: a.evidence.iter().map(|(label, url)| Evidence { label: label.clone(), url: url.clone() }).collect(),
+        evidence: a
+            .evidence
+            .iter()
+            .map(|(label, url)| Evidence {
+                label: label.clone(),
+                url: url.clone(),
+            })
+            .collect(),
         options: a.options.clone(),
         fields: Vec::new(),
         default,
@@ -84,14 +100,21 @@ async fn post_ask(names: Names, a: &AskArgs) -> anyhow::Result<Value> {
             owner: Some(a.owner.clone()),
             client: "agentbolt-cli".into(),
             session_ref: None,
-            cwd: std::env::current_dir().ok().map(|p| p.display().to_string()),
+            cwd: std::env::current_dir()
+                .ok()
+                .map(|p| p.display().to_string()),
             doing: Some("agentbolt ask".into()),
             provisional_key: None,
         })
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     let reg: RegisterResult = serde_json::from_value(reg).context("register result")?;
-    d.call(&McpOp::Ask { handle: reg.handle, ask: input }).await.map_err(|e| anyhow::anyhow!("{e}"))
+    d.call(&McpOp::Ask {
+        handle: reg.handle,
+        ask: input,
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("{e}"))
 }
 
 /// Run one command. Returns the process exit code.
@@ -131,15 +154,24 @@ fn dispatch(cmd: Command) -> anyhow::Result<()> {
             println!("{}", tools::text(&tools::ask_line(&v, None), &v));
         }
         Command::Clients { channel, yes } => clients(&names_for(channel.as_deref())?, yes)?,
-        Command::Install { channel, from, no_start } => {
+        Command::Install {
+            channel,
+            from,
+            no_start,
+        } => {
             let names = names_for(channel.as_deref())?;
             let from = match from {
                 Some(f) => f,
-                None => std::env::current_exe()?.parent().context("the exe has no folder")?.to_path_buf(),
+                None => std::env::current_exe()?
+                    .parent()
+                    .context("the exe has no folder")?
+                    .to_path_buf(),
             };
             platform::install(&names, &from, !no_start)?;
         }
-        Command::Uninstall { channel, purge } => platform::uninstall(&names_for(channel.as_deref())?, purge)?,
+        Command::Uninstall { channel, purge } => {
+            platform::uninstall(&names_for(channel.as_deref())?, purge)?
+        }
         Command::Start { channel } => platform::start(&names_for(channel.as_deref())?)?,
     }
     Ok(())
@@ -193,7 +225,10 @@ mod platform {
     pub fn find_program(name: &str) -> Option<PathBuf> {
         let path = std::env::var_os("PATH")?;
         std::env::split_paths(&path).find_map(|dir| {
-            ["exe", "cmd", "bat"].iter().map(|ext| dir.join(format!("{name}.{ext}"))).find(|p| p.is_file())
+            ["exe", "cmd", "bat"]
+                .iter()
+                .map(|ext| dir.join(format!("{name}.{ext}")))
+                .find(|p| p.is_file())
         })
     }
 }
@@ -204,7 +239,8 @@ mod platform {
 
     use agentbolt_core::channel::Names;
 
-    const ONLY_WINDOWS: &str = "this command is Windows-only for now (the sign-in task and the Desk are Windows programs)";
+    const ONLY_WINDOWS: &str =
+        "this command is Windows-only for now (the sign-in task and the Desk are Windows programs)";
 
     pub fn install(_: &Names, _: &Path, _: bool) -> anyhow::Result<()> {
         anyhow::bail!(ONLY_WINDOWS)
@@ -220,7 +256,9 @@ mod platform {
 
     pub fn find_program(name: &str) -> Option<PathBuf> {
         let path = std::env::var_os("PATH")?;
-        std::env::split_paths(&path).map(|d| d.join(name)).find(|p| p.is_file())
+        std::env::split_paths(&path)
+            .map(|d| d.join(name))
+            .find(|p| p.is_file())
     }
 }
 
@@ -264,7 +302,14 @@ mod tests {
 
     #[test]
     fn status_line_reads_well() {
-        let s = StatusResult { version: "0.1.0".into(), channel: "t1".into(), open: 2, digest: 1, agents: 3, chain_ok: true };
+        let s = StatusResult {
+            version: "0.1.0".into(),
+            channel: "t1".into(),
+            open: 2,
+            digest: 1,
+            agents: 3,
+            chain_ok: true,
+        };
         assert_eq!(
             status_line(&s),
             "Agentbolt 0.1.0 is running on channel t1: 2 open, 1 in the digest, 3 agent(s); the event chain is intact."

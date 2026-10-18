@@ -53,7 +53,14 @@ fn write_canonical(v: &Value, out: &mut String) {
 }
 
 /// The hash of one event given the previous event's hash.
-pub fn event_hash(prev_hash: &str, seq: i64, at: &str, kind: &str, subject: &str, data: &Value) -> String {
+pub fn event_hash(
+    prev_hash: &str,
+    seq: i64,
+    at: &str,
+    kind: &str,
+    subject: &str,
+    data: &Value,
+) -> String {
     let event = json!({ "seq": seq, "at": at, "kind": kind, "subject": subject, "data": data });
     let mut h = Sha256::new();
     h.update(prev_hash.as_bytes());
@@ -62,9 +69,19 @@ pub fn event_hash(prev_hash: &str, seq: i64, at: &str, kind: &str, subject: &str
 }
 
 /// Append one event; returns its hash. Call inside the transaction that makes the change.
-pub fn append(conn: &Connection, at_ms: i64, kind: &str, subject: &str, data: &Value) -> rusqlite::Result<String> {
+pub fn append(
+    conn: &Connection,
+    at_ms: i64,
+    kind: &str,
+    subject: &str,
+    data: &Value,
+) -> rusqlite::Result<String> {
     let last: Option<(i64, String)> = conn
-        .query_row("SELECT seq, hash FROM events ORDER BY seq DESC LIMIT 1", [], |r| Ok((r.get(0)?, r.get(1)?)))
+        .query_row(
+            "SELECT seq, hash FROM events ORDER BY seq DESC LIMIT 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
         .optional()?;
     let (seq, prev) = match last {
         Some((s, h)) => (s + 1, h),
@@ -87,7 +104,11 @@ pub fn verify_chain(conn: &Connection) -> Result<u64, String> {
 
 /// Verify the rows after `after_seq`, starting from `prev_hash` (the hash of row `after_seq`, or `GENESIS` for 0).
 /// Returns the last row's seq and hash (`after_seq` and `prev_hash` when there are no new rows).
-pub fn verify_chain_from(conn: &Connection, after_seq: i64, prev_hash: &str) -> Result<(i64, String), String> {
+pub fn verify_chain_from(
+    conn: &Connection,
+    after_seq: i64,
+    prev_hash: &str,
+) -> Result<(i64, String), String> {
     let mut stmt = conn
         .prepare("SELECT seq, at, kind, subject, data, prev_hash, hash FROM events WHERE seq > ?1 ORDER BY seq")
         .map_err(|e| format!("can't read the event log: {e}"))?;
@@ -110,13 +131,15 @@ pub fn verify_chain_from(conn: &Connection, after_seq: i64, prev_hash: &str) -> 
         let (seq, at, kind, subject, data, prev_hash, hash) =
             row.map_err(|e| format!("can't read the event log: {e}"))?;
         if seq != expected_seq {
-            return Err(format!("event {expected_seq} is missing from the log (next is {seq})"));
+            return Err(format!(
+                "event {expected_seq} is missing from the log (next is {seq})"
+            ));
         }
         if prev_hash != prev {
             return Err(format!("event {seq} doesn't link to event {}", seq - 1));
         }
-        let data: Value =
-            serde_json::from_str(&data).map_err(|e| format!("event {seq} has unreadable data: {e}"))?;
+        let data: Value = serde_json::from_str(&data)
+            .map_err(|e| format!("event {seq} has unreadable data: {e}"))?;
         if event_hash(&prev, seq, &at, &kind, &subject, &data) != hash {
             return Err(format!("event {seq} was changed after it was written"));
         }
@@ -137,7 +160,10 @@ mod tests {
     #[test]
     fn canonical_json_sorts_keys_at_every_level() {
         let v = json!({"b": 1, "a": {"z": [3, {"y": true, "x": null}], "c": "q\""}});
-        assert_eq!(canonical_json(&v), r#"{"a":{"c":"q\"","z":[3,{"x":null,"y":true}]},"b":1}"#);
+        assert_eq!(
+            canonical_json(&v),
+            r#"{"a":{"c":"q\"","z":[3,{"x":null,"y":true}]},"b":1}"#
+        );
     }
 
     #[test]
@@ -148,7 +174,11 @@ mod tests {
             append(&c, 1_000 * i, "test", "s", &json!({"i": i})).unwrap();
         }
         assert_eq!(verify_chain(&c), Ok(5));
-        let first_prev: String = c.query_row("SELECT prev_hash FROM events WHERE seq = 1", [], |r| r.get(0)).unwrap();
+        let first_prev: String = c
+            .query_row("SELECT prev_hash FROM events WHERE seq = 1", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
         assert_eq!(first_prev, GENESIS);
     }
 
@@ -167,9 +197,17 @@ mod tests {
             append(&c, i, "test", "s", &json!({"choice": "Approve", "i": i})).unwrap();
         }
         // A sloppy edit: someone drops the guard and changes a row in place.
-        c.execute_batch("DROP TRIGGER events_no_update; DROP TRIGGER events_no_delete;").unwrap();
-        c.execute("UPDATE events SET data = '{\"choice\":\"Decline\",\"i\":1}' WHERE seq = 2", []).unwrap();
-        assert_eq!(verify_chain(&c), Err("event 2 was changed after it was written".into()));
+        c.execute_batch("DROP TRIGGER events_no_update; DROP TRIGGER events_no_delete;")
+            .unwrap();
+        c.execute(
+            "UPDATE events SET data = '{\"choice\":\"Decline\",\"i\":1}' WHERE seq = 2",
+            [],
+        )
+        .unwrap();
+        assert_eq!(
+            verify_chain(&c),
+            Err("event 2 was changed after it was written".into())
+        );
     }
 
     #[test]
@@ -178,7 +216,8 @@ mod tests {
         for i in 0..3 {
             append(&c, i, "test", "s", &json!({"i": i})).unwrap();
         }
-        c.execute_batch("DROP TRIGGER events_no_update; DROP TRIGGER events_no_delete;").unwrap();
+        c.execute_batch("DROP TRIGGER events_no_update; DROP TRIGGER events_no_delete;")
+            .unwrap();
         c.execute("DELETE FROM events WHERE seq = 2", []).unwrap();
         assert!(verify_chain(&c).unwrap_err().contains("missing"));
 
@@ -187,7 +226,8 @@ mod tests {
             append(&c, i, "test", "s", &json!({"i": i})).unwrap();
         }
         c.execute_batch("DROP TRIGGER events_no_update;").unwrap();
-        c.execute("UPDATE events SET hash = ?1 WHERE seq = 1", [GENESIS]).unwrap();
+        c.execute("UPDATE events SET hash = ?1 WHERE seq = 1", [GENESIS])
+            .unwrap();
         assert!(verify_chain(&c).is_err());
     }
 
@@ -196,7 +236,8 @@ mod tests {
         let c = db();
         append(&c, 0, "test", "s", &json!({"a": 1, "b": 2})).unwrap();
         c.execute_batch("DROP TRIGGER events_no_update;").unwrap();
-        c.execute("UPDATE events SET data = '{ \"b\": 2, \"a\": 1 }'", []).unwrap();
+        c.execute("UPDATE events SET data = '{ \"b\": 2, \"a\": 1 }'", [])
+            .unwrap();
         assert_eq!(verify_chain(&c), Ok(1));
     }
 }

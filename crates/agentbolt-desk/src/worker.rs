@@ -20,7 +20,12 @@ pub enum Req {
     /// The counts only; marks nothing shown.
     Status,
     OpenDigest,
-    Answer { ask_id: String, choice: Option<String>, values: Option<Value>, note: Option<String> },
+    Answer {
+        ask_id: String,
+        choice: Option<String>,
+        values: Option<Value>,
+        note: Option<String>,
+    },
     Agents,
     Owners,
     SetOwner(Owner),
@@ -35,7 +40,10 @@ pub enum Resp {
     List(ListResult),
     Status(StatusResult),
     Digest(DigestResult),
-    Answered { ask_id: String, result: Result<AnswerResult, String> },
+    Answered {
+        ask_id: String,
+        result: Result<AnswerResult, String>,
+    },
     Agents(AgentsResult),
     Owners(OwnersResult),
     OwnerSaved(Result<String, String>),
@@ -43,7 +51,11 @@ pub enum Resp {
     SettingsSaved(Result<(), String>),
     Started(Result<(), String>),
     /// A read failed. `not_running` when the daemon isn't there at all.
-    Failed { what: &'static str, error: String, not_running: bool },
+    Failed {
+        what: &'static str,
+        error: String,
+        not_running: bool,
+    },
 }
 
 pub struct Worker {
@@ -58,7 +70,10 @@ pub fn spawn(names: Names, wake: impl Fn() + Send + 'static) -> Worker {
     std::thread::Builder::new()
         .name("desk-pipe".into())
         .spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("a tokio runtime");
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("a tokio runtime");
             rt.block_on(run(names, req_rx, resp_tx, wake));
         })
         .expect("the pipe worker thread");
@@ -98,8 +113,16 @@ impl Conn {
     }
 }
 
-async fn run(names: Names, mut rx: UnboundedReceiver<Req>, tx: mpsc::Sender<Resp>, wake: impl Fn()) {
-    let mut conn = Conn { names: names.clone(), client: None };
+async fn run(
+    names: Names,
+    mut rx: UnboundedReceiver<Req>,
+    tx: mpsc::Sender<Resp>,
+    wake: impl Fn(),
+) {
+    let mut conn = Conn {
+        names: names.clone(),
+        client: None,
+    };
     while let Some(req) = rx.recv().await {
         let failed = |what: &'static str, e: IpcError| Resp::Failed {
             what,
@@ -107,18 +130,48 @@ async fn run(names: Names, mut rx: UnboundedReceiver<Req>, tx: mpsc::Sender<Resp
             error: e.to_string(),
         };
         let resp = match req {
-            Req::List => conn.get(&DeskOp::List).await.map(Resp::List).unwrap_or_else(|e| failed("the Inbox", e)),
-            Req::Status => conn.get(&DeskOp::Status).await.map(Resp::Status).unwrap_or_else(|e| failed("the Inbox", e)),
-            Req::OpenDigest => {
-                conn.get(&DeskOp::OpenDigest).await.map(Resp::Digest).unwrap_or_else(|e| failed("the digest", e))
-            }
-            Req::Agents => conn.get(&DeskOp::Agents).await.map(Resp::Agents).unwrap_or_else(|e| failed("the agents", e)),
-            Req::Owners => conn.get(&DeskOp::Owners).await.map(Resp::Owners).unwrap_or_else(|e| failed("the owners", e)),
-            Req::GetSettings => {
-                conn.get(&DeskOp::GetSettings).await.map(Resp::Settings).unwrap_or_else(|e| failed("the settings", e))
-            }
-            Req::Answer { ask_id, choice, values, note } => {
-                let op = DeskOp::Answer { ask_id: ask_id.clone(), choice, values, note };
+            Req::List => conn
+                .get(&DeskOp::List)
+                .await
+                .map(Resp::List)
+                .unwrap_or_else(|e| failed("the Inbox", e)),
+            Req::Status => conn
+                .get(&DeskOp::Status)
+                .await
+                .map(Resp::Status)
+                .unwrap_or_else(|e| failed("the Inbox", e)),
+            Req::OpenDigest => conn
+                .get(&DeskOp::OpenDigest)
+                .await
+                .map(Resp::Digest)
+                .unwrap_or_else(|e| failed("the digest", e)),
+            Req::Agents => conn
+                .get(&DeskOp::Agents)
+                .await
+                .map(Resp::Agents)
+                .unwrap_or_else(|e| failed("the agents", e)),
+            Req::Owners => conn
+                .get(&DeskOp::Owners)
+                .await
+                .map(Resp::Owners)
+                .unwrap_or_else(|e| failed("the owners", e)),
+            Req::GetSettings => conn
+                .get(&DeskOp::GetSettings)
+                .await
+                .map(Resp::Settings)
+                .unwrap_or_else(|e| failed("the settings", e)),
+            Req::Answer {
+                ask_id,
+                choice,
+                values,
+                note,
+            } => {
+                let op = DeskOp::Answer {
+                    ask_id: ask_id.clone(),
+                    choice,
+                    values,
+                    note,
+                };
                 // An answer is never retried blindly: the daemon may have recorded it.
                 let result = match conn.call(&op, false).await {
                     Ok(v) => serde_json::from_value(v).map_err(|e| e.to_string()),
@@ -128,14 +181,24 @@ async fn run(names: Names, mut rx: UnboundedReceiver<Req>, tx: mpsc::Sender<Resp
             }
             Req::SetOwner(owner) => {
                 let name = owner.name.clone();
-                Resp::OwnerSaved(conn.call(&DeskOp::SetOwner { owner }, false).await.map(|_| name).map_err(|e| e.to_string()))
+                Resp::OwnerSaved(
+                    conn.call(&DeskOp::SetOwner { owner }, false)
+                        .await
+                        .map(|_| name)
+                        .map_err(|e| e.to_string()),
+                )
             }
             Req::SetSettings(settings) => Resp::SettingsSaved(
-                conn.call(&DeskOp::SetSettings { settings }, false).await.map(|_| ()).map_err(|e| e.to_string()),
+                conn.call(&DeskOp::SetSettings { settings }, false)
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| e.to_string()),
             ),
             Req::StartDaemon => {
                 let n = names.clone();
-                let r = tokio::task::spawn_blocking(move || crate::os::run_task(&n)).await.unwrap_or_else(|e| Err(e.to_string()));
+                let r = tokio::task::spawn_blocking(move || crate::os::run_task(&n))
+                    .await
+                    .unwrap_or_else(|e| Err(e.to_string()));
                 Resp::Started(r)
             }
         };

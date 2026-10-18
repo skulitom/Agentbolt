@@ -39,7 +39,11 @@ fn span(secs: i64) -> String {
         format!("{min} min")
     } else if min < 48 * 60 {
         let (h, m) = (min / 60, min % 60);
-        if h < 10 && m != 0 { format!("{h} h {m} min") } else { format!("{h} h") }
+        if h < 10 && m != 0 {
+            format!("{h} h {m} min")
+        } else {
+            format!("{h} h")
+        }
     } else {
         format!("{} days", min / (24 * 60))
     }
@@ -76,7 +80,8 @@ pub enum Link {
 /// Printable ASCII that URLs use; anything else (spaces, quotes, angle brackets, non-ASCII) disqualifies.
 fn url_chars_ok(s: &str) -> bool {
     s.len() <= 2048
-        && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._~:/?#[]@!$&'()*+,;=%".contains(&b))
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-._~:/?#[]@!$&'()*+,;=%".contains(&b))
 }
 
 /// `s` starts with `prefix` (ASCII case ignored) and has more after it. Never slices inside a character: byte
@@ -95,7 +100,10 @@ pub fn classify(url: &str) -> Link {
     }
     // A local drive path such as C:\DEV\x or C:/DEV/x. Never UNC (\\server\share would reach the network).
     let b = u.as_bytes();
-    let drive = b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/');
+    let drive = b.len() >= 3
+        && b[0].is_ascii_alphabetic()
+        && b[1] == b':'
+        && (b[2] == b'\\' || b[2] == b'/');
     if drive
         && !u.contains(['"', '<', '>', '|', '?', '*'])
         && !u.chars().any(char::is_control)
@@ -117,24 +125,37 @@ pub fn session_link(evidence: &[Evidence]) -> Option<String> {
 /// The buttons for a choose / approve ask.
 pub fn options_for(ask: &Ask) -> Vec<String> {
     match ask.input.kind {
-        AskKind::Approve if ask.input.options.is_empty() => vec!["Approve".into(), "Decline".into()],
+        AskKind::Approve if ask.input.options.is_empty() => {
+            vec!["Approve".into(), "Decline".into()]
+        }
         AskKind::Choose | AskKind::Approve => ask.input.options.clone(),
         _ => Vec::new(),
     }
 }
 
 pub fn is_default(ask: &Ask, option: &str) -> bool {
-    ask.input.default.as_str().is_some_and(|d| d.trim() == option.trim())
+    ask.input
+        .default
+        .as_str()
+        .is_some_and(|d| d.trim() == option.trim())
 }
 
 /// A button's label: the default is marked.
 pub fn option_label(ask: &Ask, option: &str) -> String {
-    if is_default(ask, option) { format!("{option} (recommended)") } else { option.to_string() }
+    if is_default(ask, option) {
+        format!("{option} (recommended)")
+    } else {
+        option.to_string()
+    }
 }
 
 /// "reversible" or "can't be undone".
 pub fn reversible_tag(ask: &Ask) -> &'static str {
-    if ask.input.reversible { "reversible" } else { "can't be undone" }
+    if ask.input.reversible {
+        "reversible"
+    } else {
+        "can't be undone"
+    }
 }
 
 /// What the `--url` handler was asked to do.
@@ -220,7 +241,10 @@ pub fn prefill(fields: &[Field], default: &Value) -> HashMap<String, FieldInput>
 }
 
 /// The form's values to send, or what's missing.
-pub fn form_values(fields: &[Field], inputs: &HashMap<String, FieldInput>) -> Result<Value, String> {
+pub fn form_values(
+    fields: &[Field],
+    inputs: &HashMap<String, FieldInput>,
+) -> Result<Value, String> {
     let mut out = Map::new();
     for f in fields {
         let v = match (f.field_type.as_str(), inputs.get(&f.id)) {
@@ -232,9 +256,13 @@ pub fn form_values(fields: &[Field], inputs: &HashMap<String, FieldInput>) -> Re
                     Ok(i) => Some(serde_json::Number::from(i)),
                     Err(_) => t.parse::<f64>().ok().and_then(serde_json::Number::from_f64),
                 };
-                Some(Value::Number(n.ok_or_else(|| format!("{} must be a number", f.label))?))
+                Some(Value::Number(
+                    n.ok_or_else(|| format!("{} must be a number", f.label))?,
+                ))
             }
-            (_, Some(FieldInput::Text(t))) if !t.trim().is_empty() => Some(Value::String(t.trim().to_string())),
+            (_, Some(FieldInput::Text(t))) if !t.trim().is_empty() => {
+                Some(Value::String(t.trim().to_string()))
+            }
             _ => None,
         };
         match v {
@@ -260,7 +288,11 @@ pub enum Poll {
 /// List the Inbox only while Artem can see it: the window is focused and not minimized. Otherwise only the
 /// counts are refreshed, so an unattended Desk never marks asks shown.
 pub fn poll_kind(focused: bool, minimized: bool) -> Poll {
-    if focused && !minimized { Poll::List } else { Poll::Status }
+    if focused && !minimized {
+        Poll::List
+    } else {
+        Poll::Status
+    }
 }
 
 /// The Text reply box starts with the ask's default once per ask (`filled` says it has). After that it holds
@@ -286,7 +318,11 @@ pub struct PathCache {
 
 impl PathCache {
     /// The answers for `ask`, checking its paths with `check` only when the selection changed.
-    pub fn for_ask(&mut self, ask: &Ask, check: impl Fn(&std::path::Path) -> bool) -> &HashMap<PathBuf, bool> {
+    pub fn for_ask(
+        &mut self,
+        ask: &Ask,
+        check: impl Fn(&std::path::Path) -> bool,
+    ) -> &HashMap<PathBuf, bool> {
         if self.ask.as_deref() != Some(ask.id.as_str()) {
             self.ask = Some(ask.id.clone());
             self.exists = ask
@@ -357,30 +393,76 @@ mod tests {
         ];
         sort_asks(&mut v);
         let ids: Vec<&str> = v.iter().map(|a| a.id.as_str()).collect();
-        assert_eq!(ids, ["p0", "p1-soon-older", "p1-soon", "p1-late", "p1-bad-deadline", "p2-soon"]);
+        assert_eq!(
+            ids,
+            [
+                "p0",
+                "p1-soon-older",
+                "p1-soon",
+                "p1-late",
+                "p1-bad-deadline",
+                "p2-soon"
+            ]
+        );
     }
 
     #[test]
     fn deadlines_read_relative() {
         let now = datetime!(2026-10-18 12:00 UTC);
-        assert_eq!(relative_deadline("2026-10-18T15:20:00Z", now), ("due in 3 h 20 min".into(), false));
-        assert_eq!(relative_deadline("2026-10-18T12:45:00Z", now), ("due in 45 min".into(), false));
-        assert_eq!(relative_deadline("2026-10-18T12:00:30Z", now), ("due in under a minute".into(), false));
-        assert_eq!(relative_deadline("2026-10-21T12:00:00Z", now), ("due in 3 days".into(), false));
-        assert_eq!(relative_deadline("2026-10-19T02:00:00Z", now), ("due in 14 h".into(), false));
-        assert_eq!(relative_deadline("2026-10-18T10:00:00Z", now), ("2 h overdue".into(), true));
-        assert_eq!(relative_deadline("2026-10-18T13:00:00+02:00", now), ("1 h overdue".into(), true));
+        assert_eq!(
+            relative_deadline("2026-10-18T15:20:00Z", now),
+            ("due in 3 h 20 min".into(), false)
+        );
+        assert_eq!(
+            relative_deadline("2026-10-18T12:45:00Z", now),
+            ("due in 45 min".into(), false)
+        );
+        assert_eq!(
+            relative_deadline("2026-10-18T12:00:30Z", now),
+            ("due in under a minute".into(), false)
+        );
+        assert_eq!(
+            relative_deadline("2026-10-21T12:00:00Z", now),
+            ("due in 3 days".into(), false)
+        );
+        assert_eq!(
+            relative_deadline("2026-10-19T02:00:00Z", now),
+            ("due in 14 h".into(), false)
+        );
+        assert_eq!(
+            relative_deadline("2026-10-18T10:00:00Z", now),
+            ("2 h overdue".into(), true)
+        );
+        assert_eq!(
+            relative_deadline("2026-10-18T13:00:00+02:00", now),
+            ("1 h overdue".into(), true)
+        );
         assert_eq!(relative_deadline("soon", now), ("due soon".into(), false));
         assert_eq!(ago("2026-10-18T11:55:00Z", now), "5 min ago");
     }
 
     #[test]
     fn only_https_claude_and_local_paths_get_actions() {
-        assert_eq!(classify("https://github.com/x/y/pull/1"), Link::Web("https://github.com/x/y/pull/1".into()));
-        assert_eq!(classify("HTTPS://example.com/a?b=c&d=%20"), Link::Web("HTTPS://example.com/a?b=c&d=%20".into()));
-        assert_eq!(classify("claude://session/abc"), Link::Session("claude://session/abc".into()));
-        assert_eq!(classify("C:\\DEV\\Agentbolt\\README.md"), Link::Path(PathBuf::from("C:\\DEV\\Agentbolt\\README.md")));
-        assert_eq!(classify("C:/DEV/x.rs"), Link::Path(PathBuf::from("C:\\DEV\\x.rs")));
+        assert_eq!(
+            classify("https://github.com/x/y/pull/1"),
+            Link::Web("https://github.com/x/y/pull/1".into())
+        );
+        assert_eq!(
+            classify("HTTPS://example.com/a?b=c&d=%20"),
+            Link::Web("HTTPS://example.com/a?b=c&d=%20".into())
+        );
+        assert_eq!(
+            classify("claude://session/abc"),
+            Link::Session("claude://session/abc".into())
+        );
+        assert_eq!(
+            classify("C:\\DEV\\Agentbolt\\README.md"),
+            Link::Path(PathBuf::from("C:\\DEV\\Agentbolt\\README.md"))
+        );
+        assert_eq!(
+            classify("C:/DEV/x.rs"),
+            Link::Path(PathBuf::from("C:\\DEV\\x.rs"))
+        );
         for text in [
             "http://example.com",
             "javascript:alert(1)",
@@ -399,8 +481,14 @@ mod tests {
             assert_eq!(classify(text), Link::Text, "{text:?} must be plain text");
         }
         let ev = vec![
-            Evidence { label: "PR".into(), url: "https://github.com".into() },
-            Evidence { label: "Session".into(), url: "claude://resume/abc".into() },
+            Evidence {
+                label: "PR".into(),
+                url: "https://github.com".into(),
+            },
+            Evidence {
+                label: "Session".into(),
+                url: "claude://resume/abc".into(),
+            },
         ];
         assert_eq!(session_link(&ev).as_deref(), Some("claude://resume/abc"));
         assert_eq!(session_link(&ev[..1]), None);
@@ -425,12 +513,27 @@ mod tests {
         ] {
             assert_eq!(classify(text), Link::Text, "{text:?}");
         }
-        assert_eq!(classify("C:\\DEV\\Notes\\Résumé.md"), Link::Path(PathBuf::from("C:\\DEV\\Notes\\Résumé.md")));
-        assert_eq!(classify("C:/Users/Åsa/日本.md"), Link::Path(PathBuf::from("C:\\Users\\Åsa\\日本.md")));
+        assert_eq!(
+            classify("C:\\DEV\\Notes\\Résumé.md"),
+            Link::Path(PathBuf::from("C:\\DEV\\Notes\\Résumé.md"))
+        );
+        assert_eq!(
+            classify("C:/Users/Åsa/日本.md"),
+            Link::Path(PathBuf::from("C:\\Users\\Åsa\\日本.md"))
+        );
         let ev = vec![
-            Evidence { label: "Résumé".into(), url: "Notes/Résumé.md".into() },
-            Evidence { label: "ünïcödé".into(), url: "1234567éx".into() },
-            Evidence { label: "Session".into(), url: "claude://resume/abc".into() },
+            Evidence {
+                label: "Résumé".into(),
+                url: "Notes/Résumé.md".into(),
+            },
+            Evidence {
+                label: "ünïcödé".into(),
+                url: "1234567éx".into(),
+            },
+            Evidence {
+                label: "Session".into(),
+                url: "claude://resume/abc".into(),
+            },
         ];
         assert_eq!(session_link(&ev).as_deref(), Some("claude://resume/abc"));
         assert_eq!(session_link(&ev[..2]), None);
@@ -447,7 +550,10 @@ mod tests {
         a.input.options = vec!["Ja, bitte 🙂".into(), "Nein — später".into()];
         a.input.default = json!("Nein — später");
         assert_eq!(options_for(&a), vec!["Ja, bitte 🙂", "Nein — später"]);
-        assert_eq!(option_label(&a, "Nein — später"), "Nein — später (recommended)");
+        assert_eq!(
+            option_label(&a, "Nein — später"),
+            "Nein — später (recommended)"
+        );
         assert_eq!(option_label(&a, "Ja, bitte 🙂"), "Ja, bitte 🙂");
         let mut b = ask("é-0", Priority::P1, "2026-10-19T11:00:00Z", "0");
         b.input.title = "Résumé".into();
@@ -459,7 +565,11 @@ mod tests {
     #[test]
     fn the_inbox_is_listed_only_while_the_window_is_seen() {
         assert_eq!(poll_kind(true, false), Poll::List);
-        assert_eq!(poll_kind(false, false), Poll::Status, "unfocused: counts only, nothing marked shown");
+        assert_eq!(
+            poll_kind(false, false),
+            Poll::Status,
+            "unfocused: counts only, nothing marked shown"
+        );
         assert_eq!(poll_kind(true, true), Poll::Status);
         assert_eq!(poll_kind(false, true), Poll::Status);
     }
@@ -484,9 +594,18 @@ mod tests {
         use std::cell::Cell;
         let mut a = ask("a", Priority::P1, "x", "0");
         a.input.evidence = vec![
-            Evidence { label: "Here".into(), url: "C:\\DEV\\x.md".into() },
-            Evidence { label: "There".into(), url: "C:\\DEV\\Résumé.md".into() },
-            Evidence { label: "Web".into(), url: "https://example.com".into() },
+            Evidence {
+                label: "Here".into(),
+                url: "C:\\DEV\\x.md".into(),
+            },
+            Evidence {
+                label: "There".into(),
+                url: "C:\\DEV\\Résumé.md".into(),
+            },
+            Evidence {
+                label: "Web".into(),
+                url: "https://example.com".into(),
+            },
         ];
         let b = ask("b", Priority::P1, "x", "0");
         let calls = Cell::new(0);
@@ -528,11 +647,30 @@ mod tests {
 
     #[test]
     fn protocol_urls() {
-        assert_eq!(parse_url("agentbolt-t1://answer?t=abc%2Fdef", "agentbolt-t1"), Ok(UrlAction::Answer { token: "abc/def".into() }));
-        assert_eq!(parse_url("agentbolt-t1://answer/?x=1&t=tok", "agentbolt-t1"), Ok(UrlAction::Answer { token: "tok".into() }));
-        assert_eq!(parse_url("agentbolt-t1://open", "agentbolt-t1"), Ok(UrlAction::Open));
-        assert_eq!(parse_url("agentbolt-t1://open/", "agentbolt-t1"), Ok(UrlAction::Open));
-        assert!(parse_url("agentbolt://answer?t=abc", "agentbolt-t1").is_err(), "another channel's link is refused");
+        assert_eq!(
+            parse_url("agentbolt-t1://answer?t=abc%2Fdef", "agentbolt-t1"),
+            Ok(UrlAction::Answer {
+                token: "abc/def".into()
+            })
+        );
+        assert_eq!(
+            parse_url("agentbolt-t1://answer/?x=1&t=tok", "agentbolt-t1"),
+            Ok(UrlAction::Answer {
+                token: "tok".into()
+            })
+        );
+        assert_eq!(
+            parse_url("agentbolt-t1://open", "agentbolt-t1"),
+            Ok(UrlAction::Open)
+        );
+        assert_eq!(
+            parse_url("agentbolt-t1://open/", "agentbolt-t1"),
+            Ok(UrlAction::Open)
+        );
+        assert!(
+            parse_url("agentbolt://answer?t=abc", "agentbolt-t1").is_err(),
+            "another channel's link is refused"
+        );
         assert!(parse_url("agentbolt-t1://answer", "agentbolt-t1").is_err());
         assert!(parse_url("agentbolt-t1://answer?t=", "agentbolt-t1").is_err());
         assert!(parse_url("agentbolt-t1://answer?t=%zz", "agentbolt-t1").is_err());
@@ -551,10 +689,21 @@ mod tests {
         let mut inputs = prefill(&fields, &json!({"n": 3, "c": "blue"}));
         assert_eq!(inputs["n"], FieldInput::Text("3".into()));
         assert_eq!(inputs["ok"], FieldInput::Bool(false));
-        assert_eq!(form_values(&fields, &inputs).unwrap(), json!({"n": 3, "ok": false, "c": "blue"}));
+        assert_eq!(
+            form_values(&fields, &inputs).unwrap(),
+            json!({"n": 3, "ok": false, "c": "blue"})
+        );
         inputs.insert("n".into(), FieldInput::Text("three".into()));
-        assert!(form_values(&fields, &inputs).unwrap_err().contains("number"));
+        assert!(
+            form_values(&fields, &inputs)
+                .unwrap_err()
+                .contains("number")
+        );
         inputs.insert("n".into(), FieldInput::Text(" ".into()));
-        assert!(form_values(&fields, &inputs).unwrap_err().contains("required"));
+        assert!(
+            form_values(&fields, &inputs)
+                .unwrap_err()
+                .contains("required")
+        );
     }
 }

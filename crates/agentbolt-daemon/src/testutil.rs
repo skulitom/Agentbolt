@@ -15,7 +15,12 @@ use crate::daemon::DaemonService;
 
 fn random_hex() -> String {
     let mut h = std::collections::hash_map::RandomState::new().build_hasher();
-    h.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+    h.write_u128(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos(),
+    );
     h.write_u32(std::process::id());
     format!("{:012x}", h.finish() & 0xffff_ffff_ffff)
 }
@@ -31,7 +36,8 @@ pub struct TempDir(PathBuf);
 
 impl TempDir {
     pub fn new(what: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!("agentbolt-daemon-test-{what}-{}", random_hex()));
+        let dir =
+            std::env::temp_dir().join(format!("agentbolt-daemon-test-{what}-{}", random_hex()));
         std::fs::create_dir_all(&dir).unwrap();
         TempDir(dir)
     }
@@ -98,11 +104,21 @@ impl Service for FakeService {
             McpOp::Answers { .. } => {
                 s.answers_calls += 1;
                 let answers: Vec<Value> = s.answered.iter().map(|id| json!({ "id": id })).collect();
-                Ok((json!({ "answers": answers, "waiting": s.waiting, "cancelled": [], "unknown": [] }), vec![]))
+                Ok((
+                    json!({ "answers": answers, "waiting": s.waiting, "cancelled": [], "unknown": [] }),
+                    vec![],
+                ))
             }
             McpOp::Status => {
                 let open = s.waiting.len() as u32;
-                Ok((json!({ "open": open }), vec![Effect::InboxChanged { open, digest: 0, next_deadline: None }]))
+                Ok((
+                    json!({ "open": open }),
+                    vec![Effect::InboxChanged {
+                        open,
+                        digest: 0,
+                        next_deadline: None,
+                    }],
+                ))
             }
             _ => Ok((json!({}), vec![])),
         }
@@ -131,8 +147,19 @@ impl Service for FakeService {
 }
 
 impl DaemonService for FakeService {
-    fn record_delivery(&self, ask_id: &str, to: &str, ok: bool, detail: Option<&str>) -> Result<(), String> {
-        self.0.lock().unwrap().deliveries.push((ask_id.into(), to.into(), ok, detail.map(str::to_string)));
+    fn record_delivery(
+        &self,
+        ask_id: &str,
+        to: &str,
+        ok: bool,
+        detail: Option<&str>,
+    ) -> Result<(), String> {
+        self.0.lock().unwrap().deliveries.push((
+            ask_id.into(),
+            to.into(),
+            ok,
+            detail.map(str::to_string),
+        ));
         Ok(())
     }
 }

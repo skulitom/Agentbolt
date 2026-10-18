@@ -16,16 +16,33 @@ pub struct ClientInfo {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Effect {
     /// The Inbox changed: refresh the tray count and, if configured, the ntfy count push.
-    InboxChanged { open: u32, digest: u32, next_deadline: Option<String> },
+    InboxChanged {
+        open: u32,
+        digest: u32,
+        next_deadline: Option<String>,
+    },
     /// Show a toast for this ask. Buttons carry per-button tokens (reversible choose/approve asks only).
-    Toast { ask_id: String, title: String, body: String, buttons: Vec<(String, String)> },
+    Toast {
+        ask_id: String,
+        title: String,
+        body: String,
+        buttons: Vec<(String, String)>,
+    },
     /// An answer exists for an owner marked codex-interactive: queue it into the thread.
-    CodexQueue { ask_id: String, thread: String, text: String },
+    CodexQueue {
+        ask_id: String,
+        thread: String,
+        text: String,
+    },
 }
 
 pub trait Service: Send + Sync {
     /// Handle one MCP-pipe op. Ok = the JSON `result`; Err = the error text sent back.
-    fn mcp(&self, client: &ClientInfo, op: McpOp) -> Result<(serde_json::Value, Vec<Effect>), String>;
+    fn mcp(
+        &self,
+        client: &ClientInfo,
+        op: McpOp,
+    ) -> Result<(serde_json::Value, Vec<Effect>), String>;
     /// Handle one Desk-pipe op. Only called for a client the IPC layer verified as the installed Desk.
     fn desk(&self, op: DeskOp) -> Result<(serde_json::Value, Vec<Effect>), String>;
     /// Called about once a second: defaults at deadlines (only if shown and reversible), digest release

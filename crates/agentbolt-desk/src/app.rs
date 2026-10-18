@@ -88,7 +88,11 @@ pub struct DeskApp {
 
 /// Open the window and run until it closes.
 pub fn run(names: Names) -> anyhow::Result<()> {
-    let title = if names.is_main() { "Agentbolt".to_string() } else { format!("Agentbolt ({})", names.channel) };
+    let title = if names.is_main() {
+        "Agentbolt".to_string()
+    } else {
+        format!("Agentbolt ({})", names.channel)
+    };
     if !crate::os::first_window(&format!("{}-desk", names.mutex), &title) {
         return Ok(());
     }
@@ -147,7 +151,11 @@ impl DeskApp {
     }
 
     fn note(&mut self, text: impl Into<String>, error: bool) {
-        self.notice = Some(Notice { text: text.into(), error, at: Instant::now() });
+        self.notice = Some(Notice {
+            text: text.into(),
+            error,
+            at: Instant::now(),
+        });
     }
 
     fn drain(&mut self) {
@@ -162,7 +170,11 @@ impl DeskApp {
                     self.digest_count = r.digest_count;
                     self.recent = r.recent;
                     let ids: HashSet<&str> = self.inbox.iter().map(|a| a.id.as_str()).collect();
-                    if self.selected_inbox.as_deref().is_none_or(|s| !ids.contains(s)) {
+                    if self
+                        .selected_inbox
+                        .as_deref()
+                        .is_none_or(|s| !ids.contains(s))
+                    {
                         self.selected_inbox = self.inbox.first().map(|a| a.id.clone());
                     }
                 }
@@ -174,7 +186,11 @@ impl DeskApp {
                 }
                 Resp::Digest(mut r) => {
                     view::sort_asks(&mut r.digest);
-                    if self.selected_digest.as_deref().is_none_or(|s| !r.digest.iter().any(|a| a.id == s)) {
+                    if self
+                        .selected_digest
+                        .as_deref()
+                        .is_none_or(|s| !r.digest.iter().any(|a| a.id == s))
+                    {
                         self.selected_digest = r.digest.first().map(|a| a.id.clone());
                     }
                     self.digest = Some(r.digest);
@@ -184,8 +200,15 @@ impl DeskApp {
                     match result {
                         Ok(r) => {
                             let title = self.title_of(&ask_id);
-                            let said = r.answer.choice.clone().or_else(|| r.answer.values.as_ref().map(Value::to_string));
-                            self.note(format!("Answered \"{title}\": {}", said.unwrap_or_default()), false);
+                            let said = r
+                                .answer
+                                .choice
+                                .clone()
+                                .or_else(|| r.answer.values.as_ref().map(Value::to_string));
+                            self.note(
+                                format!("Answered \"{title}\": {}", said.unwrap_or_default()),
+                                false,
+                            );
                             self.inbox.retain(|a| a.id != ask_id);
                             if let Some(d) = &mut self.digest {
                                 d.retain(|a| a.id != ask_id);
@@ -230,7 +253,11 @@ impl DeskApp {
                     Ok(()) => self.note("Starting Agentbolt...", false),
                     Err(e) => self.note(e, true),
                 },
-                Resp::Failed { what, error, not_running } => {
+                Resp::Failed {
+                    what,
+                    error,
+                    not_running,
+                } => {
                     match what {
                         "the Inbox" => self.list_inflight = false,
                         "the agents" => self.agents_inflight = false,
@@ -304,86 +331,131 @@ impl DeskApp {
     fn top_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             let tabs = [
-                (Tab::Inbox, format!("Inbox ({})", self.open_count.unwrap_or(self.inbox.len() as u32))),
-                (Tab::Digest, format!("Digest ({})", self.digest.as_ref().map_or(self.digest_count as usize, Vec::len))),
+                (
+                    Tab::Inbox,
+                    format!(
+                        "Inbox ({})",
+                        self.open_count.unwrap_or(self.inbox.len() as u32)
+                    ),
+                ),
+                (
+                    Tab::Digest,
+                    format!(
+                        "Digest ({})",
+                        self.digest
+                            .as_ref()
+                            .map_or(self.digest_count as usize, Vec::len)
+                    ),
+                ),
                 (Tab::Agents, "Agents".to_string()),
                 (Tab::Settings, "Settings".to_string()),
             ];
             for (tab, label) in tabs {
-                if ui.selectable_label(self.tab == tab, RichText::new(label).size(15.0)).clicked() {
+                if ui
+                    .selectable_label(self.tab == tab, RichText::new(label).size(15.0))
+                    .clicked()
+                {
                     self.switch_to(tab);
                 }
             }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| match &self.conn {
-                Conn::Up => {
-                    ui.weak(format!("connected, channel {}", self.names.channel));
-                }
-                Conn::Unknown => {
-                    ui.weak("connecting...");
-                }
-                Conn::Down(_) => {
-                    if ui.button("Start Agentbolt").clicked() {
-                        self.send(Req::StartDaemon);
+            ui.with_layout(
+                egui::Layout::right_to_left(egui::Align::Center),
+                |ui| match &self.conn {
+                    Conn::Up => {
+                        ui.weak(format!("connected, channel {}", self.names.channel));
                     }
-                    ui.colored_label(ui.visuals().error_fg_color, "Agentbolt isn't running");
-                }
-            });
+                    Conn::Unknown => {
+                        ui.weak("connecting...");
+                    }
+                    Conn::Down(_) => {
+                        if ui.button("Start Agentbolt").clicked() {
+                            self.send(Req::StartDaemon);
+                        }
+                        ui.colored_label(ui.visuals().error_fg_color, "Agentbolt isn't running");
+                    }
+                },
+            );
         });
     }
 
     fn ask_list(&mut self, ui: &mut egui::Ui, digest: bool) {
-        let asks = if digest { self.digest.clone().unwrap_or_default() } else { self.inbox.clone() };
+        let asks = if digest {
+            self.digest.clone().unwrap_or_default()
+        } else {
+            self.inbox.clone()
+        };
         let now = time::OffsetDateTime::now_utc();
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            for a in &asks {
-                let selected = if digest { &mut self.selected_digest } else { &mut self.selected_inbox };
-                let is_sel = selected.as_deref() == Some(a.id.as_str());
-                let (due, overdue) = view::relative_deadline(&a.input.deadline, now);
-                let frame = egui::Frame::new().inner_margin(egui::Margin::symmetric(6, 4));
-                let resp = frame
-                    .show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.horizontal(|ui| {
-                            priority_tag(ui, a.input.priority);
-                            ui.add(egui::Label::new(RichText::new(&a.input.title).strong()).truncate());
-                        });
-                        ui.horizontal(|ui| {
-                            ui.weak(&a.owner);
-                            ui.weak("·");
-                            let c = if overdue { ui.visuals().error_fg_color } else { ui.visuals().weak_text_color() };
-                            ui.colored_label(c, due);
-                        });
-                    })
-                    .response;
-                let resp = resp.interact(egui::Sense::click());
-                if is_sel {
-                    ui.painter().rect_stroke(
-                        resp.rect,
-                        4.0,
-                        ui.visuals().selection.stroke,
-                        egui::StrokeKind::Inside,
-                    );
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for a in &asks {
+                    let selected = if digest {
+                        &mut self.selected_digest
+                    } else {
+                        &mut self.selected_inbox
+                    };
+                    let is_sel = selected.as_deref() == Some(a.id.as_str());
+                    let (due, overdue) = view::relative_deadline(&a.input.deadline, now);
+                    let frame = egui::Frame::new().inner_margin(egui::Margin::symmetric(6, 4));
+                    let resp = frame
+                        .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.horizontal(|ui| {
+                                priority_tag(ui, a.input.priority);
+                                ui.add(
+                                    egui::Label::new(RichText::new(&a.input.title).strong())
+                                        .truncate(),
+                                );
+                            });
+                            ui.horizontal(|ui| {
+                                ui.weak(&a.owner);
+                                ui.weak("·");
+                                let c = if overdue {
+                                    ui.visuals().error_fg_color
+                                } else {
+                                    ui.visuals().weak_text_color()
+                                };
+                                ui.colored_label(c, due);
+                            });
+                        })
+                        .response;
+                    let resp = resp.interact(egui::Sense::click());
+                    if is_sel {
+                        ui.painter().rect_stroke(
+                            resp.rect,
+                            4.0,
+                            ui.visuals().selection.stroke,
+                            egui::StrokeKind::Inside,
+                        );
+                    }
+                    if resp.clicked() {
+                        *selected = Some(a.id.clone());
+                    }
+                    ui.separator();
                 }
-                if resp.clicked() {
-                    *selected = Some(a.id.clone());
-                }
-                ui.separator();
-            }
-            if !digest && !self.recent.is_empty() {
-                egui::CollapsingHeader::new(format!("Recently answered ({})", self.recent.len()))
+                if !digest && !self.recent.is_empty() {
+                    egui::CollapsingHeader::new(format!(
+                        "Recently answered ({})",
+                        self.recent.len()
+                    ))
                     .default_open(false)
                     .show(ui, |ui| {
                         for a in &self.recent {
                             let said = a
                                 .answer
                                 .as_ref()
-                                .map(|x| x.choice.clone().or_else(|| x.values.as_ref().map(Value::to_string)).unwrap_or_default())
+                                .map(|x| {
+                                    x.choice
+                                        .clone()
+                                        .or_else(|| x.values.as_ref().map(Value::to_string))
+                                        .unwrap_or_default()
+                                })
                                 .unwrap_or_default();
                             ui.label(format!("{}: {said}", a.input.title));
                         }
                     });
-            }
-        });
+                }
+            });
     }
 
     /// The selected ask's details and its answer controls. Returns an answer to send.
@@ -453,18 +525,44 @@ impl DeskApp {
                 ui.weak("This can't be undone, so it never takes its default: only your answer moves it.");
             }
         });
-        let note = self.drafts.get(&ask.id).map(|d| d.note.trim().to_string()).filter(|n| !n.is_empty());
+        let note = self
+            .drafts
+            .get(&ask.id)
+            .map(|d| d.note.trim().to_string())
+            .filter(|n| !n.is_empty());
         req.map(|r| match r {
-            Req::Answer { ask_id, choice, values, .. } => Req::Answer { ask_id, choice, values, note },
+            Req::Answer {
+                ask_id,
+                choice,
+                values,
+                ..
+            } => Req::Answer {
+                ask_id,
+                choice,
+                values,
+                note,
+            },
             other => other,
         })
     }
 
     fn ask_pane(&mut self, ui: &mut egui::Ui, digest: bool) {
-        let asks = if digest { self.digest.as_deref().unwrap_or_default() } else { &self.inbox };
+        let asks = if digest {
+            self.digest.as_deref().unwrap_or_default()
+        } else {
+            &self.inbox
+        };
         if asks.is_empty() {
             ui.centered_and_justified(|ui| {
-                ui.label(RichText::new(if digest { view::EMPTY_DIGEST } else { view::EMPTY_INBOX }).size(16.0).weak());
+                ui.label(
+                    RichText::new(if digest {
+                        view::EMPTY_DIGEST
+                    } else {
+                        view::EMPTY_INBOX
+                    })
+                    .size(16.0)
+                    .weak(),
+                );
             });
             return;
         }
@@ -473,9 +571,17 @@ impl DeskApp {
             .default_size(320.0)
             .min_size(220.0)
             .show(ui, |ui| self.ask_list(ui, digest));
-        let selected = if digest { &self.selected_digest } else { &self.selected_inbox };
+        let selected = if digest {
+            &self.selected_digest
+        } else {
+            &self.selected_inbox
+        };
         let ask = selected.as_ref().and_then(|id| {
-            let list = if digest { self.digest.as_deref().unwrap_or_default() } else { &self.inbox };
+            let list = if digest {
+                self.digest.as_deref().unwrap_or_default()
+            } else {
+                &self.inbox
+            };
             list.iter().find(|a| &a.id == id).cloned()
         });
         egui::CentralPanel::default().show(ui, |ui| match ask {
@@ -494,7 +600,13 @@ impl DeskApp {
     fn digest_tab(&mut self, ui: &mut egui::Ui) {
         if self.digest.is_none() {
             ui.add_space(12.0);
-            ui.label(RichText::new(format!("{} ask(s) wait in the daily digest.", self.digest_count)).size(16.0));
+            ui.label(
+                RichText::new(format!(
+                    "{} ask(s) wait in the daily digest.",
+                    self.digest_count
+                ))
+                .size(16.0),
+            );
             ui.weak("They came in after the day's Inbox budget was used. Opening the digest counts as showing them to you, so reversible asks can take their defaults at their deadlines after this.");
             ui.add_space(8.0);
             if ui.button("Open the digest").clicked() {
@@ -519,42 +631,60 @@ impl DeskApp {
         }
         let now = time::OffsetDateTime::now_utc();
         let mut open = None;
-        egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
-            egui::Grid::new("agents").striped(true).num_columns(5).spacing([16.0, 6.0]).show(ui, |ui| {
-                for h in ["Owner", "Client", "Doing", "Last seen", "Session"] {
-                    ui.strong(h);
-                }
-                ui.end_row();
-                for a in &self.agents {
-                    let owner = if a.provisional { format!("{} (provisional)", a.owner) } else { a.owner.clone() };
-                    ui.label(owner);
-                    ui.label(&a.client);
-                    let doing = a.doing.as_deref().unwrap_or("");
-                    let short: String = doing.chars().take(60).collect();
-                    let r = ui.label(if short.len() < doing.len() { format!("{short}...") } else { short });
-                    if !doing.is_empty() {
-                        r.on_hover_text(doing);
-                    }
-                    ui.label(view::ago(&a.last_seen, now)).on_hover_text(&a.last_seen);
-                    match a.session_ref.as_deref() {
-                        Some(s) => match view::classify(s) {
-                            Link::Session(u) | Link::Web(u) => {
-                                if ui.link("Open").on_hover_text(&u).clicked() {
-                                    open = Some(u);
+        egui::ScrollArea::both()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                egui::Grid::new("agents")
+                    .striped(true)
+                    .num_columns(5)
+                    .spacing([16.0, 6.0])
+                    .show(ui, |ui| {
+                        for h in ["Owner", "Client", "Doing", "Last seen", "Session"] {
+                            ui.strong(h);
+                        }
+                        ui.end_row();
+                        for a in &self.agents {
+                            let owner = if a.provisional {
+                                format!("{} (provisional)", a.owner)
+                            } else {
+                                a.owner.clone()
+                            };
+                            ui.label(owner);
+                            ui.label(&a.client);
+                            let doing = a.doing.as_deref().unwrap_or("");
+                            let short: String = doing.chars().take(60).collect();
+                            let r = ui.label(if short.len() < doing.len() {
+                                format!("{short}...")
+                            } else {
+                                short
+                            });
+                            if !doing.is_empty() {
+                                r.on_hover_text(doing);
+                            }
+                            ui.label(view::ago(&a.last_seen, now))
+                                .on_hover_text(&a.last_seen);
+                            match a.session_ref.as_deref() {
+                                Some(s) => match view::classify(s) {
+                                    Link::Session(u) | Link::Web(u) => {
+                                        if ui.link("Open").on_hover_text(&u).clicked() {
+                                            open = Some(u);
+                                        }
+                                    }
+                                    _ => {
+                                        ui.add(
+                                            egui::Label::new(RichText::new(s).monospace())
+                                                .selectable(true),
+                                        );
+                                    }
+                                },
+                                None => {
+                                    ui.weak("none");
                                 }
                             }
-                            _ => {
-                                ui.add(egui::Label::new(RichText::new(s).monospace()).selectable(true));
-                            }
-                        },
-                        None => {
-                            ui.weak("none");
+                            ui.end_row();
                         }
-                    }
-                    ui.end_row();
-                }
+                    });
             });
-        });
         if let Some(u) = open
             && let Err(e) = os::open_url(&u)
         {
@@ -656,7 +786,12 @@ fn priority_tag(ui: &mut egui::Ui, p: Priority) {
     ui.label(RichText::new(text).monospace().strong().color(color));
 }
 
-fn evidence_row(ui: &mut egui::Ui, label: &str, url: &str, exists: &HashMap<std::path::PathBuf, bool>) {
+fn evidence_row(
+    ui: &mut egui::Ui,
+    label: &str,
+    url: &str,
+    exists: &HashMap<std::path::PathBuf, bool>,
+) {
     ui.horizontal_wrapped(|ui| match view::classify(url) {
         Link::Web(u) | Link::Session(u) => {
             if ui.link(label).on_hover_text(&u).clicked()
@@ -667,7 +802,10 @@ fn evidence_row(ui: &mut egui::Ui, label: &str, url: &str, exists: &HashMap<std:
         }
         Link::Path(p) => {
             ui.label(format!("{label}:"));
-            ui.add(egui::Label::new(RichText::new(p.display().to_string()).monospace()).selectable(true));
+            ui.add(
+                egui::Label::new(RichText::new(p.display().to_string()).monospace())
+                    .selectable(true),
+            );
             let exists = exists.get(&p).copied().unwrap_or(false);
             if ui
                 .add_enabled(exists, egui::Button::new("Show in Explorer").small())
@@ -711,50 +849,73 @@ fn answer_controls(ui: &mut egui::Ui, ask: &Ask, draft: &mut Draft) -> Option<Re
         }
         AskKind::Inform => ui.button("Got it").clicked().then(|| answer(None, None)),
         AskKind::Text => {
-            view::fill_reply_once(&mut draft.text, &mut draft.text_filled, ask.input.default.as_str());
+            view::fill_reply_once(
+                &mut draft.text,
+                &mut draft.text_filled,
+                ask.input.default.as_str(),
+            );
             ui.label("Your reply");
-            ui.add(egui::TextEdit::multiline(&mut draft.text).desired_rows(4).desired_width(f32::INFINITY));
+            ui.add(
+                egui::TextEdit::multiline(&mut draft.text)
+                    .desired_rows(4)
+                    .desired_width(f32::INFINITY),
+            );
             if let Some(d) = ask.input.default.as_str() {
                 ui.weak(format!("Recommended: {d}"));
             }
             let ok = !draft.text.trim().is_empty();
-            ui.add_enabled(ok, egui::Button::new("Send")).clicked().then(|| answer(Some(draft.text.trim().to_string()), None))
+            ui.add_enabled(ok, egui::Button::new("Send"))
+                .clicked()
+                .then(|| answer(Some(draft.text.trim().to_string()), None))
         }
         AskKind::Form => {
-            let inputs = draft.fields.get_or_insert_with(|| view::prefill(&ask.input.fields, &ask.input.default));
-            egui::Grid::new(("form", &ask.id)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-                for f in &ask.input.fields {
-                    let label = if f.required { format!("{} *", f.label) } else { f.label.clone() };
-                    ui.label(label);
-                    let input = inputs.entry(f.id.clone()).or_insert_with(|| FieldInput::Text(String::new()));
-                    match (f.field_type.as_str(), input) {
-                        ("boolean", FieldInput::Bool(b)) => {
-                            ui.checkbox(b, "");
+            let inputs = draft
+                .fields
+                .get_or_insert_with(|| view::prefill(&ask.input.fields, &ask.input.default));
+            egui::Grid::new(("form", &ask.id))
+                .num_columns(2)
+                .spacing([12.0, 6.0])
+                .show(ui, |ui| {
+                    for f in &ask.input.fields {
+                        let label = if f.required {
+                            format!("{} *", f.label)
+                        } else {
+                            f.label.clone()
+                        };
+                        ui.label(label);
+                        let input = inputs
+                            .entry(f.id.clone())
+                            .or_insert_with(|| FieldInput::Text(String::new()));
+                        match (f.field_type.as_str(), input) {
+                            ("boolean", FieldInput::Bool(b)) => {
+                                ui.checkbox(b, "");
+                            }
+                            ("choice", FieldInput::Text(t)) => {
+                                egui::ComboBox::from_id_salt(("field", &ask.id, &f.id))
+                                    .selected_text(t.clone())
+                                    .show_ui(ui, |ui| {
+                                        for o in f.options.iter().flatten() {
+                                            ui.selectable_value(t, o.clone(), o);
+                                        }
+                                    });
+                            }
+                            (_, FieldInput::Text(t)) => {
+                                ui.add(egui::TextEdit::singleline(t).desired_width(280.0));
+                            }
+                            (_, FieldInput::Bool(b)) => {
+                                ui.checkbox(b, "");
+                            }
                         }
-                        ("choice", FieldInput::Text(t)) => {
-                            egui::ComboBox::from_id_salt(("field", &ask.id, &f.id))
-                                .selected_text(t.clone())
-                                .show_ui(ui, |ui| {
-                                    for o in f.options.iter().flatten() {
-                                        ui.selectable_value(t, o.clone(), o);
-                                    }
-                                });
-                        }
-                        (_, FieldInput::Text(t)) => {
-                            ui.add(egui::TextEdit::singleline(t).desired_width(280.0));
-                        }
-                        (_, FieldInput::Bool(b)) => {
-                            ui.checkbox(b, "");
-                        }
+                        ui.end_row();
                     }
-                    ui.end_row();
-                }
-            });
+                });
             let values = view::form_values(&ask.input.fields, inputs);
             if let Err(e) = &values {
                 ui.colored_label(ui.visuals().warn_fg_color, e);
             }
-            let clicked = ui.add_enabled(values.is_ok(), egui::Button::new("Send")).clicked();
+            let clicked = ui
+                .add_enabled(values.is_ok(), egui::Button::new("Send"))
+                .clicked();
             match values {
                 Ok(v) if clicked => Some(answer(None, Some(v))),
                 _ => None,
@@ -788,7 +949,11 @@ impl eframe::App for DeskApp {
                     ui.colored_label(ui.visuals().error_fg_color, e);
                 }
                 if let Some(n) = &self.notice {
-                    let c = if n.error { ui.visuals().error_fg_color } else { Color32::from_rgb(0x3c, 0x9a, 0x5f) };
+                    let c = if n.error {
+                        ui.visuals().error_fg_color
+                    } else {
+                        Color32::from_rgb(0x3c, 0x9a, 0x5f)
+                    };
                     ui.colored_label(c, &n.text);
                 }
             });

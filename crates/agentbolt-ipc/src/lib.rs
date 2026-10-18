@@ -75,7 +75,9 @@ impl Pipe {
 
 #[derive(Debug, thiserror::Error)]
 pub enum IpcError {
-    #[error("Agentbolt isn't running (channel {0}). Start it with `agentbolt start`, or sign out and in again.")]
+    #[error(
+        "Agentbolt isn't running (channel {0}). Start it with `agentbolt start`, or sign out and in again."
+    )]
     NotRunning(String),
     #[error("the pipe {0} is served by an unexpected program ({1}); refusing to talk to it")]
     WrongServer(String, String),
@@ -127,11 +129,16 @@ impl PeerCheck {
 /// `<stem><EXE_SUFFIX>` next to the running executable, plus the parent folder when running from cargo's `deps`.
 pub fn sibling_paths(stem: &str) -> Vec<PathBuf> {
     let file = format!("{stem}{}", std::env::consts::EXE_SUFFIX);
-    let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)) else {
+    let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(Path::to_path_buf))
+    else {
         return Vec::new();
     };
     let mut out = vec![dir.join(&file)];
-    if dir.file_name().is_some_and(|n| n.eq_ignore_ascii_case("deps"))
+    if dir
+        .file_name()
+        .is_some_and(|n| n.eq_ignore_ascii_case("deps"))
         && let Some(parent) = dir.parent()
     {
         out.push(parent.join(&file));
@@ -146,7 +153,10 @@ fn normalize(path: &Path) -> String {
         let parent = std::fs::canonicalize(path.parent()?).ok()?;
         Some(parent.join(path.file_name()?))
     });
-    let s = canonical.unwrap_or_else(|| path.to_path_buf()).to_string_lossy().into_owned();
+    let s = canonical
+        .unwrap_or_else(|| path.to_path_buf())
+        .to_string_lossy()
+        .into_owned();
     if cfg!(windows) {
         let s = if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
             format!(r"\\{rest}")
@@ -186,13 +196,21 @@ impl Client {
 
     /// Connect, accepting only a server whose image is one of `expected_server`. There is deliberately no way
     /// to skip the server check.
-    pub async fn connect_to(names: &Names, pipe: Pipe, expected_server: &[PathBuf]) -> Result<Self, IpcError> {
+    pub async fn connect_to(
+        names: &Names,
+        pipe: Pipe,
+        expected_server: &[PathBuf],
+    ) -> Result<Self, IpcError> {
         let pipe_name = pipe.name(names).to_string();
         let (stream, server_pid) = sys::connect(names, &pipe_name).await?;
         let image = server_pid.and_then(sys::process_image);
         let check = PeerCheck::Image(expected_server.to_vec());
         if !sys::IMAGE_CHECKS || check.accepts(image.as_deref()) {
-            Ok(Client { stream: BufReader::new(stream), next_id: 1, pipe_name })
+            Ok(Client {
+                stream: BufReader::new(stream),
+                next_id: 1,
+                pipe_name,
+            })
         } else {
             let who = match (server_pid, image) {
                 (_, Some(image)) => image.display().to_string(),
@@ -207,7 +225,8 @@ impl Client {
     pub async fn call<T: serde::Serialize>(&mut self, op: &T) -> Result<Value, IpcError> {
         let id = self.next_id;
         self.next_id += 1;
-        let mut line = serde_json::to_vec(&Request { id, op }).map_err(|e| IpcError::Protocol(e.to_string()))?;
+        let mut line = serde_json::to_vec(&Request { id, op })
+            .map_err(|e| IpcError::Protocol(e.to_string()))?;
         line.push(b'\n');
         self.stream.write_all(&line).await?;
         self.stream.flush().await?;
@@ -221,26 +240,37 @@ impl Client {
                 )));
             }
             Err(e) if is_disconnect(&e) => {
-                return Err(IpcError::Protocol(format!("the daemon closed {}: {e}", self.pipe_name)));
+                return Err(IpcError::Protocol(format!(
+                    "the daemon closed {}: {e}",
+                    self.pipe_name
+                )));
             }
             Err(e) => return Err(e.into()),
         };
         let response: Response = serde_json::from_slice(&reply)
             .map_err(|e| IpcError::Protocol(format!("unreadable response: {e}")))?;
         if response.id != id {
-            return Err(IpcError::Protocol(format!("response id {} for request {id}", response.id)));
+            return Err(IpcError::Protocol(format!(
+                "response id {} for request {id}",
+                response.id
+            )));
         }
         if response.ok {
             Ok(response.result.unwrap_or(Value::Null))
         } else {
-            Err(IpcError::Remote(response.error.unwrap_or_else(|| "unknown error".into())))
+            Err(IpcError::Remote(
+                response.error.unwrap_or_else(|| "unknown error".into()),
+            ))
         }
     }
 }
 
 fn is_disconnect(e: &std::io::Error) -> bool {
     use std::io::ErrorKind::*;
-    matches!(e.kind(), BrokenPipe | ConnectionReset | ConnectionAborted | UnexpectedEof | NotConnected)
+    matches!(
+        e.kind(),
+        BrokenPipe | ConnectionReset | ConnectionAborted | UnexpectedEof | NotConnected
+    )
 }
 
 // ------------------------------------------------------------------------------------------------------------
@@ -252,7 +282,11 @@ pub trait Handler: Send + Sync + 'static {
     /// Handle one request. `op` is the request line without its `id`, i.e. `{"op":..,"args":..}`, ready for
     /// `serde_json::from_value::<McpOp>` (or `DeskOp`). Ok = the `result`; Err = the error text sent back.
     /// The future is dropped if the client disconnects while it runs.
-    fn handle(&self, client: &ClientInfo, op: Value) -> impl Future<Output = Result<Value, String>> + Send;
+    fn handle(
+        &self,
+        client: &ClientInfo,
+        op: Value,
+    ) -> impl Future<Output = Result<Value, String>> + Send;
     /// A client connected and passed the image check.
     fn connected(&self, _client: &ClientInfo) {}
     /// The client's connection closed.
@@ -284,14 +318,24 @@ impl Server {
     }
 
     /// Bind with an explicit client check (tests, or a future pipe).
-    pub fn bind_with(names: &Names, pipe: Pipe, client_check: PeerCheck) -> Result<Server, IpcError> {
+    pub fn bind_with(
+        names: &Names,
+        pipe: Pipe,
+        client_check: PeerCheck,
+    ) -> Result<Server, IpcError> {
         let listener = sys::Listener::bind(names, pipe.name(names))?;
-        Ok(Server { listener, client_check })
+        Ok(Server {
+            listener,
+            client_check,
+        })
     }
 
     /// Accept clients until an unrecoverable listener error. Each connection runs on its own task.
     pub async fn serve<H: Handler>(self, handler: Arc<H>) -> Result<(), IpcError> {
-        let Server { mut listener, client_check } = self;
+        let Server {
+            mut listener,
+            client_check,
+        } = self;
         let check = Arc::new(client_check);
         loop {
             let (stream, pid) = match listener.accept().await {
@@ -313,7 +357,10 @@ impl Server {
                         return;
                     }
                 }
-                let info = ClientInfo { pid, connection: NEXT_CONNECTION.fetch_add(1, Ordering::Relaxed) };
+                let info = ClientInfo {
+                    pid,
+                    connection: NEXT_CONNECTION.fetch_add(1, Ordering::Relaxed),
+                };
                 handler.connected(&info);
                 run_connection(stream, &info, &*handler).await;
                 handler.disconnected(&info);
@@ -350,7 +397,10 @@ where
         let (id, op) = match split_request(&line) {
             Ok(parts) => parts,
             Err((id, why)) => {
-                if write_response(&mut wr, &error_response(id, &why)).await.is_err() {
+                if write_response(&mut wr, &error_response(id, &why))
+                    .await
+                    .is_err()
+                {
                     return;
                 }
                 continue;
@@ -374,7 +424,12 @@ where
         };
         let Some(result) = outcome else { return };
         let response = match result {
-            Ok(value) => Response { id, ok: true, result: Some(value), error: None },
+            Ok(value) => Response {
+                id,
+                ok: true,
+                result: Some(value),
+                error: None,
+            },
             Err(why) => error_response(id, &why),
         };
         if write_response(&mut wr, &response).await.is_err() {
@@ -384,17 +439,25 @@ where
 }
 
 fn error_response(id: u64, why: &str) -> Response {
-    Response { id, ok: false, result: None, error: Some(why.to_string()) }
+    Response {
+        id,
+        ok: false,
+        result: None,
+        error: Some(why.to_string()),
+    }
 }
 
 /// `{"id":7,"op":..,"args":..}` -> (7, `{"op":..,"args":..}`). On error, the id if one was readable.
 fn split_request(line: &[u8]) -> Result<(u64, Value), (u64, String)> {
-    let value: Value = serde_json::from_slice(line).map_err(|e| (0, format!("bad request: {e}")))?;
+    let value: Value =
+        serde_json::from_slice(line).map_err(|e| (0, format!("bad request: {e}")))?;
     let Value::Object(mut map) = value else {
         return Err((0, "bad request: expected a JSON object".into()));
     };
     let id = match map.remove("id") {
-        Some(Value::Number(n)) => n.as_u64().ok_or((0, "bad request: id must be a whole number".to_string()))?,
+        Some(Value::Number(n)) => n
+            .as_u64()
+            .ok_or((0, "bad request: id must be a whole number".to_string()))?,
         _ => return Err((0, "bad request: missing id".into())),
     };
     if !map.contains_key("op") {
@@ -403,7 +466,10 @@ fn split_request(line: &[u8]) -> Result<(u64, Value), (u64, String)> {
     Ok((id, Value::Object(map)))
 }
 
-async fn write_response<W: AsyncWrite + Unpin>(wr: &mut W, response: &Response) -> std::io::Result<()> {
+async fn write_response<W: AsyncWrite + Unpin>(
+    wr: &mut W,
+    response: &Response,
+) -> std::io::Result<()> {
     let mut line = serde_json::to_vec(response).map_err(std::io::Error::other)?;
     line.push(b'\n');
     wr.write_all(&line).await?;
@@ -412,7 +478,10 @@ async fn write_response<W: AsyncWrite + Unpin>(wr: &mut W, response: &Response) 
 
 /// Read one `\n`-terminated line (without the terminator or a trailing `\r`). Ok(None) at end of stream.
 /// A line longer than `max` is an `InvalidData` error.
-async fn read_line_capped<R: AsyncBufRead + Unpin>(r: &mut R, max: usize) -> std::io::Result<Option<Vec<u8>>> {
+async fn read_line_capped<R: AsyncBufRead + Unpin>(
+    r: &mut R,
+    max: usize,
+) -> std::io::Result<Option<Vec<u8>>> {
     let mut out = Vec::new();
     loop {
         let buf = r.fill_buf().await?;
@@ -426,7 +495,10 @@ async fn read_line_capped<R: AsyncBufRead + Unpin>(r: &mut R, max: usize) -> std
                 out.pop();
             }
             return if out.len() > max {
-                Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "line too long"))
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "line too long",
+                ))
             } else {
                 Ok(Some(out))
             };
@@ -435,7 +507,10 @@ async fn read_line_capped<R: AsyncBufRead + Unpin>(r: &mut R, max: usize) -> std
         out.extend_from_slice(buf);
         r.consume(n);
         if out.len() > max {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "line too long"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "line too long",
+            ));
         }
     }
 }

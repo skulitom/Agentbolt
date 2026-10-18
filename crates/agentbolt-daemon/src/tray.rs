@@ -13,8 +13,8 @@ use agentbolt_core::channel::Names;
 use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use windows::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, MSG, MsgWaitForMultipleObjects, PM_NOREMOVE, PM_REMOVE, PeekMessageW, QS_ALLINPUT,
-    TranslateMessage, WM_QUIT,
+    DispatchMessageW, MSG, MsgWaitForMultipleObjects, PM_NOREMOVE, PM_REMOVE, PeekMessageW,
+    QS_ALLINPUT, TranslateMessage, WM_QUIT,
 };
 
 use crate::daemon::{Shared, Ui};
@@ -51,7 +51,11 @@ pub struct TrayState {
 }
 
 pub fn tooltip(names: &Names, s: &TrayState) -> String {
-    let mut t = if names.is_main() { "Agentbolt".to_string() } else { format!("Agentbolt ({})", names.channel) };
+    let mut t = if names.is_main() {
+        "Agentbolt".to_string()
+    } else {
+        format!("Agentbolt ({})", names.channel)
+    };
     t.push_str(&format!(": {} waiting", s.open));
     if s.digest > 0 {
         t.push_str(&format!(", {} in the digest", s.digest));
@@ -73,7 +77,9 @@ fn make_icon(open: u32) -> Option<Icon> {
 
 /// Start `agentbolt-desk.exe` from the daemon's folder (with `--channel` off the main channel).
 pub fn launch_desk(names: &Names) {
-    let exe = agentbolt_ipc::sibling_paths(agentbolt_ipc::DESK_EXE).into_iter().find(|p| p.is_file());
+    let exe = agentbolt_ipc::sibling_paths(agentbolt_ipc::DESK_EXE)
+        .into_iter()
+        .find(|p| p.is_file());
     let Some(exe) = exe else {
         warning!("open desk: agentbolt-desk.exe isn't next to the daemon");
         return;
@@ -82,14 +88,24 @@ pub fn launch_desk(names: &Names) {
     if !names.is_main() {
         cmd.args(["--channel", &names.channel]);
     }
-    match cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
+    match cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
         Ok(_) => info!("opened the desk"),
         Err(e) => warning!("open desk: {e}"),
     }
 }
 
 /// Run the tray until Quit or `shutdown`. Returns when the daemon should stop.
-pub fn run(shared: Arc<Shared>, rx: Receiver<UiCmd>, shutdown: Arc<AtomicBool>, mut state: TrayState) -> Result<(), String> {
+pub fn run(
+    shared: Arc<Shared>,
+    rx: Receiver<UiCmd>,
+    shutdown: Arc<AtomicBool>,
+    mut state: TrayState,
+) -> Result<(), String> {
     let names = shared.names.clone();
     let mut msg = MSG::default();
     // Make sure this thread has a message queue before the tray creates its window.
@@ -100,8 +116,13 @@ pub fn run(shared: Arc<Shared>, rx: Receiver<UiCmd>, shutdown: Arc<AtomicBool>, 
     let open_item = MenuItem::new("Open Desk", true, None);
     let pause_item = CheckMenuItem::new("Pause notifications", true, state.paused, None);
     let quit_item = MenuItem::new("Quit Agentbolt", true, None);
-    menu.append_items(&[&open_item, &pause_item, &PredefinedMenuItem::separator(), &quit_item])
-        .map_err(|e| format!("tray menu: {e}"))?;
+    menu.append_items(&[
+        &open_item,
+        &pause_item,
+        &PredefinedMenuItem::separator(),
+        &quit_item,
+    ])
+    .map_err(|e| format!("tray menu: {e}"))?;
     let mut builder = TrayIconBuilder::new()
         .with_tooltip(tooltip(&names, &state))
         .with_menu(Box::new(menu))
@@ -124,7 +145,12 @@ pub fn run(shared: Arc<Shared>, rx: Receiver<UiCmd>, shutdown: Arc<AtomicBool>, 
             }
         }
         while let Ok(event) = TrayIconEvent::receiver().try_recv() {
-            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
                 launch_desk(&names);
             }
         }
@@ -134,7 +160,10 @@ pub fn run(shared: Arc<Shared>, rx: Receiver<UiCmd>, shutdown: Arc<AtomicBool>, 
             } else if event.id == *pause_item.id() {
                 match shared.toggle_pause() {
                     Ok(paused) => {
-                        info!("notifications {}", if paused { "paused" } else { "resumed" });
+                        info!(
+                            "notifications {}",
+                            if paused { "paused" } else { "resumed" }
+                        );
                         state.paused = paused;
                     }
                     Err(e) => warning!("pause notifications: {e}"),
@@ -180,14 +209,25 @@ mod tests {
     fn the_tooltip_says_the_count_and_flags_the_handler() {
         let main = Names::for_channel("main").unwrap();
         let test = Names::for_channel("ipctest-tip").unwrap();
-        let mut s = TrayState { open: 2, digest: 0, paused: false, handler: HandlerKey::Ours };
+        let mut s = TrayState {
+            open: 2,
+            digest: 0,
+            paused: false,
+            handler: HandlerKey::Ours,
+        };
         assert_eq!(tooltip(&main, &s), "Agentbolt: 2 waiting");
         s.digest = 3;
         s.paused = true;
         s.handler = HandlerKey::Changed("evil.exe %1".into());
-        assert_eq!(tooltip(&test, &s), "Agentbolt (ipctest-tip): 2 waiting, 3 in the digest, paused - handler changed");
+        assert_eq!(
+            tooltip(&test, &s),
+            "Agentbolt (ipctest-tip): 2 waiting, 3 in the digest, paused - handler changed"
+        );
         s.handler = HandlerKey::Missing;
         assert!(tooltip(&main, &s).ends_with("handler missing"));
-        assert!(tooltip(&test, &s).chars().count() < 128, "fits the tray's tooltip limit");
+        assert!(
+            tooltip(&test, &s).chars().count() < 128,
+            "fits the tray's tooltip limit"
+        );
     }
 }

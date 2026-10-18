@@ -45,16 +45,37 @@ pub enum McpOp {
         provisional_key: Option<String>,
     },
     /// Keep the handle alive and update what you're doing.
-    Heartbeat { handle: String, doing: Option<String> },
-    Ask { handle: String, ask: AskInput },
+    Heartbeat {
+        handle: String,
+        doing: Option<String>,
+    },
+    Ask {
+        handle: String,
+        ask: AskInput,
+    },
     /// Answers for this handle's owner. `ids` empty = all of this owner's asks with answers not yet delivered.
     /// `wait_ms` is capped by the daemon (default cap 20 000; the MCP front-end may pass a larger host-specific cap).
-    Answers { handle: String, ids: Vec<String>, wait_ms: u64 },
-    Cancel { handle: String, id: String },
+    Answers {
+        handle: String,
+        ids: Vec<String>,
+        wait_ms: u64,
+    },
+    Cancel {
+        handle: String,
+        id: String,
+    },
     /// Relay owner only: answers waiting for any owner.
-    RelayList { handle: String },
+    RelayList {
+        handle: String,
+    },
     /// Relay owner only: record a delivery.
-    RelayMark { handle: String, ask_id: String, to: String, ok: bool, detail: Option<String> },
+    RelayMark {
+        handle: String,
+        ask_id: String,
+        to: String,
+        ok: bool,
+        detail: Option<String>,
+    },
     Status,
 }
 
@@ -136,12 +157,18 @@ pub enum DeskOp {
         note: Option<String>,
     },
     /// From the `agentbolt://` handler: a per-button token minted for a toast.
-    AnswerToken { token: String },
+    AnswerToken {
+        token: String,
+    },
     Agents,
     Owners,
-    SetOwner { owner: Owner },
+    SetOwner {
+        owner: Owner,
+    },
     GetSettings,
-    SetSettings { settings: Settings },
+    SetSettings {
+        settings: Settings,
+    },
     Status,
 }
 

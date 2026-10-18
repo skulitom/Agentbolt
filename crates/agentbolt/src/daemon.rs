@@ -37,14 +37,22 @@ pub enum CallError {
 impl std::fmt::Display for CallError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CallError::NotRunning(s) | CallError::Refused(s) | CallError::Other(s) => f.write_str(s),
+            CallError::NotRunning(s) | CallError::Refused(s) | CallError::Other(s) => {
+                f.write_str(s)
+            }
         }
     }
 }
 
 impl Daemon {
     pub fn new(names: Names, pipe: Pipe, autostart: bool) -> Self {
-        Self { names, pipe, autostart, idle: Mutex::new(Vec::new()), last_start: Mutex::new(None) }
+        Self {
+            names,
+            pipe,
+            autostart,
+            idle: Mutex::new(Vec::new()),
+            last_start: Mutex::new(None),
+        }
     }
 
     pub fn names(&self) -> &Names {
@@ -107,9 +115,13 @@ impl Daemon {
             return Err(CallError::NotRunning(not_running));
         }
         let names = self.names.clone();
-        let run = tokio::task::spawn_blocking(move || run_task(&names)).await.unwrap_or_else(|e| Err(e.to_string()));
+        let run = tokio::task::spawn_blocking(move || run_task(&names))
+            .await
+            .unwrap_or_else(|e| Err(e.to_string()));
         if let Err(why) = run {
-            return Err(CallError::NotRunning(format!("{not_running} Its sign-in task didn't start: {why}")));
+            return Err(CallError::NotRunning(format!(
+                "{not_running} Its sign-in task didn't start: {why}"
+            )));
         }
         let deadline = Instant::now() + START_WAIT;
         loop {
@@ -143,13 +155,18 @@ fn classify(e: IpcError) -> CallError {
 /// `schtasks /Run /TN <task>`. Ok when Task Scheduler accepted the start.
 #[cfg(windows)]
 pub fn run_task(names: &Names) -> Result<(), String> {
-    crate::install::schtasks(&["/Run", "/TN", &names.task]).map(|_| ()).map_err(|e| {
-        if crate::install::task_exists(names) {
-            e
-        } else {
-            format!("there's no task '{}'; install Agentbolt with `agentbolt install`.", names.task)
-        }
-    })
+    crate::install::schtasks(&["/Run", "/TN", &names.task])
+        .map(|_| ())
+        .map_err(|e| {
+            if crate::install::task_exists(names) {
+                e
+            } else {
+                format!(
+                    "there's no task '{}'; install Agentbolt with `agentbolt install`.",
+                    names.task
+                )
+            }
+        })
 }
 
 #[cfg(not(windows))]

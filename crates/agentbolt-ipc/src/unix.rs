@@ -16,7 +16,8 @@ pub(crate) type ClientStream = UnixStream;
 
 /// The socket's path, for display (`Pipe::path`). Without a data folder (no `$HOME`) it says so instead.
 pub(crate) fn pipe_path(names: &Names, name: &str) -> PathBuf {
-    socket_path(names, name).unwrap_or_else(|_| PathBuf::from(format!("<no data folder>/{name}.sock")))
+    socket_path(names, name)
+        .unwrap_or_else(|_| PathBuf::from(format!("<no data folder>/{name}.sock")))
 }
 
 /// The socket's path in the channel's data folder; an error when there's no data folder.
@@ -25,7 +26,9 @@ fn socket_path(names: &Names, name: &str) -> Result<PathBuf, IpcError> {
 }
 
 fn data_dir(names: &Names) -> Result<PathBuf, IpcError> {
-    names.data_dir().map_err(|e| IpcError::Io(io::Error::new(io::ErrorKind::NotFound, e)))
+    names
+        .data_dir()
+        .map_err(|e| IpcError::Io(io::Error::new(io::ErrorKind::NotFound, e)))
 }
 
 pub(crate) enum AcceptError {
@@ -64,8 +67,16 @@ impl Listener {
     }
 
     pub(crate) async fn accept(&mut self) -> Result<(UnixStream, Option<u32>), AcceptError> {
-        let (stream, _) = self.listener.accept().await.map_err(AcceptError::Transient)?;
-        let pid = stream.peer_cred().ok().and_then(|c| c.pid()).and_then(|p| u32::try_from(p).ok());
+        let (stream, _) = self
+            .listener
+            .accept()
+            .await
+            .map_err(AcceptError::Transient)?;
+        let pid = stream
+            .peer_cred()
+            .ok()
+            .and_then(|c| c.pid())
+            .and_then(|p| u32::try_from(p).ok());
         Ok((stream, pid))
     }
 }
@@ -80,19 +91,35 @@ pub(crate) fn drop_client(stream: UnixStream) {
     drop(stream);
 }
 
-pub(crate) async fn connect(names: &Names, name: &str) -> Result<(UnixStream, Option<u32>), IpcError> {
+pub(crate) async fn connect(
+    names: &Names,
+    name: &str,
+) -> Result<(UnixStream, Option<u32>), IpcError> {
     let path = socket_path(names, name)?;
     let stream = match UnixStream::connect(&path).await {
         Ok(stream) => stream,
-        Err(e) if matches!(e.kind(), io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused) => {
+        Err(e)
+            if matches!(
+                e.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+            ) =>
+        {
             return Err(IpcError::NotRunning(names.channel.clone()));
         }
         Err(e) => return Err(IpcError::Io(e)),
     };
-    let pid = stream.peer_cred().ok().and_then(|c| c.pid()).and_then(|p| u32::try_from(p).ok());
+    let pid = stream
+        .peer_cred()
+        .ok()
+        .and_then(|c| c.pid())
+        .and_then(|p| u32::try_from(p).ok());
     Ok((stream, pid))
 }
 
 pub(crate) fn process_image(pid: u32) -> Option<PathBuf> {
-    if cfg!(target_os = "linux") { std::fs::read_link(format!("/proc/{pid}/exe")).ok() } else { None }
+    if cfg!(target_os = "linux") {
+        std::fs::read_link(format!("/proc/{pid}/exe")).ok()
+    } else {
+        None
+    }
 }

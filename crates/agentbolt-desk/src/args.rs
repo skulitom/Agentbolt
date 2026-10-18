@@ -7,7 +7,12 @@ pub enum Mode {
     /// The URL protocol handler: `<protocol>://answer?t=<token>` or `<protocol>://open`.
     Url(String),
     /// Test channels only: answer one ask through the Desk pipe and exit.
-    Answer { ask_id: String, choice: Option<String>, values: Option<String>, note: Option<String> },
+    Answer {
+        ask_id: String,
+        choice: Option<String>,
+        values: Option<String>,
+        note: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,7 +30,8 @@ agentbolt-desk --channel NAME --answer ASK_ID --choice TEXT [--note N] [--values
 pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
     let items: Vec<String> = args.into_iter().collect();
     let mut i = 0;
-    let (mut channel, mut url, mut answer, mut choice, mut values, mut note) = (None, None, None, None, None, None);
+    let (mut channel, mut url, mut answer, mut choice, mut values, mut note) =
+        (None, None, None, None, None, None);
     while i < items.len() {
         let (flag, inline) = match items[i].split_once('=') {
             Some((f, v)) if f.starts_with("--") => (f.to_string(), Some(v.to_string())),
@@ -36,7 +42,10 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
             if let Some(v) = inline.clone() {
                 return Ok(v);
             }
-            let v = items.get(i).cloned().ok_or_else(|| format!("{flag} needs a value"))?;
+            let v = items
+                .get(i)
+                .cloned()
+                .ok_or_else(|| format!("{flag} needs a value"))?;
             i += 1;
             Ok(v)
         };
@@ -58,7 +67,12 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
             if choice.is_none() && values.is_none() {
                 return Err("--answer needs --choice (or --values for a form)".into());
             }
-            Mode::Answer { ask_id, choice, values, note }
+            Mode::Answer {
+                ask_id,
+                choice,
+                values,
+                note,
+            }
         }
         (None, None) => {
             if choice.is_some() || values.is_some() || note.is_some() {
@@ -80,21 +94,49 @@ mod tests {
 
     #[test]
     fn modes() {
-        assert_eq!(p(&[]).unwrap(), Args { channel: None, mode: Mode::Window });
         assert_eq!(
-            p(&["--channel", "t1", "--url", "agentbolt-t1://answer?t=abc"]).unwrap(),
-            Args { channel: Some("t1".into()), mode: Mode::Url("agentbolt-t1://answer?t=abc".into()) }
+            p(&[]).unwrap(),
+            Args {
+                channel: None,
+                mode: Mode::Window
+            }
         );
         assert_eq!(
-            p(&["--channel=t1", "--answer", "a1", "--choice", "Ship", "--note", "ok"]).unwrap().mode,
-            Mode::Answer { ask_id: "a1".into(), choice: Some("Ship".into()), values: None, note: Some("ok".into()) }
+            p(&["--channel", "t1", "--url", "agentbolt-t1://answer?t=abc"]).unwrap(),
+            Args {
+                channel: Some("t1".into()),
+                mode: Mode::Url("agentbolt-t1://answer?t=abc".into())
+            }
+        );
+        assert_eq!(
+            p(&[
+                "--channel=t1",
+                "--answer",
+                "a1",
+                "--choice",
+                "Ship",
+                "--note",
+                "ok"
+            ])
+            .unwrap()
+            .mode,
+            Mode::Answer {
+                ask_id: "a1".into(),
+                choice: Some("Ship".into()),
+                values: None,
+                note: Some("ok".into())
+            }
         );
     }
 
     #[test]
     fn mistakes_are_refused() {
         assert!(p(&["--answer", "a1"]).unwrap_err().contains("--choice"));
-        assert!(p(&["--choice", "x"]).unwrap_err().contains("go with --answer"));
+        assert!(
+            p(&["--choice", "x"])
+                .unwrap_err()
+                .contains("go with --answer")
+        );
         assert!(p(&["--url", "u", "--answer", "a", "--choice", "c"]).is_err());
         assert!(p(&["--channel"]).unwrap_err().contains("needs a value"));
         assert!(p(&["--bogus"]).unwrap_err().contains("isn't an option"));

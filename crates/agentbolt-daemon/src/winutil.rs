@@ -3,8 +3,12 @@
 use std::path::{Path, PathBuf};
 
 use agentbolt_core::channel::Names;
-use windows::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, ERROR_SUCCESS, GetLastError, HANDLE};
-use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_EXPAND_SZ, RRF_RT_REG_SZ, RegGetValueW};
+use windows::Win32::Foundation::{
+    ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, ERROR_SUCCESS, GetLastError, HANDLE,
+};
+use windows::Win32::System::Registry::{
+    HKEY_CURRENT_USER, RRF_RT_REG_EXPAND_SZ, RRF_RT_REG_SZ, RegGetValueW,
+};
 use windows::Win32::System::Threading::CreateMutexW;
 use windows::core::HSTRING;
 
@@ -57,14 +61,32 @@ fn read_default_value(subkey: &str) -> Option<String> {
     let subkey = HSTRING::from(subkey);
     let flags = RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ;
     let mut size = 0u32;
-    let status = unsafe { RegGetValueW(HKEY_CURRENT_USER, &subkey, None, flags, None, None, Some(&mut size)) };
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            &subkey,
+            None,
+            flags,
+            None,
+            None,
+            Some(&mut size),
+        )
+    };
     if status != ERROR_SUCCESS || size == 0 {
         return None;
     }
     let mut buf = vec![0u16; (size as usize).div_ceil(2) + 1];
     let mut size = (buf.len() * 2) as u32;
     let status = unsafe {
-        RegGetValueW(HKEY_CURRENT_USER, &subkey, None, flags, None, Some(buf.as_mut_ptr().cast()), Some(&mut size))
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            &subkey,
+            None,
+            flags,
+            None,
+            Some(buf.as_mut_ptr().cast()),
+            Some(&mut size),
+        )
     };
     if status != ERROR_SUCCESS {
         return None;
@@ -92,9 +114,14 @@ mod tests {
     fn the_program_is_read_from_quoted_and_bare_commands() {
         assert_eq!(
             command_program(r#""C:\Program Files\Agentbolt\agentbolt-desk.exe" --channel t "%1""#),
-            Some(PathBuf::from(r"C:\Program Files\Agentbolt\agentbolt-desk.exe"))
+            Some(PathBuf::from(
+                r"C:\Program Files\Agentbolt\agentbolt-desk.exe"
+            ))
         );
-        assert_eq!(command_program(r"C:\x\agentbolt-desk.exe %1"), Some(PathBuf::from(r"C:\x\agentbolt-desk.exe")));
+        assert_eq!(
+            command_program(r"C:\x\agentbolt-desk.exe %1"),
+            Some(PathBuf::from(r"C:\x\agentbolt-desk.exe"))
+        );
         assert_eq!(command_program("   "), None);
         assert_eq!(command_program(r#""""#), None);
     }

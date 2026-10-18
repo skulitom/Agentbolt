@@ -42,7 +42,9 @@ fn mac(secret: &[u8], ask_id: &str, option_index: usize, toast_id: &str) -> Hmac
 
 /// Mint the token for one button.
 pub fn mint(secret: &[u8], ask_id: &str, option_index: usize, toast_id: &str) -> String {
-    let tag = mac(secret, ask_id, option_index, toast_id).finalize().into_bytes();
+    let tag = mac(secret, ask_id, option_index, toast_id)
+        .finalize()
+        .into_bytes();
     format!("{toast_id}.{option_index}.{}", hex::encode(tag))
 }
 
@@ -57,11 +59,15 @@ pub struct ParsedToken {
 pub fn parse(token: &str) -> Result<ParsedToken, String> {
     let malformed = || "malformed answer token".to_string();
     let mut parts = token.trim().split('.');
-    let (Some(toast_id), Some(idx), Some(tag), None) = (parts.next(), parts.next(), parts.next(), parts.next())
+    let (Some(toast_id), Some(idx), Some(tag), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
     else {
         return Err(malformed());
     };
-    let is_hex = |s: &str| s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+    let is_hex = |s: &str| {
+        s.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    };
     if toast_id.len() != TOAST_ID_HEX || !is_hex(toast_id) || tag.len() != MAC_HEX || !is_hex(tag) {
         return Err(malformed());
     }
@@ -70,12 +76,18 @@ pub fn parse(token: &str) -> Result<ParsedToken, String> {
     }
     let option_index = idx.parse().map_err(|_| malformed())?;
     let tag = hex::decode(tag).map_err(|_| malformed())?;
-    Ok(ParsedToken { toast_id: toast_id.to_string(), option_index, tag })
+    Ok(ParsedToken {
+        toast_id: toast_id.to_string(),
+        option_index,
+        tag,
+    })
 }
 
 /// True when the token's MAC matches this ask (constant-time comparison).
 pub fn verify(secret: &[u8], ask_id: &str, token: &ParsedToken) -> bool {
-    mac(secret, ask_id, token.option_index, &token.toast_id).verify_slice(&token.tag).is_ok()
+    mac(secret, ask_id, token.option_index, &token.toast_id)
+        .verify_slice(&token.tag)
+        .is_ok()
 }
 
 #[cfg(test)]

@@ -8,7 +8,9 @@
 
 use std::sync::Arc;
 
-use agentbolt_core::model::{AnswerVia, Ask, AskInput, AskKind, AskStatus, Evidence, Field, Priority};
+use agentbolt_core::model::{
+    AnswerVia, Ask, AskInput, AskKind, AskStatus, Evidence, Field, Priority,
+};
 use agentbolt_core::protocol::AnswersResult;
 use rmcp::model::{JsonObject, Tool, ToolAnnotations};
 use serde_json::{Value, json};
@@ -45,8 +47,17 @@ fn schema(v: Value) -> Arc<JsonObject> {
     }
 }
 
-fn tool(name: &'static str, title: &str, description: &'static str, input: Value, read_only: bool) -> Tool {
-    let ann = ToolAnnotations::with_title(title).read_only(read_only).destructive(false).open_world(false);
+fn tool(
+    name: &'static str,
+    title: &str,
+    description: &'static str,
+    input: Value,
+    read_only: bool,
+) -> Tool {
+    let ann = ToolAnnotations::with_title(title)
+        .read_only(read_only)
+        .destructive(false)
+        .open_world(false);
     Tool::new(name, description, schema(input)).with_annotations(ann)
 }
 
@@ -159,7 +170,11 @@ fn str_list(args: &JsonObject, key: &str) -> Result<Vec<String>, String> {
         None | Some(Value::Null) => Ok(Vec::new()),
         Some(Value::Array(items)) => items
             .iter()
-            .map(|v| v.as_str().map(str::to_string).ok_or_else(|| format!("{key} must be a list of strings")))
+            .map(|v| {
+                v.as_str()
+                    .map(str::to_string)
+                    .ok_or_else(|| format!("{key} must be a list of strings"))
+            })
             .collect(),
         Some(_) => Err(format!("{key} must be a list of strings")),
     }
@@ -190,8 +205,9 @@ pub fn parse_priority(s: &str) -> Result<Priority, String> {
 /// Checks an RFC 3339 deadline and returns it normalised.
 pub fn parse_deadline(s: &str) -> Result<String, String> {
     use time::format_description::well_known::Rfc3339;
-    let t = time::OffsetDateTime::parse(s.trim(), &Rfc3339)
-        .map_err(|_| format!("deadline must be RFC 3339 with a zone, like 2026-10-20T18:00:00+01:00, not '{s}'"))?;
+    let t = time::OffsetDateTime::parse(s.trim(), &Rfc3339).map_err(|_| {
+        format!("deadline must be RFC 3339 with a zone, like 2026-10-20T18:00:00+01:00, not '{s}'")
+    })?;
     t.format(&Rfc3339).map_err(|e| e.to_string())
 }
 
@@ -206,18 +222,21 @@ pub fn ask_input(args: &JsonObject) -> Result<AskInput, String> {
         _ => return Err("default is required: your recommended answer".into()),
     };
     let deadline = parse_deadline(&req_str(args, "deadline")?)?;
-    let reversible = bool_arg(args, "reversible")?.ok_or("reversible is required: can this be undone later?")?;
+    let reversible =
+        bool_arg(args, "reversible")?.ok_or("reversible is required: can this be undone later?")?;
     let priority = match str_arg(args, "priority")? {
         Some(p) => parse_priority(&p)?,
         None => Priority::P1,
     };
     let evidence: Vec<Evidence> = match args.get("evidence") {
         None | Some(Value::Null) => Vec::new(),
-        Some(v) => serde_json::from_value(v.clone()).map_err(|_| "evidence must be a list of {label, url}")?,
+        Some(v) => serde_json::from_value(v.clone())
+            .map_err(|_| "evidence must be a list of {label, url}")?,
     };
     let fields: Vec<Field> = match args.get("fields") {
         None | Some(Value::Null) => Vec::new(),
-        Some(v) => serde_json::from_value(v.clone()).map_err(|_| "fields must be a list of {id, label, type}")?,
+        Some(v) => serde_json::from_value(v.clone())
+            .map_err(|_| "fields must be a list of {id, label, type}")?,
     };
     Ok(AskInput {
         kind,
@@ -243,9 +262,14 @@ pub struct AnswersArgs {
 pub fn answers_args(args: &JsonObject, max_wait_ms: u64) -> Result<AnswersArgs, String> {
     let wait_ms = match args.get("wait_ms") {
         None | Some(Value::Null) => 0,
-        Some(v) => v.as_u64().ok_or("wait_ms must be a whole number of milliseconds")?,
+        Some(v) => v
+            .as_u64()
+            .ok_or("wait_ms must be a whole number of milliseconds")?,
     };
-    Ok(AnswersArgs { ids: str_list(args, "ids")?, wait_ms: wait_ms.min(max_wait_ms) })
+    Ok(AnswersArgs {
+        ids: str_list(args, "ids")?,
+        wait_ms: wait_ms.min(max_wait_ms),
+    })
 }
 
 pub fn cancel_id(args: &JsonObject) -> Result<String, String> {
@@ -254,7 +278,12 @@ pub fn cancel_id(args: &JsonObject) -> Result<String, String> {
 
 pub enum RelayAction {
     List,
-    Mark { ask_id: String, to: String, ok: bool, detail: Option<String> },
+    Mark {
+        ask_id: String,
+        to: String,
+        ok: bool,
+        detail: Option<String>,
+    },
 }
 
 pub fn relay_action(args: &JsonObject) -> Result<RelayAction, String> {
@@ -285,10 +314,17 @@ pub fn as_object(v: Value) -> Value {
 pub fn asks_in(v: &Value) -> Vec<Ask> {
     let list = match v {
         Value::Array(a) => Some(a),
-        Value::Object(o) => ["answers", "asks", "items", "digest"].iter().find_map(|k| o.get(*k)?.as_array()),
+        Value::Object(o) => ["answers", "asks", "items", "digest"]
+            .iter()
+            .find_map(|k| o.get(*k)?.as_array()),
         _ => None,
     };
-    list.map(|a| a.iter().filter_map(|x| serde_json::from_value(x.clone()).ok()).collect()).unwrap_or_default()
+    list.map(|a| {
+        a.iter()
+            .filter_map(|x| serde_json::from_value(x.clone()).ok())
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 fn plural(n: usize, one: &str, many: &str) -> String {
@@ -296,7 +332,9 @@ fn plural(n: usize, one: &str, many: &str) -> String {
 }
 
 fn answer_value(ask: &Ask) -> String {
-    let Some(a) = &ask.answer else { return String::new() };
+    let Some(a) = &ask.answer else {
+        return String::new();
+    };
     if let Some(c) = &a.choice {
         format!("\"{c}\"")
     } else if let Some(v) = &a.values {
@@ -310,18 +348,30 @@ fn answer_value(ask: &Ask) -> String {
 pub fn describe_answer(ask: &Ask) -> String {
     let head = format!("{} \"{}\"", ask.id, ask.input.title);
     match (&ask.status, &ask.answer) {
-        (_, Some(a)) if a.via == AnswerVia::Defaulted || ask.status == AskStatus::Defaulted => format!(
-            "{head}: no answer from Artem; it defaulted to {}. A default carries no authority from him: act \
+        (_, Some(a)) if a.via == AnswerVia::Defaulted || ask.status == AskStatus::Defaulted => {
+            format!(
+                "{head}: no answer from Artem; it defaulted to {}. A default carries no authority from him: act \
              under your own rules.",
-            answer_value(ask)
-        ),
+                answer_value(ask)
+            )
+        }
         (_, Some(a)) => {
-            let note = a.note.as_deref().map(|n| format!(" Note: {n}")).unwrap_or_default();
-            let via = if a.via == AnswerVia::Toast { " (from a notification)" } else { "" };
+            let note = a
+                .note
+                .as_deref()
+                .map(|n| format!(" Note: {n}"))
+                .unwrap_or_default();
+            let via = if a.via == AnswerVia::Toast {
+                " (from a notification)"
+            } else {
+                ""
+            };
             format!("{head}: Artem answered {}{via}.{note}", answer_value(ask))
         }
         (AskStatus::Cancelled, None) => format!("{head}: cancelled."),
-        (AskStatus::Digest, None) => format!("{head}: no answer yet; it waits in his daily digest."),
+        (AskStatus::Digest, None) => {
+            format!("{head}: no answer yet; it waits in his daily digest.")
+        }
         _ => format!("{head}: no answer yet."),
     }
 }
@@ -329,8 +379,14 @@ pub fn describe_answer(ask: &Ask) -> String {
 pub fn register_line(v: &Value) -> String {
     let owner = v.get("owner").and_then(Value::as_str).unwrap_or("?");
     let handle = v.get("handle").and_then(Value::as_str).unwrap_or("?");
-    let answers = v.get("answers").and_then(Value::as_array).map_or(0, Vec::len);
-    let open = v.get("open_asks").and_then(Value::as_array).map_or(0, Vec::len);
+    let answers = v
+        .get("answers")
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
+    let open = v
+        .get("open_asks")
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
     let provisional = if v.get("provisional").and_then(Value::as_bool) == Some(true) {
         " (a provisional owner until Artem approves it on the Desk)"
     } else {
@@ -348,13 +404,20 @@ pub fn register_line(v: &Value) -> String {
 fn is_same_ask(existing: &AskInput, sent: &AskInput) -> bool {
     match (&existing.dedupe_key, &sent.dedupe_key) {
         (Some(a), Some(b)) => a == b,
-        _ => existing.title.trim().eq_ignore_ascii_case(sent.title.trim()),
+        _ => existing
+            .title
+            .trim()
+            .eq_ignore_ascii_case(sent.title.trim()),
     }
 }
 
 pub fn ask_line(v: &Value, sent: Option<&AskInput>) -> String {
     let line = placed_line(v, sent);
-    match v.get("note").and_then(Value::as_str).filter(|n| !n.trim().is_empty()) {
+    match v
+        .get("note")
+        .and_then(Value::as_str)
+        .filter(|n| !n.trim().is_empty())
+    {
         Some(note) => format!("{line} {note}"),
         None => line,
     }
@@ -368,21 +431,28 @@ fn placed_line(v: &Value, sent: Option<&AskInput>) -> String {
              desk_answers later."
         ),
         Some("cap") => {
-            let title = v.pointer("/existing/title").and_then(Value::as_str).unwrap_or("?");
+            let title = v
+                .pointer("/existing/title")
+                .and_then(Value::as_str)
+                .unwrap_or("?");
             format!(
                 "Not asked: your owner already has its limit of open asks. The oldest is {id} \"{title}\". \
                  Withdraw one you no longer need with desk_cancel, or wait for answers."
             )
         }
         Some("existing") => {
-            let existing: Option<Ask> = v.get("existing").and_then(|e| serde_json::from_value(e.clone()).ok());
+            let existing: Option<Ask> = v
+                .get("existing")
+                .and_then(|e| serde_json::from_value(e.clone()).ok());
             match (existing, sent) {
                 (Some(e), Some(s)) if !is_same_ask(&e.input, s) => format!(
                     "Not asked: your owner already has its limit of open asks. The oldest is {id} \"{}\". \
                      Withdraw one you no longer need with desk_cancel, or wait for answers.",
                     e.input.title
                 ),
-                _ => format!("Not asked again: it matches your ask {id}. Check desk_answers for it."),
+                _ => {
+                    format!("Not asked again: it matches your ask {id}. Check desk_answers for it.")
+                }
             }
         }
         _ => format!("Asked: {id} is in Artem's Inbox. Keep working and check desk_answers later."),
@@ -415,14 +485,20 @@ pub fn answers_line(v: &Value) -> String {
         s.push_str(&format!("\nCancelled: {}.", r.cancelled.join(", ")));
     }
     if !r.unknown.is_empty() {
-        s.push_str(&format!("\nNot your asks, or no such ids: {}.", r.unknown.join(", ")));
+        s.push_str(&format!(
+            "\nNot your asks, or no such ids: {}.",
+            r.unknown.join(", ")
+        ));
     }
     s
 }
 
 pub fn relay_list_line(v: &Value) -> String {
     let asks = asks_in(v);
-    let mut s = format!("{} waiting for other owners.", plural(asks.len(), "answer", "answers"));
+    let mut s = format!(
+        "{} waiting for other owners.",
+        plural(asks.len(), "answer", "answers")
+    );
     for a in &asks {
         s.push_str(&format!("\n[{}] {}", a.owner, describe_answer(a)));
     }
@@ -449,11 +525,23 @@ mod tests {
         assert_eq!(names, NAMES);
         assert!(tools.iter().all(|t| t.output_schema.is_none()));
         let register = serde_json::to_value(&tools[0]).unwrap();
-        assert!(register["inputSchema"]["properties"].get("session").is_none(), "agents can't choose their session");
+        assert!(
+            register["inputSchema"]["properties"]
+                .get("session")
+                .is_none(),
+            "agents can't choose their session"
+        );
         let relay = serde_json::to_value(&tools[4]).unwrap();
-        let to = relay["inputSchema"]["properties"]["to"]["description"].as_str().unwrap();
-        assert!(to.contains("session id") && to.contains("\"notes\""), "{to}");
-        let size = serde_json::to_string(&json!({ "tools": tools })).unwrap().len();
+        let to = relay["inputSchema"]["properties"]["to"]["description"]
+            .as_str()
+            .unwrap();
+        assert!(
+            to.contains("session id") && to.contains("\"notes\""),
+            "{to}"
+        );
+        let size = serde_json::to_string(&json!({ "tools": tools }))
+            .unwrap()
+            .len();
         assert!(size < 6000, "tools/list is {size} characters");
     }
 
@@ -487,14 +575,21 @@ mod tests {
         o.insert("deadline".into(), json!("tomorrow"));
         assert!(ask_input(&o).unwrap_err().contains("RFC 3339"));
         o.insert("deadline".into(), json!("2026-10-20T18:00:00"));
-        assert!(ask_input(&o).unwrap_err().contains("RFC 3339"), "a deadline without a zone is refused");
+        assert!(
+            ask_input(&o).unwrap_err().contains("RFC 3339"),
+            "a deadline without a zone is refused"
+        );
         let mut o = obj(base.clone());
         o.insert("kind".into(), json!("poll"));
         assert!(ask_input(&o).unwrap_err().contains("kind"));
         let mut o = obj(base);
         o.insert("kind".into(), json!("inform"));
         o.remove("default");
-        assert_eq!(ask_input(&o).unwrap().default, Value::Null, "an FYI needs no default");
+        assert_eq!(
+            ask_input(&o).unwrap().default,
+            Value::Null,
+            "an FYI needs no default"
+        );
     }
 
     #[test]
@@ -526,11 +621,20 @@ mod tests {
         let line = answers_line(&v);
         assert!(line.starts_with("1 answer:"), "{line}");
         assert!(line.contains("Artem answered \"Ship\". Note: go"), "{line}");
-        assert!(line.contains("No answer yet for a2. Silence is not agreement"), "{line}");
-        assert!(line.contains("Cancelled: a3.") && line.contains("no such ids: zz."), "{line}");
+        assert!(
+            line.contains("No answer yet for a2. Silence is not agreement"),
+            "{line}"
+        );
+        assert!(
+            line.contains("Cancelled: a3.") && line.contains("no such ids: zz."),
+            "{line}"
+        );
         let line = answers_line(&json!({"answers": [], "waiting": []}));
         assert_eq!(line, "No answers yet. Silence is not agreement.");
-        assert!(answers_line(&json!([ask("open", None)])).contains("no answer yet"), "an older shape still reads");
+        assert!(
+            answers_line(&json!([ask("open", None)])).contains("no answer yet"),
+            "an older shape still reads"
+        );
     }
 
     #[test]
@@ -544,11 +648,25 @@ mod tests {
         let mut other = sent.clone();
         other.title = "Something else".into();
         let line = ask_line(&same, Some(&other));
-        assert!(line.contains("limit of open asks") && line.contains("desk_cancel"), "{line}");
-        let p1 = ask_line(&json!({"id": "a1", "placed": "open", "note": "Stored as P1: this one is provisional."}), None);
-        assert!(p1.contains("Inbox") && p1.ends_with("Stored as P1: this one is provisional."), "{p1}");
-        let r = register_line(&json!({"handle": "h1", "owner": "o", "provisional": true, "answers": [], "open_asks": [1]}));
-        assert!(r.contains("provisional") && r.contains("0 answers") && r.contains("1 ask open"), "{r}");
+        assert!(
+            line.contains("limit of open asks") && line.contains("desk_cancel"),
+            "{line}"
+        );
+        let p1 = ask_line(
+            &json!({"id": "a1", "placed": "open", "note": "Stored as P1: this one is provisional."}),
+            None,
+        );
+        assert!(
+            p1.contains("Inbox") && p1.ends_with("Stored as P1: this one is provisional."),
+            "{p1}"
+        );
+        let r = register_line(
+            &json!({"handle": "h1", "owner": "o", "provisional": true, "answers": [], "open_asks": [1]}),
+        );
+        assert!(
+            r.contains("provisional") && r.contains("0 answers") && r.contains("1 ask open"),
+            "{r}"
+        );
     }
 
     #[test]
@@ -561,7 +679,14 @@ mod tests {
     #[test]
     fn instructions_say_the_rules() {
         let s = instructions(Some("compass-storefront"));
-        for needle in ["durable", "start of a run", "before you finish", "Silence is never agreement", "no authority", "compass-storefront"] {
+        for needle in [
+            "durable",
+            "start of a run",
+            "before you finish",
+            "Silence is never agreement",
+            "no authority",
+            "compass-storefront",
+        ] {
             assert!(s.contains(needle), "missing {needle}");
         }
     }

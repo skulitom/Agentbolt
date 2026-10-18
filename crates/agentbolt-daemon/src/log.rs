@@ -16,11 +16,17 @@ pub struct Log {
 
 impl Log {
     pub fn new(path: PathBuf, roll_at: u64) -> Self {
-        Log { path, roll_at, file: Mutex::new(None) }
+        Log {
+            path,
+            roll_at,
+            file: Mutex::new(None),
+        }
     }
 
     pub fn write(&self, level: &str, message: &str) {
-        let Ok(mut guard) = self.file.lock() else { return };
+        let Ok(mut guard) = self.file.lock() else {
+            return;
+        };
         let size = std::fs::metadata(&self.path).map(|m| m.len()).unwrap_or(0);
         if size >= self.roll_at {
             *guard = None;
@@ -29,7 +35,11 @@ impl Log {
             let _ = std::fs::rename(&self.path, &old);
         }
         if guard.is_none() {
-            *guard = OpenOptions::new().create(true).append(true).open(&self.path).ok();
+            *guard = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&self.path)
+                .ok();
         }
         if let Some(file) = guard.as_mut() {
             let now = time::OffsetDateTime::now_utc()
@@ -79,11 +89,16 @@ mod tests {
         }
         let old = dir.path().join("agentbolt.log.old");
         assert!(old.exists(), "rolled to .old");
-        let current = std::fs::metadata(dir.path().join("agentbolt.log")).unwrap().len();
+        let current = std::fs::metadata(dir.path().join("agentbolt.log"))
+            .unwrap()
+            .len();
         assert!(current < 1100, "the live log restarted small: {current}");
         assert!(std::fs::read_to_string(&old).unwrap().contains("INFO line"));
         log.write("WARN", "two\nlines");
         let text = std::fs::read_to_string(dir.path().join("agentbolt.log")).unwrap();
-        assert!(text.contains("WARN two lines"), "newlines can't forge log lines");
+        assert!(
+            text.contains("WARN two lines"),
+            "newlines can't forge log lines"
+        );
     }
 }

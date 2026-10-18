@@ -9,7 +9,13 @@ use crate::daemon::DaemonService;
 use crate::log::warning;
 
 impl DaemonService for StoreService {
-    fn record_delivery(&self, ask_id: &str, to: &str, ok: bool, detail: Option<&str>) -> Result<(), String> {
+    fn record_delivery(
+        &self,
+        ask_id: &str,
+        to: &str,
+        ok: bool,
+        detail: Option<&str>,
+    ) -> Result<(), String> {
         StoreService::record_delivery(self, ask_id, to, ok, detail)
     }
 

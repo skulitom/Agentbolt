@@ -9,7 +9,15 @@ const BADGE: [u8; 3] = [0xD1, 0x34, 0x38];
 const WHITE: [u8; 3] = [0xFF, 0xFF, 0xFF];
 
 /// The bolt, clockwise from the top-left of its top bar.
-const BOLT: [(f32, f32); 7] = [(17.5, 1.0), (26.5, 1.0), (19.5, 12.0), (26.5, 12.0), (11.0, 31.0), (14.0, 19.0), (6.0, 19.0)];
+const BOLT: [(f32, f32); 7] = [
+    (17.5, 1.0),
+    (26.5, 1.0),
+    (19.5, 12.0),
+    (26.5, 12.0),
+    (11.0, 31.0),
+    (14.0, 19.0),
+    (6.0, 19.0),
+];
 
 /// RGBA pixels, row by row. `badge` = the number of open asks (0 or None = no badge; above 9 shows "+").
 pub fn rgba(badge: Option<u32>) -> Vec<u8> {
@@ -20,9 +28,16 @@ pub fn rgba(badge: Option<u32>) -> Vec<u8> {
             let (mut fill, mut outline) = (0u32, 0u32);
             for sy in 0..SS {
                 for sx in 0..SS {
-                    let p = (x as f32 + (sx as f32 + 0.5) / SS as f32, y as f32 + (sy as f32 + 0.5) / SS as f32);
+                    let p = (
+                        x as f32 + (sx as f32 + 0.5) / SS as f32,
+                        y as f32 + (sy as f32 + 0.5) / SS as f32,
+                    );
                     if inside(p, &BOLT) {
-                        if edge_distance(p, &BOLT) < 1.0 { outline += 1 } else { fill += 1 }
+                        if edge_distance(p, &BOLT) < 1.0 {
+                            outline += 1
+                        } else {
+                            fill += 1
+                        }
                     } else if edge_distance(p, &BOLT) < 0.6 {
                         outline += 1;
                     }
@@ -31,9 +46,16 @@ pub fn rgba(badge: Option<u32>) -> Vec<u8> {
             let total = (SS * SS) as u32;
             let covered = fill + outline;
             if covered > 0 {
-                let mix = |c: usize| ((FILL[c] as u32 * fill + OUTLINE[c] as u32 * outline) / covered) as u8;
+                let mix = |c: usize| {
+                    ((FILL[c] as u32 * fill + OUTLINE[c] as u32 * outline) / covered) as u8
+                };
                 let i = (y * SIZE + x) * 4;
-                out[i..i + 4].copy_from_slice(&[mix(0), mix(1), mix(2), (255 * covered / total) as u8]);
+                out[i..i + 4].copy_from_slice(&[
+                    mix(0),
+                    mix(1),
+                    mix(2),
+                    (255 * covered / total) as u8,
+                ]);
             }
         }
     }
@@ -137,7 +159,10 @@ mod tests {
         assert_eq!(&px[(5 * SIZE + 21) * 4..(5 * SIZE + 21) * 4 + 3], &FILL);
         assert_eq!(alpha(&px, 15, 21), 255);
         let opaque = px.chunks(4).filter(|p| p[3] > 128).count();
-        assert!((150..450).contains(&opaque), "a bolt, not a block: {opaque} px");
+        assert!(
+            (150..450).contains(&opaque),
+            "a bolt, not a block: {opaque} px"
+        );
         if let Ok(path) = std::env::var("AGENTBOLT_ICON_DUMP") {
             std::fs::write(&path, &px).unwrap();
             std::fs::write(format!("{path}.badge"), rgba(Some(3))).unwrap();
@@ -151,6 +176,10 @@ mod tests {
         assert_ne!(two, rgba(None));
         assert_ne!(two, rgba(Some(3)), "each count draws its own digit");
         assert_eq!(rgba(Some(12)), rgba(Some(40)), "above 9 it's a plus");
-        assert_eq!(&two[(17 * SIZE + 24) * 4..(17 * SIZE + 24) * 4 + 4], &[0xFF, 0xFF, 0xFF, 255], "white rim");
+        assert_eq!(
+            &two[(17 * SIZE + 24) * 4..(17 * SIZE + 24) * 4 + 4],
+            &[0xFF, 0xFF, 0xFF, 255],
+            "white rim"
+        );
     }
 }

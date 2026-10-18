@@ -17,13 +17,21 @@ pub const EXES: [&str; 3] = [CLI_EXE, DAEMON_EXE, DESK_EXE];
 /// a relative fallback) when `LOCALAPPDATA` is unset: install copies into this folder and uninstall deletes it.
 pub fn install_dir(names: &Names) -> anyhow::Result<PathBuf> {
     let local = env_dir("LOCALAPPDATA").map_err(anyhow::Error::msg)?;
-    let folder = if names.is_main() { "Agentbolt".to_string() } else { format!("Agentbolt-{}", names.channel) };
+    let folder = if names.is_main() {
+        "Agentbolt".to_string()
+    } else {
+        format!("Agentbolt-{}", names.channel)
+    };
     Ok(local.join("Programs").join(folder))
 }
 
 /// The toast sender's display name.
 pub fn display_name(names: &Names) -> String {
-    if names.is_main() { "Agentbolt".into() } else { format!("Agentbolt ({})", names.channel) }
+    if names.is_main() {
+        "Agentbolt".into()
+    } else {
+        format!("Agentbolt ({})", names.channel)
+    }
 }
 
 /// `HKCU\<this>` holds the AUMID's display name.
@@ -58,7 +66,10 @@ pub fn old_name(exe: &str, stamp: &str) -> String {
 pub fn is_old_copy(file_name: &str) -> bool {
     EXES.iter().any(|exe| {
         let tag = format!("{exe}.old-");
-        file_name.len() > tag.len() && file_name.get(..tag.len()).is_some_and(|p| p.eq_ignore_ascii_case(&tag))
+        file_name.len() > tag.len()
+            && file_name
+                .get(..tag.len())
+                .is_some_and(|p| p.eq_ignore_ascii_case(&tag))
     })
 }
 
@@ -70,12 +81,19 @@ pub fn is_uninstall_leftover(file_name: &str) -> bool {
 
 /// The shortcut's arguments: none on main, `--channel <name>` otherwise.
 pub fn shortcut_args(names: &Names) -> String {
-    if names.is_main() { String::new() } else { format!("--channel {}", names.channel) }
+    if names.is_main() {
+        String::new()
+    } else {
+        format!("--channel {}", names.channel)
+    }
 }
 
 /// The protocol handler's command line, the value the daemon checks at start (PLAN.md, Toasts).
 pub fn protocol_command(install: &Path, channel: &str) -> String {
-    format!("\"{}\" --channel {channel} --url \"%1\"", install.join(DESK_EXE).display())
+    format!(
+        "\"{}\" --channel {channel} --url \"%1\"",
+        install.join(DESK_EXE).display()
+    )
 }
 
 pub fn xml_escape(s: &str) -> String {
@@ -157,22 +175,49 @@ pub fn task_xml(user: &str, daemon: &Path, channel: &str, workdir: &Path) -> Str
 }
 
 /// The command lines `agentbolt clients` prints: (what it does, program, args).
-pub fn client_commands(names: &Names, install: &Path) -> Vec<(&'static str, &'static str, Vec<String>)> {
+pub fn client_commands(
+    names: &Names,
+    install: &Path,
+) -> Vec<(&'static str, &'static str, Vec<String>)> {
     let exe = install.join(CLI_EXE).display().to_string();
-    let server = if names.is_main() { "agentbolt".to_string() } else { format!("agentbolt-{}", names.channel) };
+    let server = if names.is_main() {
+        "agentbolt".to_string()
+    } else {
+        format!("agentbolt-{}", names.channel)
+    };
     let mut mcp = vec!["--".to_string(), exe, "mcp".to_string()];
     if !names.is_main() {
         mcp.extend(["--channel".to_string(), names.channel.clone()]);
     }
-    let mut claude = vec!["mcp".into(), "add".into(), "--scope".into(), "user".into(), server.clone()];
+    let mut claude = vec![
+        "mcp".into(),
+        "add".into(),
+        "--scope".into(),
+        "user".into(),
+        server.clone(),
+    ];
     claude.extend(mcp.iter().cloned());
     let mut codex = vec!["mcp".into(), "add".into(), server.clone()];
     codex.extend(mcp);
     vec![
         ("Register in Claude Code", "claude", claude),
         ("Register in Codex", "codex", codex),
-        ("Undo in Claude Code", "claude", vec!["mcp".into(), "remove".into(), "--scope".into(), "user".into(), server.clone()]),
-        ("Undo in Codex", "codex", vec!["mcp".into(), "remove".into(), server]),
+        (
+            "Undo in Claude Code",
+            "claude",
+            vec![
+                "mcp".into(),
+                "remove".into(),
+                "--scope".into(),
+                "user".into(),
+                server.clone(),
+            ],
+        ),
+        (
+            "Undo in Codex",
+            "codex",
+            vec!["mcp".into(), "remove".into(), server],
+        ),
     ]
 }
 
@@ -222,7 +267,11 @@ mod win {
             Ok(text(&out.stdout))
         } else {
             let err = text(&out.stderr);
-            Err(if err.is_empty() { text(&out.stdout) } else { err })
+            Err(if err.is_empty() {
+                text(&out.stdout)
+            } else {
+                err
+            })
         }
     }
 
@@ -245,7 +294,9 @@ mod win {
         loop {
             match f() {
                 Ok(v) => return Ok(v),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(e).context(what.to_string()),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    return Err(e).context(what.to_string());
+                }
                 Err(e) if Instant::now() >= deadline => return Err(e).context(what.to_string()),
                 Err(_) => std::thread::sleep(Duration::from_millis(300)),
             }
@@ -253,7 +304,10 @@ mod win {
     }
 
     fn write_task_file(xml: &str, channel: &str) -> anyhow::Result<std::path::PathBuf> {
-        let path = std::env::temp_dir().join(format!("agentbolt-task-{channel}-{}.xml", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "agentbolt-task-{channel}-{}.xml",
+            std::process::id()
+        ));
         let mut bytes = vec![0xFF, 0xFE];
         for unit in xml.encode_utf16() {
             bytes.extend_from_slice(&unit.to_le_bytes());
@@ -265,13 +319,17 @@ mod win {
     /// A stamp for `<exe>.old-<stamp>` names: seconds since 1970 plus this process's id, so two installs in one
     /// second don't collide.
     fn stamp() -> String {
-        let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
         format!("{secs}-{}", std::process::id())
     }
 
     /// Delete `<exe>.old-*` files an earlier install left, best effort (one still running stays until next time).
     pub fn remove_old_copies(dir: &Path) {
-        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
         for entry in entries.flatten() {
             if is_old_copy(&entry.file_name().to_string_lossy()) {
                 let _ = std::fs::remove_file(entry.path());
@@ -296,13 +354,21 @@ mod win {
                 let (src, dst) = (from.join(exe), dir.join(exe));
                 let old = if dst.exists() {
                     let old = dir.join(old_name(exe, &stamp));
-                    retry(&format!("renaming {} aside", dst.display()), || std::fs::rename(&dst, &old))?;
+                    retry(&format!("renaming {} aside", dst.display()), || {
+                        std::fs::rename(&dst, &old)
+                    })?;
                     Some(old)
                 } else {
                     None
                 };
-                done.push(Swapped { dst: dst.clone(), old });
-                retry(&format!("copying {} to {}", src.display(), dst.display()), || std::fs::copy(&src, &dst))?;
+                done.push(Swapped {
+                    dst: dst.clone(),
+                    old,
+                });
+                retry(
+                    &format!("copying {} to {}", src.display(), dst.display()),
+                    || std::fs::copy(&src, &dst),
+                )?;
             }
             Ok(())
         })();
@@ -319,7 +385,12 @@ mod win {
 
     /// Wait until no daemon serves this channel's MCP pipe (after `schtasks /End`), up to `wait`.
     fn wait_until_stopped(names: &Names, wait: Duration) -> bool {
-        let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() else { return false };
+        let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        else {
+            return false;
+        };
         let deadline = Instant::now() + wait;
         loop {
             let gone = rt.block_on(async {
@@ -341,7 +412,10 @@ mod win {
     pub fn install(names: &Names, from: &Path, start: bool) -> anyhow::Result<()> {
         for exe in EXES {
             if !from.join(exe).is_file() {
-                bail!("{} has no {exe}; build all three (cargo build --release) or pass --from <folder>", from.display());
+                bail!(
+                    "{} has no {exe}; build all three (cargo build --release) or pass --from <folder>",
+                    from.display()
+                );
             }
         }
         // Every path first, so a missing LOCALAPPDATA or APPDATA stops here with nothing changed.
@@ -362,7 +436,10 @@ mod win {
             }
             println!("Copied the three programs to {}", dir.display());
         } else {
-            println!("Installing from the install folder {} itself; nothing to copy", dir.display());
+            println!(
+                "Installing from the install folder {} itself; nothing to copy",
+                dir.display()
+            );
         }
         if had_task {
             // Stop the old daemon so the task starts the new one below.
@@ -376,14 +453,39 @@ mod win {
         let proto = protocol_key(names);
         reg::set_string(&proto, None, &format!("URL:{}", display_name(names)))?;
         reg::set_string(&proto, Some("URL Protocol"), "")?;
-        reg::set_string(&format!("{proto}\\shell\\open\\command"), None, &protocol_command(&dir, &names.channel))?;
-        println!("Registered the notification sender {} and the {}:// handler", names.aumid, names.protocol);
-        shortcut::create(&lnk, &dir.join(DESK_EXE), &shortcut_args(names), &dir, &names.aumid)?;
+        reg::set_string(
+            &format!("{proto}\\shell\\open\\command"),
+            None,
+            &protocol_command(&dir, &names.channel),
+        )?;
+        println!(
+            "Registered the notification sender {} and the {}:// handler",
+            names.aumid, names.protocol
+        );
+        shortcut::create(
+            &lnk,
+            &dir.join(DESK_EXE),
+            &shortcut_args(names),
+            &dir,
+            &names.aumid,
+        )?;
         println!("Created the Start-menu shortcut {}", lnk.display());
 
-        let xml = task_xml(&current_user()?, &dir.join(DAEMON_EXE), &names.channel, &dir);
+        let xml = task_xml(
+            &current_user()?,
+            &dir.join(DAEMON_EXE),
+            &names.channel,
+            &dir,
+        );
         let file = write_task_file(&xml, &names.channel)?;
-        let created = schtasks(&["/Create", "/TN", &names.task, "/XML", &file.display().to_string(), "/F"]);
+        let created = schtasks(&[
+            "/Create",
+            "/TN",
+            &names.task,
+            "/XML",
+            &file.display().to_string(),
+            "/F",
+        ]);
         let _ = std::fs::remove_file(&file);
         created.map_err(|e| anyhow::anyhow!("creating the sign-in task '{}': {e}", names.task))?;
         println!("Created the sign-in task '{}'", names.task);
@@ -407,15 +509,24 @@ mod win {
                 .output()
                 .map_err(|e| format!("couldn't run {}: {e}", installed.display()))?;
             let text = |b: &[u8]| String::from_utf8_lossy(b).trim().to_string();
-            return if out.status.success() { Ok(text(&out.stdout)) } else { Err(text(&out.stderr)) };
+            return if out.status.success() {
+                Ok(text(&out.stdout))
+            } else {
+                Err(text(&out.stderr))
+            };
         }
-        rt.block_on(crate::status(names)).map(|s| crate::status_line(&s)).map_err(|e| e.to_string())
+        rt.block_on(crate::status(names))
+            .map(|s| crate::status_line(&s))
+            .map_err(|e| e.to_string())
     }
 
     /// `schtasks /Run`, then wait for the daemon to answer `status` over the MCP pipe.
     pub fn start_and_wait(names: &Names, wait: Duration) -> anyhow::Result<()> {
-        schtasks(&["/Run", "/TN", &names.task]).map_err(|e| anyhow::anyhow!("starting '{}': {e}", names.task))?;
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+        schtasks(&["/Run", "/TN", &names.task])
+            .map_err(|e| anyhow::anyhow!("starting '{}': {e}", names.task))?;
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
         let deadline = Instant::now() + wait;
         let mut last = String::new();
         let mut last_run = Instant::now();
@@ -435,12 +546,17 @@ mod win {
             }
             std::thread::sleep(Duration::from_millis(500));
         }
-        bail!("the task started, but the daemon didn't answer within {} s: {last}", wait.as_secs())
+        bail!(
+            "the task started, but the daemon didn't answer within {} s: {last}",
+            wait.as_secs()
+        )
     }
 
     /// Delete `%TEMP%\agentbolt-uninstalled-*.exe` files earlier uninstalls parked there, best effort.
     fn remove_uninstall_leftovers() {
-        let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else { return };
+        let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+            return;
+        };
         for entry in entries.flatten() {
             if is_uninstall_leftover(&entry.file_name().to_string_lossy()) {
                 let _ = std::fs::remove_file(entry.path());
@@ -457,13 +573,18 @@ mod win {
                 let path = entry.path();
                 if path.is_file() && std::fs::remove_file(&path).is_err() {
                     let name = entry.file_name().to_string_lossy().replace(['.', ' '], "_");
-                    let parked = std::env::temp_dir()
-                        .join(format!("agentbolt-uninstalled-{}-{i}-{name}.exe", std::process::id()));
+                    let parked = std::env::temp_dir().join(format!(
+                        "agentbolt-uninstalled-{}-{i}-{name}.exe",
+                        std::process::id()
+                    ));
                     let _ = std::fs::rename(&path, parked);
                 }
             }
         }
-        retry(&format!("deleting {} (is Agentbolt still running?)", dir.display()), || std::fs::remove_dir_all(dir))
+        retry(
+            &format!("deleting {} (is Agentbolt still running?)", dir.display()),
+            || std::fs::remove_dir_all(dir),
+        )
     }
 
     pub fn uninstall(names: &Names, purge: bool) -> anyhow::Result<()> {
@@ -471,7 +592,11 @@ mod win {
         // relative folder is ever deleted.
         let dir = install_dir(names)?;
         let lnk = shortcut_path(names)?;
-        let data = if purge { Some(names.data_dir().map_err(anyhow::Error::msg)?) } else { None };
+        let data = if purge {
+            Some(names.data_dir().map_err(anyhow::Error::msg)?)
+        } else {
+            None
+        };
         for p in [&dir, &lnk].into_iter().chain(data.as_ref()) {
             if !p.is_absolute() {
                 bail!("refusing to remove {}: not an absolute path", p.display());
@@ -500,13 +625,22 @@ mod win {
         if let Some(data) = data
             && data.exists()
         {
-            retry(&format!("deleting {}", data.display()), || std::fs::remove_dir_all(&data))?;
+            retry(&format!("deleting {}", data.display()), || {
+                std::fs::remove_dir_all(&data)
+            })?;
             println!("Deleted {}", data.display());
         }
         // The MCP registrations live in the clients' own config: say how to remove them, never run it here.
         println!("\nTo remove the MCP server from your clients, run:");
-        for (what, program, args) in client_commands(names, &dir).iter().filter(|(w, _, _)| w.starts_with("Undo")) {
-            println!("  {}  ({})", shell_line(program, args), what.trim_start_matches("Undo in "));
+        for (what, program, args) in client_commands(names, &dir)
+            .iter()
+            .filter(|(w, _, _)| w.starts_with("Undo"))
+        {
+            println!(
+                "  {}  ({})",
+                shell_line(program, args),
+                what.trim_start_matches("Undo in ")
+            );
         }
         Ok(())
     }
@@ -517,10 +651,12 @@ mod win {
         use std::path::Path;
 
         use windows::Win32::Storage::EnhancedStorage::PKEY_AppUserModel_ID;
-        use windows::Win32::System::Com::StructuredStorage::{PROPVARIANT, PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0};
+        use windows::Win32::System::Com::StructuredStorage::{
+            PROPVARIANT, PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0,
+        };
         use windows::Win32::System::Com::{
-            CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemAlloc,
-            CoUninitialize, IPersistFile,
+            CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
+            CoTaskMemAlloc, CoUninitialize, IPersistFile,
         };
         use windows::Win32::System::Variant::VT_LPWSTR;
         use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
@@ -534,7 +670,9 @@ mod win {
             unsafe {
                 let p = CoTaskMemAlloc(wide.len() * 2).cast::<u16>();
                 if p.is_null() {
-                    return Err(windows::core::Error::from_hresult(windows::Win32::Foundation::E_OUTOFMEMORY));
+                    return Err(windows::core::Error::from_hresult(
+                        windows::Win32::Foundation::E_OUTOFMEMORY,
+                    ));
                 }
                 std::ptr::copy_nonoverlapping(wide.as_ptr(), p, wide.len());
                 Ok(PROPVARIANT {
@@ -551,7 +689,13 @@ mod win {
             }
         }
 
-        pub fn create(lnk: &Path, target: &Path, args: &str, workdir: &Path, aumid: &str) -> anyhow::Result<()> {
+        pub fn create(
+            lnk: &Path,
+            target: &Path,
+            args: &str,
+            workdir: &Path,
+            aumid: &str,
+        ) -> anyhow::Result<()> {
             if let Some(dir) = lnk.parent() {
                 std::fs::create_dir_all(dir)?;
             }
@@ -559,11 +703,14 @@ mod win {
                 // S_OK or S_FALSE need a matching CoUninitialize; RPC_E_CHANGED_MODE (COM already up) doesn't.
                 let initialized = CoInitializeEx(None, COINIT_APARTMENTTHREADED).is_ok();
                 let result = (|| -> windows::core::Result<()> {
-                    let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
+                    let link: IShellLinkW =
+                        CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
                     link.SetPath(&HSTRING::from(target.as_os_str()))?;
                     link.SetArguments(&HSTRING::from(args))?;
                     link.SetWorkingDirectory(&HSTRING::from(workdir.as_os_str()))?;
-                    link.SetDescription(&HSTRING::from("Agentbolt: the desk where agents ask you"))?;
+                    link.SetDescription(&HSTRING::from(
+                        "Agentbolt: the desk where agents ask you",
+                    ))?;
                     let store: IPropertyStore = link.cast()?;
                     store.SetValue(&PKEY_AppUserModel_ID, &lpwstr(aumid)?)?;
                     store.Commit()?;
@@ -573,7 +720,9 @@ mod win {
                 if initialized {
                     CoUninitialize();
                 }
-                result.map_err(|e| anyhow::anyhow!("creating the shortcut {}: {}", lnk.display(), e.message()))
+                result.map_err(|e| {
+                    anyhow::anyhow!("creating the shortcut {}: {}", lnk.display(), e.message())
+                })
             }
         }
     }
@@ -588,8 +737,14 @@ mod win {
 
         #[test]
         fn a_failed_swap_puts_the_old_programs_back_and_a_good_one_renames_them_aside() {
-            let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos();
-            let root = std::env::temp_dir().join(format!("agentbolt-swap-test-{}-{nanos:x}", std::process::id()));
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .subsec_nanos();
+            let root = std::env::temp_dir().join(format!(
+                "agentbolt-swap-test-{}-{nanos:x}",
+                std::process::id()
+            ));
             let (from, dir) = (root.join("from"), root.join("dir"));
             std::fs::create_dir_all(&from).unwrap();
             std::fs::create_dir_all(&dir).unwrap();
@@ -601,11 +756,22 @@ mod win {
                 std::fs::write(from.join(exe), format!("new {exe}")).unwrap();
             }
             assert!(swap_in(&from, &dir).is_err());
-            let names: Vec<String> =
-                std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
-            assert_eq!(names.len(), 3, "nothing renamed aside is left over: {names:?}");
+            let names: Vec<String> = std::fs::read_dir(&dir)
+                .unwrap()
+                .flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect();
+            assert_eq!(
+                names.len(),
+                3,
+                "nothing renamed aside is left over: {names:?}"
+            );
             for exe in EXES {
-                assert_eq!(read(&dir.join(exe)), format!("old {exe}"), "{exe} was put back");
+                assert_eq!(
+                    read(&dir.join(exe)),
+                    format!("old {exe}"),
+                    "{exe} was put back"
+                );
             }
 
             std::fs::write(from.join(DESK_EXE), format!("new {DESK_EXE}")).unwrap();
@@ -621,7 +787,11 @@ mod win {
                 .collect();
             assert_eq!(old.len(), 3, "{old:?}");
             remove_old_copies(&dir);
-            assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 3, "the next install clears them");
+            assert_eq!(
+                std::fs::read_dir(&dir).unwrap().count(),
+                3,
+                "the next install clears them"
+            );
             std::fs::remove_dir_all(&root).unwrap();
         }
     }
@@ -629,8 +799,9 @@ mod win {
     pub mod reg {
         use windows::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, WIN32_ERROR};
         use windows::Win32::System::Registry::{
-            HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ, RRF_RT_REG_SZ,
-            RegCloseKey, RegCreateKeyExW, RegDeleteTreeW, RegGetValueW, RegSetValueExW,
+            HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ,
+            RRF_RT_REG_SZ, RegCloseKey, RegCreateKeyExW, RegDeleteTreeW, RegGetValueW,
+            RegSetValueExW,
         };
         use windows::core::{HSTRING, PCWSTR};
 
@@ -638,7 +809,10 @@ mod win {
             if e == ERROR_SUCCESS {
                 Ok(())
             } else {
-                Err(anyhow::anyhow!("{what}: {}", windows::core::Error::from(e.to_hresult()).message()))
+                Err(anyhow::anyhow!(
+                    "{what}: {}",
+                    windows::core::Error::from(e.to_hresult()).message()
+                ))
             }
         }
 
@@ -663,7 +837,9 @@ mod win {
                 let wide: Vec<u16> = value.encode_utf16().chain(std::iter::once(0)).collect();
                 let bytes = std::slice::from_raw_parts(wide.as_ptr().cast::<u8>(), wide.len() * 2);
                 let name_h = name.map(HSTRING::from);
-                let name_p = name_h.as_ref().map_or(PCWSTR::null(), |h| PCWSTR(h.as_ptr()));
+                let name_p = name_h
+                    .as_ref()
+                    .map_or(PCWSTR::null(), |h| PCWSTR(h.as_ptr()));
                 let r = RegSetValueExW(key, name_p, None, REG_SZ, Some(bytes));
                 let _ = RegCloseKey(key);
                 check(r, &format!("setting HKCU\\{subkey}"))
@@ -673,11 +849,22 @@ mod win {
         /// Read a string value, if the key and value exist.
         pub fn get_string(subkey: &str, name: Option<&str>) -> Option<String> {
             let name_h = name.map(HSTRING::from);
-            let name_p = name_h.as_ref().map_or(PCWSTR::null(), |h| PCWSTR(h.as_ptr()));
+            let name_p = name_h
+                .as_ref()
+                .map_or(PCWSTR::null(), |h| PCWSTR(h.as_ptr()));
             let sub = HSTRING::from(subkey);
             let mut size = 0u32;
             unsafe {
-                if RegGetValueW(HKEY_CURRENT_USER, &sub, name_p, RRF_RT_REG_SZ, None, None, Some(&mut size)) != ERROR_SUCCESS {
+                if RegGetValueW(
+                    HKEY_CURRENT_USER,
+                    &sub,
+                    name_p,
+                    RRF_RT_REG_SZ,
+                    None,
+                    None,
+                    Some(&mut size),
+                ) != ERROR_SUCCESS
+                {
                     return None;
                 }
                 let mut buf = vec![0u16; (size as usize).div_ceil(2) + 1];
@@ -716,7 +903,12 @@ mod tests {
 
     #[test]
     fn the_task_xml_says_what_plan_md_specifies() {
-        let x = task_xml("PC\\artem", Path::new("C:\\A b\\agentbolt-daemon.exe"), "t1", Path::new("C:\\A b"));
+        let x = task_xml(
+            "PC\\artem",
+            Path::new("C:\\A b\\agentbolt-daemon.exe"),
+            "t1",
+            Path::new("C:\\A b"),
+        );
         for needle in [
             "<LogonTrigger>",
             "<UserId>PC\\artem</UserId>",
@@ -737,7 +929,12 @@ mod tests {
 
     #[test]
     fn xml_values_are_escaped() {
-        let x = task_xml("D&D\\<me>", Path::new("C:\\x\\d.exe"), "t1", Path::new("C:\\x"));
+        let x = task_xml(
+            "D&D\\<me>",
+            Path::new("C:\\x\\d.exe"),
+            "t1",
+            Path::new("C:\\x"),
+        );
         assert!(x.contains("<UserId>D&amp;D\\&lt;me&gt;</UserId>"));
         assert!(!x.contains("D&D"));
     }
@@ -748,13 +945,26 @@ mod tests {
         let t = Names::for_channel("t1").unwrap();
         let main_dir = install_dir(&main).unwrap();
         assert!(main_dir.is_absolute());
-        assert!(main_dir.ends_with("Programs/Agentbolt") || main_dir.ends_with("Programs\\Agentbolt"));
-        assert!(install_dir(&t).unwrap().to_string_lossy().ends_with("Agentbolt-t1"));
-        assert_eq!(aumid_key(&t), "Software\\Classes\\AppUserModelId\\Skulitom.Agentbolt.t1");
+        assert!(
+            main_dir.ends_with("Programs/Agentbolt") || main_dir.ends_with("Programs\\Agentbolt")
+        );
+        assert!(
+            install_dir(&t)
+                .unwrap()
+                .to_string_lossy()
+                .ends_with("Agentbolt-t1")
+        );
+        assert_eq!(
+            aumid_key(&t),
+            "Software\\Classes\\AppUserModelId\\Skulitom.Agentbolt.t1"
+        );
         assert_eq!(protocol_key(&t), "Software\\Classes\\agentbolt-t1");
         assert_eq!(display_name(&main), "Agentbolt");
         let cmd = protocol_command(Path::new("C:\\P\\Agentbolt-t1"), "t1");
-        assert!(cmd.starts_with('"') && cmd.contains("agentbolt-desk.exe\" --channel t1 --url \"%1\""), "{cmd}");
+        assert!(
+            cmd.starts_with('"') && cmd.contains("agentbolt-desk.exe\" --channel t1 --url \"%1\""),
+            "{cmd}"
+        );
     }
 
     #[test]
@@ -763,11 +973,21 @@ mod tests {
         assert_eq!(old, "agentbolt.exe.old-1792400000-42");
         assert!(is_old_copy(&old));
         assert!(is_old_copy("AGENTBOLT-DAEMON.EXE.OLD-1"));
-        for keep in [CLI_EXE, DAEMON_EXE, DESK_EXE, "agentbolt.exe.old-", "agentbolt.db", "x.exe.old-1", "é.old-1"] {
+        for keep in [
+            CLI_EXE,
+            DAEMON_EXE,
+            DESK_EXE,
+            "agentbolt.exe.old-",
+            "agentbolt.db",
+            "x.exe.old-1",
+            "é.old-1",
+        ] {
             assert!(!is_old_copy(keep), "{keep}");
         }
         assert!(is_uninstall_leftover("agentbolt-uninstalled-1234.exe"));
-        assert!(is_uninstall_leftover("agentbolt-uninstalled-1234-0-agentbolt_exe.exe"));
+        assert!(is_uninstall_leftover(
+            "agentbolt-uninstalled-1234-0-agentbolt_exe.exe"
+        ));
         assert!(!is_uninstall_leftover("agentbolt-task-t1-9.xml"));
         assert!(!is_uninstall_leftover("agentbolt.exe"));
     }
@@ -778,8 +998,14 @@ mod tests {
         let main = Names::for_channel("main").unwrap();
         let cmds = client_commands(&main, Path::new("C:\\Users\\a b\\Programs\\Agentbolt"));
         let lines: Vec<String> = cmds.iter().map(|(_, p, a)| shell_line(p, a)).collect();
-        assert_eq!(lines[0], "claude mcp add --scope user agentbolt -- \"C:\\Users\\a b\\Programs\\Agentbolt\\agentbolt.exe\" mcp");
-        assert_eq!(lines[1], "codex mcp add agentbolt -- \"C:\\Users\\a b\\Programs\\Agentbolt\\agentbolt.exe\" mcp");
+        assert_eq!(
+            lines[0],
+            "claude mcp add --scope user agentbolt -- \"C:\\Users\\a b\\Programs\\Agentbolt\\agentbolt.exe\" mcp"
+        );
+        assert_eq!(
+            lines[1],
+            "codex mcp add agentbolt -- \"C:\\Users\\a b\\Programs\\Agentbolt\\agentbolt.exe\" mcp"
+        );
         assert_eq!(lines[2], "claude mcp remove --scope user agentbolt");
         assert_eq!(lines[3], "codex mcp remove agentbolt");
         let t = Names::for_channel("t1").unwrap();

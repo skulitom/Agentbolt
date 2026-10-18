@@ -66,7 +66,10 @@ fn has_control(s: &str) -> bool {
 
 /// One line of display text: control characters become spaces, runs of spaces collapse, cut to `max` chars.
 pub fn clean_line(s: &str, max: usize) -> String {
-    let spaced: String = s.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+    let spaced: String = s
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
     let collapsed = spaced.split_whitespace().collect::<Vec<_>>().join(" ");
     collapsed.chars().take(max).collect()
 }
@@ -81,7 +84,9 @@ pub fn check_link(url: &str) -> Result<(), String> {
         return Err("an evidence link is empty".into());
     }
     if url.len() > MAX_LINK {
-        return Err(format!("an evidence link is longer than {MAX_LINK} characters"));
+        return Err(format!(
+            "an evidence link is longer than {MAX_LINK} characters"
+        ));
     }
     if has_control(url) {
         return Err("an evidence link contains control characters".into());
@@ -110,8 +115,13 @@ pub fn check_link(url: &str) -> Result<(), String> {
             && !url[colon + 1..].contains(':');
         if !drive {
             let looks_like_scheme = !before.is_empty()
-                && before.bytes().next().is_some_and(|b| b.is_ascii_alphabetic())
-                && before.bytes().all(|b| b.is_ascii_alphanumeric() || b"+-.".contains(&b));
+                && before
+                    .bytes()
+                    .next()
+                    .is_some_and(|b| b.is_ascii_alphabetic())
+                && before
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"+-.".contains(&b));
             return Err(if looks_like_scheme {
                 format!(
                     "the link {url:?} is refused: only https:// and claude:// links or repository paths are allowed, \
@@ -123,8 +133,14 @@ pub fn check_link(url: &str) -> Result<(), String> {
             });
         }
     }
-    if url.starts_with("\\\\") || url.starts_with("//") || url.starts_with("\\/") || url.starts_with("/\\") {
-        return Err(format!("the path {url:?} is refused: network paths aren't allowed"));
+    if url.starts_with("\\\\")
+        || url.starts_with("//")
+        || url.starts_with("\\/")
+        || url.starts_with("/\\")
+    {
+        return Err(format!(
+            "the path {url:?} is refused: network paths aren't allowed"
+        ));
     }
     if url.contains("..") {
         return Err(format!("the path {url:?} is refused: '..' isn't allowed"));
@@ -134,7 +150,8 @@ pub fn check_link(url: &str) -> Result<(), String> {
 
 /// Does `s` start with `prefix`, ignoring ASCII case? Safe on any string: it never slices inside a character.
 pub fn starts_with_ignore_ascii_case(s: &str, prefix: &str) -> bool {
-    s.get(..prefix.len()).is_some_and(|p| p.eq_ignore_ascii_case(prefix))
+    s.get(..prefix.len())
+        .is_some_and(|p| p.eq_ignore_ascii_case(prefix))
 }
 
 /// An `https://` URL (any case) with its scheme in lower case and something after it; None otherwise.
@@ -143,7 +160,9 @@ pub fn https_lowercase_scheme(url: &str) -> Option<String> {
     if !starts_with_ignore_ascii_case(url, SCHEME) {
         return None;
     }
-    let rest = url.get(SCHEME.len()..).filter(|r| !r.is_empty() && !r.starts_with('/'))?;
+    let rest = url
+        .get(SCHEME.len()..)
+        .filter(|r| !r.is_empty() && !r.starts_with('/'))?;
     Some(format!("{SCHEME}{rest}"))
 }
 
@@ -156,22 +175,33 @@ pub fn validate_ask(input: &AskInput, now_ms: i64) -> Result<(AskInput, i64), St
 
     a.title = a.title.trim().to_string();
     if a.title.is_empty() || chars(&a.title) > MAX_TITLE {
-        return Err(format!("title takes 1-{MAX_TITLE} characters (got {})", chars(&a.title)));
+        return Err(format!(
+            "title takes 1-{MAX_TITLE} characters (got {})",
+            chars(&a.title)
+        ));
     }
     if has_control(&a.title) {
         return Err("title can't contain control characters or line breaks".into());
     }
     if chars(&a.body) > MAX_BODY {
-        return Err(format!("body takes at most {MAX_BODY} characters (got {})", chars(&a.body)));
+        return Err(format!(
+            "body takes at most {MAX_BODY} characters (got {})",
+            chars(&a.body)
+        ));
     }
 
     if a.evidence.len() > MAX_EVIDENCE {
-        return Err(format!("at most {MAX_EVIDENCE} evidence items (got {})", a.evidence.len()));
+        return Err(format!(
+            "at most {MAX_EVIDENCE} evidence items (got {})",
+            a.evidence.len()
+        ));
     }
     for e in &mut a.evidence {
         e.label = e.label.trim().to_string();
         if chars(&e.label) > MAX_LABEL {
-            return Err(format!("evidence labels take at most {MAX_LABEL} characters"));
+            return Err(format!(
+                "evidence labels take at most {MAX_LABEL} characters"
+            ));
         }
         if has_control(&e.label) {
             return Err("evidence labels can't contain control characters".into());
@@ -201,7 +231,11 @@ pub fn validate_ask(input: &AskInput, now_ms: i64) -> Result<(AskInput, i64), St
             match &a.default {
                 Value::Null => {}
                 Value::String(s) if s == ACKNOWLEDGED || s.is_empty() => {}
-                _ => return Err(format!("an inform ask's default can only be \"{ACKNOWLEDGED}\"")),
+                _ => {
+                    return Err(format!(
+                        "an inform ask's default can only be \"{ACKNOWLEDGED}\""
+                    ));
+                }
             }
             a.default = Value::String(ACKNOWLEDGED.into());
         }
@@ -213,7 +247,9 @@ pub fn validate_ask(input: &AskInput, now_ms: i64) -> Result<(AskInput, i64), St
                 return Err("a text ask's default must be a string".into());
             };
             if chars(s) > MAX_TEXT_ANSWER {
-                return Err(format!("a text default takes at most {MAX_TEXT_ANSWER} characters"));
+                return Err(format!(
+                    "a text default takes at most {MAX_TEXT_ANSWER} characters"
+                ));
             }
         }
         AskKind::Form => {
@@ -224,25 +260,35 @@ pub fn validate_ask(input: &AskInput, now_ms: i64) -> Result<(AskInput, i64), St
             if !a.default.is_object() {
                 return Err("a form ask's default must be an object of field values".into());
             }
-            a.default = check_form_values(&a.fields, &a.default).map_err(|e| format!("the default: {e}"))?;
+            a.default = check_form_values(&a.fields, &a.default)
+                .map_err(|e| format!("the default: {e}"))?;
         }
     }
     if a.kind != AskKind::Form && !a.fields.is_empty() {
         return Err("only form asks take fields".into());
     }
 
-    let deadline = OffsetDateTime::parse(a.deadline.trim(), &Rfc3339)
-        .map_err(|_| format!("deadline must be RFC 3339, such as 2026-10-20T18:00:00Z (got {:?})", a.deadline))?;
+    let deadline = OffsetDateTime::parse(a.deadline.trim(), &Rfc3339).map_err(|_| {
+        format!(
+            "deadline must be RFC 3339, such as 2026-10-20T18:00:00Z (got {:?})",
+            a.deadline
+        )
+    })?;
     let deadline_ms = crate::store::to_ms(deadline);
     if deadline_ms <= now_ms {
         return Err("deadline must be in the future".into());
     }
     if deadline_ms > now_ms + MAX_DEADLINE_DAYS * DAY_MS {
-        return Err(format!("deadline must be at most {MAX_DEADLINE_DAYS} days away"));
+        return Err(format!(
+            "deadline must be at most {MAX_DEADLINE_DAYS} days away"
+        ));
     }
     a.deadline = a.deadline.trim().to_string();
 
-    a.p0_reason = a.p0_reason.map(|r| r.trim().to_string()).filter(|r| !r.is_empty());
+    a.p0_reason = a
+        .p0_reason
+        .map(|r| r.trim().to_string())
+        .filter(|r| !r.is_empty());
     if let Some(r) = &a.p0_reason
         && chars(r) > MAX_REASON
     {
@@ -251,7 +297,10 @@ pub fn validate_ask(input: &AskInput, now_ms: i64) -> Result<(AskInput, i64), St
     if a.priority == Priority::P0 && a.p0_reason.is_none() {
         return Err("a P0 ask needs p0_reason: why it can't wait for the daily budget".into());
     }
-    a.dedupe_key = a.dedupe_key.map(|k| k.trim().to_string()).filter(|k| !k.is_empty());
+    a.dedupe_key = a
+        .dedupe_key
+        .map(|k| k.trim().to_string())
+        .filter(|k| !k.is_empty());
     if let Some(k) = &a.dedupe_key
         && chars(k) > MAX_KEY
     {
@@ -262,12 +311,17 @@ pub fn validate_ask(input: &AskInput, now_ms: i64) -> Result<(AskInput, i64), St
 
 fn check_options(options: &[String]) -> Result<(), String> {
     if !(MIN_OPTIONS..=MAX_OPTIONS).contains(&options.len()) {
-        return Err(format!("takes {MIN_OPTIONS}-{MAX_OPTIONS} options (got {})", options.len()));
+        return Err(format!(
+            "takes {MIN_OPTIONS}-{MAX_OPTIONS} options (got {})",
+            options.len()
+        ));
     }
     let mut seen = HashSet::new();
     for o in options {
         if o.is_empty() || chars(o) > MAX_OPTION || has_control(o) {
-            return Err(format!("options take 1-{MAX_OPTION} characters on one line"));
+            return Err(format!(
+                "options take 1-{MAX_OPTION} characters on one line"
+            ));
         }
         if !seen.insert(o.as_str()) {
             return Err(format!("the option {o:?} appears twice"));
@@ -279,7 +333,10 @@ fn check_options(options: &[String]) -> Result<(), String> {
 fn check_default_option(default: &Value, options: &[String]) -> Result<Value, String> {
     match default.as_str().map(str::trim) {
         Some(d) if options.iter().any(|o| o == d) => Ok(Value::String(d.to_string())),
-        _ => Err(format!("the default must be one of the options ({})", options.join(", "))),
+        _ => Err(format!(
+            "the default must be one of the options ({})",
+            options.join(", ")
+        )),
     }
 }
 
@@ -288,26 +345,36 @@ fn is_snake_case(id: &str) -> bool {
     !b.is_empty()
         && b.len() <= 64
         && b[0].is_ascii_lowercase()
-        && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'_')
+        && b.iter()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'_')
         && !id.ends_with('_')
         && !id.contains("__")
 }
 
 fn check_fields(fields: &mut [Field]) -> Result<(), String> {
     if !(1..=MAX_FIELDS).contains(&fields.len()) {
-        return Err(format!("a form takes 1-{MAX_FIELDS} fields (got {})", fields.len()));
+        return Err(format!(
+            "a form takes 1-{MAX_FIELDS} fields (got {})",
+            fields.len()
+        ));
     }
     let mut ids = HashSet::new();
     for f in fields.iter_mut() {
         if !is_snake_case(&f.id) {
-            return Err(format!("field id {:?} must be snake_case, such as due_date", f.id));
+            return Err(format!(
+                "field id {:?} must be snake_case, such as due_date",
+                f.id
+            ));
         }
         if !ids.insert(f.id.clone()) {
             return Err(format!("field id {:?} appears twice", f.id));
         }
         f.label = f.label.trim().to_string();
         if f.label.is_empty() || chars(&f.label) > MAX_LABEL || has_control(&f.label) {
-            return Err(format!("field {:?} needs a label of 1-{MAX_LABEL} characters", f.id));
+            return Err(format!(
+                "field {:?} needs a label of 1-{MAX_LABEL} characters",
+                f.id
+            ));
         }
         match f.field_type.as_str() {
             "text" | "number" | "boolean" => {
@@ -322,11 +389,18 @@ fn check_fields(fields: &mut [Field]) -> Result<(), String> {
                     *o = o.trim().to_string();
                 }
                 if opts.len() < 2 || opts.len() > MAX_FIELD_CHOICES {
-                    return Err(format!("choice field {:?} takes 2-{MAX_FIELD_CHOICES} options", f.id));
+                    return Err(format!(
+                        "choice field {:?} takes 2-{MAX_FIELD_CHOICES} options",
+                        f.id
+                    ));
                 }
                 let mut seen = HashSet::new();
                 for o in opts.iter() {
-                    if o.is_empty() || chars(o) > MAX_OPTION || has_control(o) || !seen.insert(o.as_str()) {
+                    if o.is_empty()
+                        || chars(o) > MAX_OPTION
+                        || has_control(o)
+                        || !seen.insert(o.as_str())
+                    {
                         return Err(format!(
                             "choice field {:?}: options must be distinct, 1-{MAX_OPTION} characters",
                             f.id
@@ -348,7 +422,9 @@ fn check_fields(fields: &mut [Field]) -> Result<(), String> {
 /// Check form values against the fields: an object keyed by field id, no unknown keys, required fields present,
 /// each value of its field's type. Returns the values with nulls dropped.
 pub fn check_form_values(fields: &[Field], values: &Value) -> Result<Value, String> {
-    let obj = values.as_object().ok_or("form values must be a JSON object keyed by field id")?;
+    let obj = values
+        .as_object()
+        .ok_or("form values must be a JSON object keyed by field id")?;
     if let Some(k) = obj.keys().find(|k| !fields.iter().any(|f| &f.id == *k)) {
         return Err(format!("{k:?} is not a field of this form"));
     }
@@ -365,9 +441,9 @@ pub fn check_form_values(fields: &[Field], values: &Value) -> Result<Value, Stri
                     "text" => v.as_str().is_some_and(|s| chars(s) <= MAX_TEXT_ANSWER),
                     "number" => v.is_number(),
                     "boolean" => v.is_boolean(),
-                    "choice" => v
-                        .as_str()
-                        .is_some_and(|s| f.options.as_ref().is_some_and(|o| o.iter().any(|x| x == s))),
+                    "choice" => v.as_str().is_some_and(|s| {
+                        f.options.as_ref().is_some_and(|o| o.iter().any(|x| x == s))
+                    }),
                     _ => false,
                 };
                 if !ok {
@@ -397,11 +473,17 @@ pub fn check_answer(
     let values = values.filter(|v| !v.is_null());
     match input.kind {
         AskKind::Choose | AskKind::Approve => {
-            let c = choice
-                .map(|c| c.trim().to_string())
-                .ok_or_else(|| format!("this ask needs a choice: one of {}", input.options.join(", ")))?;
+            let c = choice.map(|c| c.trim().to_string()).ok_or_else(|| {
+                format!(
+                    "this ask needs a choice: one of {}",
+                    input.options.join(", ")
+                )
+            })?;
             if !input.options.contains(&c) {
-                return Err(format!("{c:?} is not one of the options ({})", input.options.join(", ")));
+                return Err(format!(
+                    "{c:?} is not one of the options ({})",
+                    input.options.join(", ")
+                ));
             }
             if values.is_some() {
                 return Err("this ask takes a choice, not values".into());
@@ -411,7 +493,9 @@ pub fn check_answer(
         AskKind::Inform => match choice.as_deref().map(str::trim) {
             None | Some("") => Ok((Some(ACKNOWLEDGED.into()), None)),
             Some(c) if c == ACKNOWLEDGED => Ok((Some(ACKNOWLEDGED.into()), None)),
-            Some(c) => Err(format!("an inform ask can only be acknowledged, not answered {c:?}")),
+            Some(c) => Err(format!(
+                "an inform ask can only be acknowledged, not answered {c:?}"
+            )),
         },
         AskKind::Text => {
             let text = match (choice, values) {
@@ -423,7 +507,9 @@ pub fn check_answer(
                 return Err("the reply is empty".into());
             }
             if chars(&text) > MAX_TEXT_ANSWER {
-                return Err(format!("the reply takes at most {MAX_TEXT_ANSWER} characters"));
+                return Err(format!(
+                    "the reply takes at most {MAX_TEXT_ANSWER} characters"
+                ));
             }
             Ok((Some(text), None))
         }
@@ -447,8 +533,15 @@ pub fn default_answer(input: &AskInput) -> (Option<String>, Option<Value>) {
 
 /// Lowercase, letters and digits only, single spaces: "Merge PR #12?" and "merge pr 12" match.
 pub fn normalize_title(t: &str) -> String {
-    let mapped: String = t.chars().map(|c| if c.is_alphanumeric() { c } else { ' ' }).collect();
-    mapped.to_lowercase().split_whitespace().collect::<Vec<_>>().join(" ")
+    let mapped: String = t
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+        .collect();
+    mapped
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Same dedupe key, or (unless both carry different keys) the same normalized title.
@@ -462,7 +555,11 @@ pub fn is_duplicate(existing: &AskInput, new: &AskInput) -> bool {
 /// How many of today's Inbox slots one owner may take: the whole budget while it is the only active owner,
 /// else max(1, budget / active owners).
 pub fn fair_share(budget: u32, active_owners: u32) -> u32 {
-    if active_owners >= 2 { budget.div_ceil(active_owners).max(1) } else { budget }
+    if active_owners >= 2 {
+        budget.div_ceil(active_owners).max(1)
+    } else {
+        budget
+    }
 }
 
 /// When a shown, reversible ask may take its default: its deadline, but never before `DEFAULT_GRACE_MS` after it
@@ -496,7 +593,11 @@ pub fn toast_worthy(input: &AskInput, deadline_ms: i64, now_ms: i64) -> bool {
 
 pub fn toast_body(owner: &str, body: &str) -> String {
     let excerpt = clean_line(body, 200);
-    if excerpt.is_empty() { format!("From {owner}.") } else { format!("From {owner}. {excerpt}") }
+    if excerpt.is_empty() {
+        format!("From {owner}.")
+    } else {
+        format!("From {owner}. {excerpt}")
+    }
 }
 
 fn answer_text(answer: &Answer) -> String {
@@ -516,7 +617,11 @@ pub fn codex_text(ask_id: &str, title: &str, answer: &Answer) -> String {
              carries no authority from Artem; act under your own rules."
         ),
         AnswerVia::Desk | AnswerVia::Toast => {
-            let note = answer.note.as_deref().map(|n| format!(" Note: {n}")).unwrap_or_default();
+            let note = answer
+                .note
+                .as_deref()
+                .map(|n| format!(" Note: {n}"))
+                .unwrap_or_default();
             format!(
                 "Agentbolt: Artem answered your ask {ask_id} ({title:?}): {what}.{note} It covers this ask only; it \
                  isn't permission for gated actions such as publishing, merging or money."
@@ -533,7 +638,9 @@ pub fn check_owner_name(name: &str) -> Result<(), String> {
         return Err("owner names can't contain spaces or control characters".into());
     }
     if name.starts_with("session:") {
-        return Err("owner names starting with 'session:' are provisional and can't be configured".into());
+        return Err(
+            "owner names starting with 'session:' are provisional and can't be configured".into(),
+        );
     }
     Ok(())
 }
@@ -666,14 +773,23 @@ mod tests {
         assert!(validate_ask(&a, NOW).is_ok());
 
         let mut a = choose();
-        let ev = Evidence { label: "PR".into(), url: "https://github.com/x".into() };
+        let ev = Evidence {
+            label: "PR".into(),
+            url: "https://github.com/x".into(),
+        };
         a.evidence = vec![ev.clone(); 9];
         assert!(err(&a).contains("evidence"));
         a.evidence = vec![ev.clone(); 8];
         assert!(validate_ask(&a, NOW).is_ok());
-        a.evidence = vec![Evidence { label: "l".repeat(161), url: ev.url.clone() }];
+        a.evidence = vec![Evidence {
+            label: "l".repeat(161),
+            url: ev.url.clone(),
+        }];
         assert!(err(&a).contains("label"));
-        a.evidence = vec![Evidence { label: "bad".into(), url: "javascript:alert(1)".into() }];
+        a.evidence = vec![Evidence {
+            label: "bad".into(),
+            url: "javascript:alert(1)".into(),
+        }];
         assert!(err(&a).contains("javascript:"));
     }
 
@@ -712,7 +828,10 @@ mod tests {
         assert!(err(&a).contains("no options"));
         a.options = vec![];
         a.default = Value::Null;
-        assert_eq!(validate_ask(&a, NOW).unwrap().0.default, json!(ACKNOWLEDGED));
+        assert_eq!(
+            validate_ask(&a, NOW).unwrap().0.default,
+            json!(ACKNOWLEDGED)
+        );
         a.default = json!("Sure");
         assert!(err(&a).contains("Acknowledged"));
 
@@ -729,11 +848,16 @@ mod tests {
         a.options = vec![];
         a.default = json!({});
         assert!(err(&a).contains("1-8 fields"));
-        a.fields = (0..9).map(|i| field(&format!("f{i}"), "text", false, None)).collect();
+        a.fields = (0..9)
+            .map(|i| field(&format!("f{i}"), "text", false, None))
+            .collect();
         assert!(err(&a).contains("1-8 fields"));
         a.fields = vec![field("DueDate", "text", false, None)];
         assert!(err(&a).contains("snake_case"));
-        a.fields = vec![field("a", "text", false, None), field("a", "number", false, None)];
+        a.fields = vec![
+            field("a", "text", false, None),
+            field("a", "number", false, None),
+        ];
         assert!(err(&a).contains("twice"));
         a.fields = vec![field("a", "date", false, None)];
         assert!(err(&a).contains("types are"));
@@ -741,7 +865,10 @@ mod tests {
         assert!(err(&a).contains("2-20 options"));
         a.fields = vec![field("a", "text", false, Some(vec!["x", "y"]))];
         assert!(err(&a).contains("only choice fields"));
-        a.fields = vec![field("name", "text", true, None), field("size", "choice", false, Some(vec!["S", "M"]))];
+        a.fields = vec![
+            field("name", "text", true, None),
+            field("size", "choice", false, Some(vec!["S", "M"])),
+        ];
         a.default = json!("x");
         assert!(err(&a).contains("object"));
         a.default = json!({"size": "S"});
@@ -784,7 +911,10 @@ mod tests {
     #[test]
     fn answers_are_checked_against_the_ask() {
         let a = validate_ask(&choose(), NOW).unwrap().0;
-        assert_eq!(check_answer(&a, Some("Blue".into()), None), Ok((Some("Blue".into()), None)));
+        assert_eq!(
+            check_answer(&a, Some("Blue".into()), None),
+            Ok((Some("Blue".into()), None))
+        );
         assert!(check_answer(&a, Some("Green".into()), None).is_err());
         assert!(check_answer(&a, None, None).is_err());
 
@@ -792,21 +922,33 @@ mod tests {
         t.kind = AskKind::Text;
         t.options = vec![];
         t.default = json!("d");
-        assert_eq!(check_answer(&t, None, Some(json!("hi"))), Ok((Some("hi".into()), None)));
+        assert_eq!(
+            check_answer(&t, None, Some(json!("hi"))),
+            Ok((Some("hi".into()), None))
+        );
         assert!(check_answer(&t, Some("  ".into()), None).is_err());
         assert!(check_answer(&t, None, None).is_err());
 
         let mut i = choose();
         i.kind = AskKind::Inform;
-        assert_eq!(check_answer(&i, None, None), Ok((Some(ACKNOWLEDGED.into()), None)));
+        assert_eq!(
+            check_answer(&i, None, None),
+            Ok((Some(ACKNOWLEDGED.into()), None))
+        );
         assert!(check_answer(&i, Some("No".into()), None).is_err());
 
         let mut f = choose();
         f.kind = AskKind::Form;
-        f.fields = vec![field("n", "number", true, None), field("ok", "boolean", false, None)];
+        f.fields = vec![
+            field("n", "number", true, None),
+            field("ok", "boolean", false, None),
+        ];
         assert!(check_answer(&f, None, Some(json!({"n": "1"}))).is_err());
         assert!(check_answer(&f, None, Some(json!({"ok": true}))).is_err());
-        assert_eq!(check_answer(&f, None, Some(json!({"n": 2, "ok": null}))), Ok((None, Some(json!({"n": 2})))));
+        assert_eq!(
+            check_answer(&f, None, Some(json!({"n": 2, "ok": null}))),
+            Ok((None, Some(json!({"n": 2}))))
+        );
     }
 
     #[test]
@@ -843,13 +985,31 @@ mod tests {
     #[test]
     fn prefix_checks_never_slice_inside_a_character() {
         assert!(starts_with_ignore_ascii_case("HTTPS://x", "https://"));
-        assert!(!starts_with_ignore_ascii_case("1234567éx", "https://"), "byte 8 is inside 'é'");
-        assert!(!starts_with_ignore_ascii_case("Notes/Résumé.md", "claude://"));
+        assert!(
+            !starts_with_ignore_ascii_case("1234567éx", "https://"),
+            "byte 8 is inside 'é'"
+        );
+        assert!(!starts_with_ignore_ascii_case(
+            "Notes/Résumé.md",
+            "claude://"
+        ));
         assert!(!starts_with_ignore_ascii_case("é", "https://"));
         assert!(!starts_with_ignore_ascii_case("", "x"));
-        assert_eq!(https_lowercase_scheme("HTTPS://ntfy.sh/Topic").as_deref(), Some("https://ntfy.sh/Topic"));
-        assert_eq!(https_lowercase_scheme("https://ntfy.sh/tópico").as_deref(), Some("https://ntfy.sh/tópico"));
-        for bad in ["http://ntfy.sh/x", "https://", "https:///x", "1234567é/x", "ntfy.sh"] {
+        assert_eq!(
+            https_lowercase_scheme("HTTPS://ntfy.sh/Topic").as_deref(),
+            Some("https://ntfy.sh/Topic")
+        );
+        assert_eq!(
+            https_lowercase_scheme("https://ntfy.sh/tópico").as_deref(),
+            Some("https://ntfy.sh/tópico")
+        );
+        for bad in [
+            "http://ntfy.sh/x",
+            "https://",
+            "https:///x",
+            "1234567é/x",
+            "ntfy.sh",
+        ] {
             assert_eq!(https_lowercase_scheme(bad), None, "{bad:?}");
         }
         // check_link's own scheme test lower-cases first, so non-ASCII paths pass it as plain paths.
@@ -859,8 +1019,16 @@ mod tests {
 
     #[test]
     fn a_default_waits_for_the_deadline_and_the_grace_after_shown() {
-        assert_eq!(default_due_ms(NOW + DAY_MS, NOW), NOW + DAY_MS, "shown long before the deadline");
-        assert_eq!(default_due_ms(NOW - DAY_MS, NOW), NOW + DEFAULT_GRACE_MS, "shown when already overdue");
+        assert_eq!(
+            default_due_ms(NOW + DAY_MS, NOW),
+            NOW + DAY_MS,
+            "shown long before the deadline"
+        );
+        assert_eq!(
+            default_due_ms(NOW - DAY_MS, NOW),
+            NOW + DEFAULT_GRACE_MS,
+            "shown when already overdue"
+        );
         assert_eq!(default_due_ms(NOW, NOW - 10 * DEFAULT_GRACE_MS), NOW);
         assert_eq!(default_due_ms(0, i64::MAX), i64::MAX, "no overflow");
     }
@@ -875,7 +1043,10 @@ mod tests {
         let mut text = a.clone();
         text.kind = AskKind::Text;
         assert!(!toast_buttons_allowed(&text));
-        assert!(!toast_worthy(&a, NOW + 3 * URGENT_MS, NOW), "P2 not due soon");
+        assert!(
+            !toast_worthy(&a, NOW + 3 * URGENT_MS, NOW),
+            "P2 not due soon"
+        );
         assert!(toast_worthy(&a, NOW + URGENT_MS, NOW), "P2 due within 2 h");
         let mut p1 = a.clone();
         p1.priority = Priority::P1;

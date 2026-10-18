@@ -22,7 +22,13 @@ pub const POLL: Duration = Duration::from_millis(250);
 
 /// What the daemon needs beyond the `Service` trait.
 pub trait DaemonService: Service {
-    fn record_delivery(&self, ask_id: &str, to: &str, ok: bool, detail: Option<&str>) -> Result<(), String>;
+    fn record_delivery(
+        &self,
+        ask_id: &str,
+        to: &str,
+        ok: bool,
+        detail: Option<&str>,
+    ) -> Result<(), String>;
     /// The budget's local day (minutes east of UTC); refreshed hourly for daylight saving.
     fn set_utc_offset_minutes(&self, _minutes: i32) -> Result<(), String> {
         Ok(())
@@ -57,7 +63,10 @@ pub struct Shared {
 }
 
 impl Shared {
-    pub fn new(names: Names, svc: Arc<dyn DaemonService>) -> (Arc<Self>, mpsc::UnboundedReceiver<Event>) {
+    pub fn new(
+        names: Names,
+        svc: Arc<dyn DaemonService>,
+    ) -> (Arc<Self>, mpsc::UnboundedReceiver<Event>) {
         let (events, rx) = mpsc::unbounded_channel();
         (Arc::new(Shared { names, svc, events }), rx)
     }
@@ -104,7 +113,9 @@ impl Shared {
     pub fn toggle_pause(&self) -> Result<bool, String> {
         let mut settings = self.get_settings()?;
         settings.toasts_off = !settings.toasts_off;
-        let (_, effects) = self.svc.desk(DeskOp::SetSettings { settings: settings.clone() })?;
+        let (_, effects) = self.svc.desk(DeskOp::SetSettings {
+            settings: settings.clone(),
+        })?;
         self.emit(effects);
         let paused = settings.toasts_off;
         self.settings_changed(settings);
@@ -115,7 +126,10 @@ impl Shared {
     pub fn counts(&self) -> Option<(u32, u32)> {
         let (value, effects) = self.svc.desk(DeskOp::Status).ok()?;
         self.emit(effects);
-        Some((value["open"].as_u64()? as u32, value["digest"].as_u64().unwrap_or(0) as u32))
+        Some((
+            value["open"].as_u64()? as u32,
+            value["digest"].as_u64().unwrap_or(0) as u32,
+        ))
     }
 }
 
@@ -125,8 +139,16 @@ pub fn answers_ready(value: &Value) -> bool {
     match value {
         Value::Array(list) => !list.is_empty(),
         Value::Object(map) => {
-            let non_empty = |k: &str| map.get(k).and_then(Value::as_array).is_some_and(|a| !a.is_empty());
-            let empty = |k: &str| map.get(k).and_then(Value::as_array).is_some_and(|a| a.is_empty());
+            let non_empty = |k: &str| {
+                map.get(k)
+                    .and_then(Value::as_array)
+                    .is_some_and(|a| !a.is_empty())
+            };
+            let empty = |k: &str| {
+                map.get(k)
+                    .and_then(Value::as_array)
+                    .is_some_and(|a| a.is_empty())
+            };
             non_empty("answers") || empty("waiting")
         }
         _ => true,
@@ -134,7 +156,12 @@ pub fn answers_ready(value: &Value) -> bool {
 }
 
 /// `answers` with a wait: re-read every 250 ms until there is something or the wait (capped) runs out.
-async fn answers_wait(shared: &Shared, client: &ClientInfo, op: McpOp, wait_ms: u64) -> Result<Value, String> {
+async fn answers_wait(
+    shared: &Shared,
+    client: &ClientInfo,
+    op: McpOp,
+    wait_ms: u64,
+) -> Result<Value, String> {
     let deadline = Instant::now() + Duration::from_millis(wait_ms.min(MAX_WAIT_MS));
     loop {
         let value = shared.mcp(client, op.clone()).await?;
@@ -150,9 +177,12 @@ pub struct McpHandler(pub Arc<Shared>);
 
 impl Handler for McpHandler {
     async fn handle(&self, client: &ClientInfo, op: Value) -> Result<Value, String> {
-        let op: McpOp = serde_json::from_value(op).map_err(|e| format!("unknown or malformed op: {e}"))?;
+        let op: McpOp =
+            serde_json::from_value(op).map_err(|e| format!("unknown or malformed op: {e}"))?;
         match op {
-            McpOp::Answers { wait_ms, .. } if wait_ms > 0 => answers_wait(&self.0, client, op, wait_ms).await,
+            McpOp::Answers { wait_ms, .. } if wait_ms > 0 => {
+                answers_wait(&self.0, client, op, wait_ms).await
+            }
             op => self.0.mcp(client, op).await,
         }
     }
@@ -170,7 +200,8 @@ pub struct DeskHandler(pub Arc<Shared>);
 
 impl Handler for DeskHandler {
     async fn handle(&self, _client: &ClientInfo, op: Value) -> Result<Value, String> {
-        let op: DeskOp = serde_json::from_value(op).map_err(|e| format!("unknown or malformed op: {e}"))?;
+        let op: DeskOp =
+            serde_json::from_value(op).map_err(|e| format!("unknown or malformed op: {e}"))?;
         let new_settings = match &op {
             DeskOp::SetSettings { settings } => Some(settings.clone()),
             _ => None,
@@ -183,7 +214,10 @@ impl Handler for DeskHandler {
     }
 
     fn connected(&self, client: &ClientInfo) {
-        info!("desk connected (pid {:?}, connection {})", client.pid, client.connection);
+        info!(
+            "desk connected (pid {:?}, connection {})",
+            client.pid, client.connection
+        );
     }
 
     fn disconnected(&self, client: &ClientInfo) {
@@ -193,7 +227,9 @@ impl Handler for DeskHandler {
     fn refused(&self, pid: Option<u32>, image: Option<&std::path::Path>) {
         warning!(
             "desk pipe: dropped a client that isn't the installed agentbolt-desk (pid {pid:?}, image {})",
-            image.map(|p| p.display().to_string()).unwrap_or_else(|| "unknown".into())
+            image
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "unknown".into())
         );
     }
 
@@ -295,10 +331,15 @@ fn send_push(shared: &Shared, counts: &ntfy::Counts) {
             return;
         }
     };
-    let Some(url) = url.filter(|u| !u.trim().is_empty()) else { return };
+    let Some(url) = url.filter(|u| !u.trim().is_empty()) else {
+        return;
+    };
     let body = ntfy::body(counts, time::OffsetDateTime::now_utc());
     match ntfy::post(&url, &body) {
-        Ok(()) => info!("ntfy: pushed counts (open {}, digest {})", counts.open, counts.digest),
+        Ok(()) => info!(
+            "ntfy: pushed counts (open {}, digest {})",
+            counts.open, counts.digest
+        ),
         Err(e) => warning!("{e}"),
     }
 }
@@ -320,7 +361,13 @@ pub fn deliver_to_codex(shared: &Shared, ask_id: &str, thread: &str, text: &str)
     deliver_with(shared, codex::find(), ask_id, thread, text);
 }
 
-fn deliver_with(shared: &Shared, exe: Option<codex::CodexExe>, ask_id: &str, thread: &str, text: &str) {
+fn deliver_with(
+    shared: &Shared,
+    exe: Option<codex::CodexExe>,
+    ask_id: &str,
+    thread: &str,
+    text: &str,
+) {
     let (ok, detail) = match exe {
         Some(exe) => codex::run(&exe, thread, text, codex::WAIT),
         None => (false, "codex isn't on PATH".to_string()),
@@ -330,7 +377,10 @@ fn deliver_with(shared: &Shared, exe: Option<codex::CodexExe>, ask_id: &str, thr
     } else {
         warning!("ask {ask_id}: codex delivery failed: {detail}");
     }
-    if let Err(e) = shared.svc.record_delivery(ask_id, thread, ok, Some(&detail)) {
+    if let Err(e) = shared
+        .svc
+        .record_delivery(ask_id, thread, ok, Some(&detail))
+    {
         error!("ask {ask_id}: couldn't record the codex delivery: {e}");
     }
 }
@@ -357,7 +407,11 @@ mod tests {
     }
 
     fn answers(handle: &str, wait_ms: u64) -> McpOp {
-        McpOp::Answers { handle: handle.into(), ids: vec![], wait_ms }
+        McpOp::Answers {
+            handle: handle.into(),
+            ids: vec![],
+            wait_ms,
+        }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -379,10 +433,19 @@ mod tests {
         let took = started.elapsed();
         answerer.await.unwrap();
         assert_eq!(result["answers"][0]["id"], "a1");
-        assert!(took >= Duration::from_millis(650), "it waited for the answer: {took:?}");
-        assert!(took < Duration::from_secs(3), "it returned as soon as the answer appeared: {took:?}");
+        assert!(
+            took >= Duration::from_millis(650),
+            "it waited for the answer: {took:?}"
+        );
+        assert!(
+            took < Duration::from_secs(3),
+            "it returned as soon as the answer appeared: {took:?}"
+        );
         let polls = fake.answers_calls();
-        assert!((3..=8).contains(&polls), "polled about every 250 ms: {polls}");
+        assert!(
+            (3..=8).contains(&polls),
+            "polled about every 250 ms: {polls}"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -395,7 +458,10 @@ mod tests {
         let result = client.call(&answers("h1", 600)).await.unwrap();
         let took = started.elapsed();
         assert_eq!(result["answers"], json!([]), "silence is never an answer");
-        assert!(took >= Duration::from_millis(600) && took < Duration::from_millis(1500), "{took:?}");
+        assert!(
+            took >= Duration::from_millis(600) && took < Duration::from_millis(1500),
+            "{took:?}"
+        );
 
         // No wait, or nothing left waiting: one read, straight back.
         let started = Instant::now();
@@ -407,16 +473,24 @@ mod tests {
 
     #[test]
     fn toasts_lose_their_buttons_when_the_handler_key_is_not_ours() {
-        let buttons = vec![("Ship".to_string(), "aa.bb".to_string()), ("Wait".to_string(), "cc.dd".to_string())];
+        let buttons = vec![
+            ("Ship".to_string(), "aa.bb".to_string()),
+            ("Wait".to_string(), "cc.dd".to_string()),
+        ];
         assert_eq!(toast_buttons(buttons.clone(), true), buttons);
         assert!(toast_buttons(buttons, false).is_empty());
     }
 
     #[test]
     fn answers_ready_reads_both_shapes() {
-        assert!(answers_ready(&json!({ "answers": [{ "id": "a" }], "waiting": ["b"] })));
+        assert!(answers_ready(
+            &json!({ "answers": [{ "id": "a" }], "waiting": ["b"] })
+        ));
         assert!(!answers_ready(&json!({ "answers": [], "waiting": ["b"] })));
-        assert!(answers_ready(&json!({ "answers": [], "waiting": [] })), "nothing left to wait for");
+        assert!(
+            answers_ready(&json!({ "answers": [], "waiting": [] })),
+            "nothing left to wait for"
+        );
         assert!(!answers_ready(&json!({ "answers": [] })));
         assert!(answers_ready(&json!([{ "id": "a" }])));
         assert!(!answers_ready(&json!([])));
@@ -428,7 +502,10 @@ mod tests {
         struct Seen(std::sync::Mutex<Vec<String>>);
         impl Ui for Seen {
             fn counts(&self, open: u32, digest: u32) {
-                self.0.lock().unwrap().push(format!("counts {open} {digest}"));
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push(format!("counts {open} {digest}"));
             }
             fn paused(&self, paused: bool) {
                 self.0.lock().unwrap().push(format!("paused {paused}"));
@@ -438,23 +515,38 @@ mod tests {
         fake.set_waiting(&["a1"]);
         let (names, shared, rx) = start(fake.clone()).await;
         let seen = Arc::new(Seen::default());
-        tokio::spawn(effects_loop(shared.clone(), rx, seen.clone(), false, false, true));
+        tokio::spawn(effects_loop(
+            shared.clone(),
+            rx,
+            seen.clone(),
+            false,
+            false,
+            true,
+        ));
 
         // An ask (the fake emits InboxChanged), then the Desk turns toasts off.
         let mut mcp = Client::connect_to(&names, Pipe::Mcp, &me()).await.unwrap();
         mcp.call(&McpOp::Status).await.unwrap();
         let mut desk = Client::connect_to(&names, Pipe::Desk, &me()).await.unwrap();
-        let settings = Settings { toasts_off: true, daily_budget: 5, ..Settings::default() };
+        let settings = Settings {
+            toasts_off: true,
+            daily_budget: 5,
+            ..Settings::default()
+        };
         desk.call(&DeskOp::SetSettings { settings }).await.unwrap();
         crate::testutil::wait_for("tray updates", || seen.0.lock().unwrap().len() >= 2).await;
-        assert_eq!(*seen.0.lock().unwrap(), vec!["counts 1 0".to_string(), "paused true".to_string()]);
+        assert_eq!(
+            *seen.0.lock().unwrap(),
+            vec!["counts 1 0".to_string(), "paused true".to_string()]
+        );
 
         // The tray's Pause item flips it back through the service.
         assert!(!shared.toggle_pause().unwrap());
         assert!(!fake.settings().toasts_off);
         drop(desk);
         drop(mcp);
-        crate::testutil::wait_for("disconnects reach the service", || fake.disconnects() == 2).await;
+        crate::testutil::wait_for("disconnects reach the service", || fake.disconnects() == 2)
+            .await;
     }
 
     #[test]
@@ -463,13 +555,22 @@ mod tests {
         let (shared, _rx) = Shared::new(channel(), fake.clone());
         // Never the real codex in a test: no exe, then one that can't start.
         deliver_with(&shared, None, "a1", "thread-1", "Approve");
-        let missing = codex::CodexExe { path: "Z:/nowhere/codex.exe".into(), env: vec![] };
+        let missing = codex::CodexExe {
+            path: "Z:/nowhere/codex.exe".into(),
+            env: vec![],
+        };
         deliver_with(&shared, Some(missing), "a2", "thread-2", "Decline");
         let d = fake.deliveries();
         assert_eq!(d.len(), 2);
-        assert_eq!((d[0].0.as_str(), d[0].1.as_str(), d[0].2), ("a1", "thread-1", false));
+        assert_eq!(
+            (d[0].0.as_str(), d[0].1.as_str(), d[0].2),
+            ("a1", "thread-1", false)
+        );
         assert_eq!(d[0].3.as_deref(), Some("codex isn't on PATH"));
-        assert_eq!((d[1].0.as_str(), d[1].1.as_str(), d[1].2), ("a2", "thread-2", false));
+        assert_eq!(
+            (d[1].0.as_str(), d[1].1.as_str(), d[1].2),
+            ("a2", "thread-2", false)
+        );
         assert!(d[1].3.as_deref().unwrap().starts_with("could not start"));
     }
 }

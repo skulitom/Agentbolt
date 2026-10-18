@@ -24,9 +24,14 @@ fn names(channel: Option<&str>) -> Result<Names, String> {
 
 /// One Desk-pipe op, from a fresh connection.
 fn desk_call(names: &Names, op: &DeskOp) -> Result<serde_json::Value, String> {
-    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|e| e.to_string())?;
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| e.to_string())?;
     rt.block_on(async {
-        let mut c = Client::connect(names, Pipe::Desk).await.map_err(|e| e.to_string())?;
+        let mut c = Client::connect(names, Pipe::Desk)
+            .await
+            .map_err(|e| e.to_string())?;
         c.call(op).await.map_err(|e| e.to_string())
     })
 }
@@ -53,21 +58,35 @@ fn main() {
         Mode::Window => window(names),
         Mode::Url(url) => match view::parse_url(&url, &names.protocol) {
             Ok(UrlAction::Open) => window(names),
-            Ok(UrlAction::Answer { token }) => match desk_call(&names, &DeskOp::AnswerToken { token }) {
-                Ok(_) => 0,
-                Err(e) => {
-                    os::message("Agentbolt", &format!("That answer didn't go through: {e}\n\nOpen the Desk to answer it there."));
-                    1
+            Ok(UrlAction::Answer { token }) => {
+                match desk_call(&names, &DeskOp::AnswerToken { token }) {
+                    Ok(_) => 0,
+                    Err(e) => {
+                        os::message(
+                            "Agentbolt",
+                            &format!(
+                                "That answer didn't go through: {e}\n\nOpen the Desk to answer it there."
+                            ),
+                        );
+                        1
+                    }
                 }
-            },
+            }
             Err(e) => {
                 os::message("Agentbolt", &e);
                 2
             }
         },
-        Mode::Answer { ask_id, choice, values, note } => {
+        Mode::Answer {
+            ask_id,
+            choice,
+            values,
+            note,
+        } => {
             if names.is_main() {
-                eprintln!("agentbolt-desk --answer is for test channels only; pass --channel <test channel>.");
+                eprintln!(
+                    "agentbolt-desk --answer is for test channels only; pass --channel <test channel>."
+                );
                 std::process::exit(2);
             }
             let values = match values.map(|v| serde_json::from_str(&v)) {
@@ -78,7 +97,15 @@ fn main() {
                     std::process::exit(2);
                 }
             };
-            match desk_call(&names, &DeskOp::Answer { ask_id, choice, values, note }) {
+            match desk_call(
+                &names,
+                &DeskOp::Answer {
+                    ask_id,
+                    choice,
+                    values,
+                    note,
+                },
+            ) {
                 Ok(v) => {
                     println!("{v}");
                     0

@@ -9,8 +9,9 @@ use agentbolt_core::channel::Names;
 use agentbolt_core::protocol::{McpOp, RegisterResult};
 use agentbolt_ipc::Pipe;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation, JsonObject,
-    ListToolsResult, PaginatedRequestParams, RequestMetaObject, ServerCapabilities, ServerConfig,
+    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
+    JsonObject, ListToolsResult, PaginatedRequestParams, RequestMetaObject, ServerCapabilities,
+    ServerConfig,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ErrorData as McpError, ServerHandler, ServiceExt};
@@ -62,14 +63,26 @@ struct Caller {
 
 /// `_meta.threadId` (Codex sends it on each call), else a session id in `_meta`, else Claude Code's
 /// `CLAUDE_CODE_SESSION_ID` in this process's environment.
-pub fn session_ref_from(meta: &serde_json::Map<String, Value>, env_session: Option<String>) -> Option<String> {
+pub fn session_ref_from(
+    meta: &serde_json::Map<String, Value>,
+    env_session: Option<String>,
+) -> Option<String> {
     ["threadId", "thread_id", "sessionId", "session_id"]
         .iter()
-        .find_map(|k| meta.get(*k)?.as_str().filter(|s| !s.trim().is_empty()).map(str::to_string))
+        .find_map(|k| {
+            meta.get(*k)?
+                .as_str()
+                .filter(|s| !s.trim().is_empty())
+                .map(str::to_string)
+        })
         .or(env_session.filter(|s| !s.trim().is_empty()))
 }
 
-fn caller(args: &McpArgs, ctx: &RequestContext<RoleServer>, meta_in_params: Option<&RequestMetaObject>) -> Caller {
+fn caller(
+    args: &McpArgs,
+    ctx: &RequestContext<RoleServer>,
+    meta_in_params: Option<&RequestMetaObject>,
+) -> Caller {
     let mut meta = ctx.meta.0.0.clone();
     if let Some(m) = meta_in_params {
         for (k, v) in m.0.0.iter() {
@@ -80,9 +93,16 @@ fn caller(args: &McpArgs, ctx: &RequestContext<RoleServer>, meta_in_params: Opti
     let client = args
         .client
         .clone()
-        .or_else(|| ctx.client_info().map(|i| i.name).filter(|n| !n.trim().is_empty()))
+        .or_else(|| {
+            ctx.client_info()
+                .map(|i| i.name)
+                .filter(|n| !n.trim().is_empty())
+        })
         .unwrap_or_else(|| "unknown".into());
-    Caller { session_ref, client }
+    Caller {
+        session_ref,
+        client,
+    }
 }
 
 fn ok(line: String, v: Value) -> CallToolResult {
@@ -102,17 +122,24 @@ fn fail(msg: impl Into<String>) -> CallToolResult {
 
 /// True when the daemon no longer knows a handle (expired, or its database was reset).
 fn handle_gone(e: &CallError) -> bool {
-    let CallError::Refused(s) = e else { return false };
+    let CallError::Refused(s) = e else {
+        return false;
+    };
     if s.starts_with(agentbolt_core::service_impl::UNKNOWN_HANDLE) {
         return true;
     }
     let s = s.to_ascii_lowercase();
-    s.contains("handle") && ["unknown", "expired", "not found", "no such", "invalid"].iter().any(|w| s.contains(w))
+    s.contains("handle")
+        && ["unknown", "expired", "not found", "no such", "invalid"]
+            .iter()
+            .any(|w| s.contains(w))
 }
 
 impl DeskServer {
     fn cwd() -> Option<String> {
-        std::env::current_dir().ok().map(|p| p.display().to_string())
+        std::env::current_dir()
+            .ok()
+            .map(|p| p.display().to_string())
     }
 
     /// The registration this process sends for a caller: the session only from the host, the process key for
@@ -128,7 +155,12 @@ impl DeskServer {
         }
     }
 
-    async fn register(&self, who: &Caller, cwd: Option<String>, doing: Option<String>) -> Result<Value, CallError> {
+    async fn register(
+        &self,
+        who: &Caller,
+        cwd: Option<String>,
+        doing: Option<String>,
+    ) -> Result<Value, CallError> {
         self.daemon.call(&self.register_op(who, cwd, doing)).await
     }
 
@@ -140,14 +172,20 @@ impl DeskServer {
             return Ok(h.clone());
         }
         let v = self.register(who, None, None).await?;
-        let r: RegisterResult = serde_json::from_value(v).map_err(|e| CallError::Other(format!("register: {e}")))?;
+        let r: RegisterResult =
+            serde_json::from_value(v).map_err(|e| CallError::Other(format!("register: {e}")))?;
         handles.insert(key, r.handle.clone());
         Ok(r.handle)
     }
 
     /// Run an op that needs a handle. With the agent's own handle, errors go back as they are; with ours, a
     /// handle the daemon forgot is replaced once.
-    async fn with_handle<F>(&self, who: &Caller, given: Option<String>, make: F) -> Result<Value, CallError>
+    async fn with_handle<F>(
+        &self,
+        who: &Caller,
+        given: Option<String>,
+        make: F,
+    ) -> Result<Value, CallError>
     where
         F: Fn(String) -> McpOp,
     {
@@ -164,17 +202,32 @@ impl DeskServer {
         }
     }
 
-    async fn run_tool(&self, name: &str, args: &JsonObject, who: Caller) -> Result<CallToolResult, String> {
+    async fn run_tool(
+        &self,
+        name: &str,
+        args: &JsonObject,
+        who: Caller,
+    ) -> Result<CallToolResult, String> {
         let handle = tools::handle_arg(args)?;
         let out = match name {
             tools::REGISTER => {
                 let doing = tools::str_arg(args, "doing")?;
                 if let Some(h) = handle {
                     // Renew the handle, and report what's waiting.
-                    self.daemon.call(&McpOp::Heartbeat { handle: h.clone(), doing }).await.map_err(|e| e.to_string())?;
+                    self.daemon
+                        .call(&McpOp::Heartbeat {
+                            handle: h.clone(),
+                            doing,
+                        })
+                        .await
+                        .map_err(|e| e.to_string())?;
                     let answers = self
                         .daemon
-                        .call(&McpOp::Answers { handle: h.clone(), ids: Vec::new(), wait_ms: 0 })
+                        .call(&McpOp::Answers {
+                            handle: h.clone(),
+                            ids: Vec::new(),
+                            wait_ms: 0,
+                        })
                         .await
                         .map_err(|e| e.to_string())?;
                     let n = tools::asks_in(&answers).len();
@@ -194,28 +247,43 @@ impl DeskServer {
             }
             tools::ASK => {
                 let ask = tools::ask_input(args)?;
-                self.with_handle(&who, handle, |handle| McpOp::Ask { handle, ask: ask.clone() })
-                    .await
-                    .map(|v| (tools::ask_line(&v, Some(&ask)), v))
+                self.with_handle(&who, handle, |handle| McpOp::Ask {
+                    handle,
+                    ask: ask.clone(),
+                })
+                .await
+                .map(|v| (tools::ask_line(&v, Some(&ask)), v))
             }
             tools::ANSWERS => {
                 let a = tools::answers_args(args, self.args.max_wait_ms)?;
-                self.with_handle(&who, handle, |handle| McpOp::Answers { handle, ids: a.ids.clone(), wait_ms: a.wait_ms })
-                    .await
-                    .map(|v| (tools::answers_line(&v), v))
+                self.with_handle(&who, handle, |handle| McpOp::Answers {
+                    handle,
+                    ids: a.ids.clone(),
+                    wait_ms: a.wait_ms,
+                })
+                .await
+                .map(|v| (tools::answers_line(&v), v))
             }
             tools::CANCEL => {
                 let id = tools::cancel_id(args)?;
-                self.with_handle(&who, handle, |handle| McpOp::Cancel { handle, id: id.clone() })
-                    .await
-                    .map(|v| (format!("Withdrew ask {id}; it has left Artem's Inbox."), v))
+                self.with_handle(&who, handle, |handle| McpOp::Cancel {
+                    handle,
+                    id: id.clone(),
+                })
+                .await
+                .map(|v| (format!("Withdrew ask {id}; it has left Artem's Inbox."), v))
             }
             tools::RELAY => match tools::relay_action(args)? {
                 RelayAction::List => self
                     .with_handle(&who, handle, |handle| McpOp::RelayList { handle })
                     .await
                     .map(|v| (tools::relay_list_line(&v), v)),
-                RelayAction::Mark { ask_id, to, ok, detail } => self
+                RelayAction::Mark {
+                    ask_id,
+                    to,
+                    ok,
+                    detail,
+                } => self
                     .with_handle(&who, handle, |handle| McpOp::RelayMark {
                         handle,
                         ask_id: ask_id.clone(),
@@ -258,7 +326,10 @@ impl ServerHandler for DeskServer {
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, McpError> {
         if !tools::NAMES.contains(&request.name.as_ref()) {
-            return Err(McpError::invalid_params(format!("there's no tool named {}", request.name), None));
+            return Err(McpError::invalid_params(
+                format!("there's no tool named {}", request.name),
+                None,
+            ));
         }
         let who = caller(&self.args, &context, request.meta.as_ref());
         let args = request.arguments.clone().unwrap_or_default();
@@ -278,37 +349,76 @@ mod tests {
     fn session_ref_prefers_the_threads_own_id() {
         let meta = json!({"threadId": "019a-thread", "progressToken": 3});
         let meta = meta.as_object().unwrap();
-        assert_eq!(session_ref_from(meta, Some("claude-1".into())).as_deref(), Some("019a-thread"));
+        assert_eq!(
+            session_ref_from(meta, Some("claude-1".into())).as_deref(),
+            Some("019a-thread")
+        );
         let empty = serde_json::Map::new();
-        assert_eq!(session_ref_from(&empty, Some("claude-1".into())).as_deref(), Some("claude-1"));
+        assert_eq!(
+            session_ref_from(&empty, Some("claude-1".into())).as_deref(),
+            Some("claude-1")
+        );
         assert_eq!(session_ref_from(&empty, Some(" ".into())), None);
         assert_eq!(session_ref_from(&empty, None), None);
     }
 
     fn server(owner: Option<&str>) -> DeskServer {
-        let args = McpArgs { channel: None, owner: owner.map(String::from), client: None, max_wait_ms: 20_000 };
+        let args = McpArgs {
+            channel: None,
+            owner: owner.map(String::from),
+            client: None,
+            max_wait_ms: 20_000,
+        };
         DeskServer::new(args, Names::for_channel("mcptest-unit").unwrap())
     }
 
     #[test]
     fn registrations_take_the_session_from_the_host_and_one_key_per_process() {
         let s = server(None);
-        let who = |session: Option<&str>| Caller { session_ref: session.map(String::from), client: "c".into() };
-        let McpOp::Register { session_ref, provisional_key, owner, .. } = s.register_op(&who(None), None, None) else {
+        let who = |session: Option<&str>| Caller {
+            session_ref: session.map(String::from),
+            client: "c".into(),
+        };
+        let McpOp::Register {
+            session_ref,
+            provisional_key,
+            owner,
+            ..
+        } = s.register_op(&who(None), None, None)
+        else {
             panic!("a register op")
         };
         assert_eq!((session_ref, owner), (None, None));
         let key = provisional_key.expect("the process key");
         assert!(key.starts_with("mcp-") && key.len() == 4 + 16, "{key}");
         for _ in 0..3 {
-            let McpOp::Register { provisional_key, .. } = s.register_op(&who(None), None, None) else { panic!() };
-            assert_eq!(provisional_key.as_deref(), Some(key.as_str()), "the same key for every registration");
+            let McpOp::Register {
+                provisional_key, ..
+            } = s.register_op(&who(None), None, None)
+            else {
+                panic!()
+            };
+            assert_eq!(
+                provisional_key.as_deref(),
+                Some(key.as_str()),
+                "the same key for every registration"
+            );
         }
-        let McpOp::Register { session_ref, .. } = s.register_op(&who(Some("019a-thread")), None, None) else {
+        let McpOp::Register { session_ref, .. } =
+            s.register_op(&who(Some("019a-thread")), None, None)
+        else {
             panic!()
         };
-        assert_eq!(session_ref.as_deref(), Some("019a-thread"), "the host's session id");
-        let McpOp::Register { provisional_key: other, .. } = server(None).register_op(&who(None), None, None) else {
+        assert_eq!(
+            session_ref.as_deref(),
+            Some("019a-thread"),
+            "the host's session id"
+        );
+        let McpOp::Register {
+            provisional_key: other,
+            ..
+        } = server(None).register_op(&who(None), None, None)
+        else {
             panic!()
         };
         assert_ne!(other, Some(key), "another process, another key");
@@ -318,7 +428,11 @@ mod tests {
     fn forgotten_handles_are_spotted() {
         assert!(handle_gone(&CallError::Refused("unknown handle h1".into())));
         assert!(handle_gone(&CallError::Refused("Handle h1 expired".into())));
-        assert!(!handle_gone(&CallError::Refused("owner o is over its cap".into())));
-        assert!(!handle_gone(&CallError::NotRunning("unknown handle".into())));
+        assert!(!handle_gone(&CallError::Refused(
+            "owner o is over its cap".into()
+        )));
+        assert!(!handle_gone(&CallError::NotRunning(
+            "unknown handle".into()
+        )));
     }
 }

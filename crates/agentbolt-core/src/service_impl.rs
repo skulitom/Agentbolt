@@ -17,8 +17,8 @@ use time::OffsetDateTime;
 
 use crate::model::{Agent, Answer, AnswerVia, Ask, AskInput, AskStatus, Owner, Priority, Settings};
 use crate::protocol::{
-    AgentsResult, AnswerResult, AnswersResult, AskResult, DeskOp, DigestResult, ListResult, McpOp, OwnersResult,
-    RegisterResult, RelayListResult, StatusResult,
+    AgentsResult, AnswerResult, AnswersResult, AskResult, DeskOp, DigestResult, ListResult, McpOp,
+    OwnersResult, RegisterResult, RelayListResult, StatusResult,
 };
 use crate::service::{ClientInfo, Effect, Service};
 use crate::store::{self, AskRow, db_err, fmt_ms, status_str};
@@ -83,7 +83,10 @@ impl StoreService {
         let secret = {
             let tx = conn.transaction().map_err(db_err)?;
             let stored = store::meta(&tx, "toast_secret").map_err(db_err)?;
-            let secret = match stored.and_then(|h| hex::decode(h).ok()).filter(|b| b.len() == tokens::SECRET_LEN) {
+            let secret = match stored
+                .and_then(|h| hex::decode(h).ok())
+                .filter(|b| b.len() == tokens::SECRET_LEN)
+            {
                 Some(bytes) => {
                     let mut s = [0u8; tokens::SECRET_LEN];
                     s.copy_from_slice(&bytes);
@@ -92,15 +95,23 @@ impl StoreService {
                 None => {
                     let s = tokens::new_secret();
                     store::set_meta(&tx, "toast_secret", &hex::encode(s)).map_err(db_err)?;
-                    events::append(&tx, store::to_ms(clock()), "secret.created", "toast_secret", &json!({}))
-                        .map_err(db_err)?;
+                    events::append(
+                        &tx,
+                        store::to_ms(clock()),
+                        "secret.created",
+                        "toast_secret",
+                        &json!({}),
+                    )
+                    .map_err(db_err)?;
                     s
                 }
             };
             tx.commit().map_err(db_err)?;
             secret
         };
-        let channel = crate::channel::Names::from_env().map(|n| n.channel).unwrap_or_else(|_| "main".into());
+        let channel = crate::channel::Names::from_env()
+            .map(|n| n.channel)
+            .unwrap_or_else(|_| "main".into());
         let machine = ["COMPUTERNAME", "HOSTNAME"]
             .iter()
             .find_map(|k| std::env::var(k).ok().filter(|v| !v.trim().is_empty()))
@@ -142,8 +153,13 @@ impl StoreService {
         let now = self.now_ms();
         self.write(now, |c| {
             if store::utc_offset_minutes(c.db).map_err(db_err)? != minutes {
-                store::set_meta(c.db, "utc_offset_minutes", &minutes.to_string()).map_err(db_err)?;
-                c.event("settings.utc_offset", "settings", json!({ "minutes": minutes }))?;
+                store::set_meta(c.db, "utc_offset_minutes", &minutes.to_string())
+                    .map_err(db_err)?;
+                c.event(
+                    "settings.utc_offset",
+                    "settings",
+                    json!({ "minutes": minutes }),
+                )?;
             }
             Ok(())
         })
@@ -156,9 +172,16 @@ impl StoreService {
 
     /// Record a delivery the daemon made (e.g. after `codex queue`). `to` is where it went: for Codex, the
     /// thread. Any successful delivery takes the answer off the undelivered lists.
-    pub fn record_delivery(&self, ask_id: &str, to: &str, ok: bool, detail: Option<&str>) -> Result<(), String> {
+    pub fn record_delivery(
+        &self,
+        ask_id: &str,
+        to: &str,
+        ok: bool,
+        detail: Option<&str>,
+    ) -> Result<(), String> {
         let now = self.now_ms();
-        self.write(now, |c| c.deliver(ask_id, to, ok, detail, "daemon")).map(|_| ())
+        self.write(now, |c| c.deliver(ask_id, to, ok, detail, "daemon"))
+            .map(|_| ())
     }
 
     /// Mint fresh toast buttons (label, token) for an open or digest ask that may have them (reversible,
@@ -198,11 +221,20 @@ impl StoreService {
     }
 
     /// Run `f` in one transaction; on Ok commit, then add `InboxChanged` if the counts changed.
-    fn write<T>(&self, now: i64, f: impl FnOnce(&mut Ctx<'_>) -> Result<T, String>) -> Result<(T, Vec<Effect>), String> {
+    fn write<T>(
+        &self,
+        now: i64,
+        f: impl FnOnce(&mut Ctx<'_>) -> Result<T, String>,
+    ) -> Result<(T, Vec<Effect>), String> {
         let mut conn = self.lock();
         let tx = conn.transaction().map_err(db_err)?;
         let (out, mut effects) = {
-            let mut ctx = Ctx { db: &tx, now, secret: &self.secret, effects: Vec::new() };
+            let mut ctx = Ctx {
+                db: &tx,
+                now,
+                secret: &self.secret,
+                effects: Vec::new(),
+            };
             let out = f(&mut ctx)?;
             (out, ctx.effects)
         };
@@ -224,23 +256,36 @@ impl StoreService {
 
     fn inbox_effect(&self, conn: &Connection) -> rusqlite::Result<Option<Effect>> {
         let open = store::count(conn, "SELECT COUNT(*) FROM asks WHERE status = 'open'", [])?;
-        let digest = store::count(conn, "SELECT COUNT(*) FROM asks WHERE status = 'digest'", [])?;
-        let next: Option<i64> =
-            conn.query_row("SELECT MIN(deadline_ms) FROM asks WHERE status = 'open'", [], |r| r.get(0))?;
+        let digest = store::count(
+            conn,
+            "SELECT COUNT(*) FROM asks WHERE status = 'digest'",
+            [],
+        )?;
+        let next: Option<i64> = conn.query_row(
+            "SELECT MIN(deadline_ms) FROM asks WHERE status = 'open'",
+            [],
+            |r| r.get(0),
+        )?;
         let snap = (open, digest, next.map(fmt_ms));
         let mut last = self.last_inbox.lock().unwrap_or_else(|p| p.into_inner());
         if last.as_ref() == Some(&snap) {
             return Ok(None);
         }
         *last = Some(snap.clone());
-        Ok(Some(Effect::InboxChanged { open: snap.0, digest: snap.1, next_deadline: snap.2 }))
+        Ok(Some(Effect::InboxChanged {
+            open: snap.0,
+            digest: snap.1,
+            next_deadline: snap.2,
+        }))
     }
 
     /// The event chain's state for Status: a full walk every `FULL_CHAIN_EVERY_MS`, otherwise only the rows after
     /// the last verified one, plus a check that the mark row itself is unchanged.
     fn chain_ok(&self, conn: &Connection, now: i64) -> bool {
         let mut mark = self.chain_mark.lock().unwrap_or_else(|e| e.into_inner());
-        let full_due = mark.full_at_ms.is_none_or(|at| now - at >= FULL_CHAIN_EVERY_MS);
+        let full_due = mark
+            .full_at_ms
+            .is_none_or(|at| now - at >= FULL_CHAIN_EVERY_MS);
         let result = if full_due || mark.hash.is_none() {
             events::verify_chain_from(conn, 0, events::GENESIS).map(|r| (r, true))
         } else {
@@ -254,7 +299,9 @@ impl StoreService {
                 )
                 .is_ok_and(|n| n == 2);
             let unchanged = conn
-                .query_row("SELECT hash FROM events WHERE seq = ?1", [mark.seq], |r| r.get::<_, String>(0))
+                .query_row("SELECT hash FROM events WHERE seq = ?1", [mark.seq], |r| {
+                    r.get::<_, String>(0)
+                })
                 .is_ok_and(|h| h == prev);
             if !guarded {
                 events::verify_chain_from(conn, 0, events::GENESIS).map(|r| (r, true))
@@ -282,10 +329,20 @@ impl StoreService {
 
     fn status(&self, now: i64) -> Result<(Value, Vec<Effect>), String> {
         let conn = self.lock();
-        let open = store::count(&conn, "SELECT COUNT(*) FROM asks WHERE status = 'open'", []).map_err(db_err)?;
-        let digest = store::count(&conn, "SELECT COUNT(*) FROM asks WHERE status = 'digest'", []).map_err(db_err)?;
-        let agents = store::count(&conn, "SELECT COUNT(*) FROM agents WHERE last_seen_ms >= ?1", [now - ALIVE_MS])
+        let open = store::count(&conn, "SELECT COUNT(*) FROM asks WHERE status = 'open'", [])
             .map_err(db_err)?;
+        let digest = store::count(
+            &conn,
+            "SELECT COUNT(*) FROM asks WHERE status = 'digest'",
+            [],
+        )
+        .map_err(db_err)?;
+        let agents = store::count(
+            &conn,
+            "SELECT COUNT(*) FROM agents WHERE last_seen_ms >= ?1",
+            [now - ALIVE_MS],
+        )
+        .map_err(db_err)?;
         let chain_ok = self.chain_ok(&conn, now);
         let r = StatusResult {
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -315,7 +372,9 @@ fn opt_line(s: Option<String>, max: usize, what: &str) -> Result<Option<String>,
     match s.map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) {
         None => Ok(None),
         Some(v) if v.chars().count() > max => Err(format!("{what} takes at most {max} characters")),
-        Some(v) if v.chars().any(char::is_control) => Err(format!("{what} can't contain control characters")),
+        Some(v) if v.chars().any(char::is_control) => {
+            Err(format!("{what} can't contain control characters"))
+        }
         Some(v) => Ok(Some(v)),
     }
 }
@@ -328,7 +387,8 @@ const UNDELIVERED_TO_ASKER: &str = "NOT EXISTS (SELECT 1 FROM deliveries d WHERE
 
 /// For the relay's list: no successful delivery recorded yet, wherever it went. The relay may only be able to
 /// write an answer to NOTES.md (`to` = "notes"), and that counts here, or such answers would sit on its list forever.
-const UNDELIVERED_ANYWHERE: &str = "NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.ask_id = asks.id AND d.ok = 1)";
+const UNDELIVERED_ANYWHERE: &str =
+    "NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.ask_id = asks.id AND d.ok = 1)";
 
 /// The fields of `McpOp::Register`.
 struct Registration {
@@ -350,7 +410,9 @@ struct Ctx<'a> {
 
 impl Ctx<'_> {
     fn event(&self, kind: &str, subject: &str, data: Value) -> Result<(), String> {
-        events::append(self.db, self.now, kind, subject, &data).map(|_| ()).map_err(db_err)
+        events::append(self.db, self.now, kind, subject, &data)
+            .map(|_| ())
+            .map_err(db_err)
     }
 
     fn row(&self, id: &str) -> Result<Option<AskRow>, String> {
@@ -379,19 +441,26 @@ impl Ctx<'_> {
     }
 
     fn bounds(&self) -> Result<(i64, i64), String> {
-        Ok(rules::day_bounds(self.now, store::utc_offset_minutes(self.db).map_err(db_err)?))
+        Ok(rules::day_bounds(
+            self.now,
+            store::utc_offset_minutes(self.db).map_err(db_err)?,
+        ))
     }
 
     /// Check a handle and renew its lease (rule 5: any call made with a handle renews it).
     fn touch(&self, handle: &str, client: &ClientInfo) -> Result<Agent, String> {
         let row: Option<(i64, Option<i64>)> = self
             .db
-            .query_row("SELECT last_seen_ms, connection FROM agents WHERE handle = ?1", [handle], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
+            .query_row(
+                "SELECT last_seen_ms, connection FROM agents WHERE handle = ?1",
+                [handle],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
             .optional()
             .map_err(db_err)?;
-        let Some((last_seen, connection)) = row else { return Err(UNKNOWN_HANDLE.into()) };
+        let Some((last_seen, connection)) = row else {
+            return Err(UNKNOWN_HANDLE.into());
+        };
         let conn_id = client.connection as i64;
         if self.now - last_seen >= TOUCH_EVERY_MS || connection != Some(conn_id) {
             self.db
@@ -401,13 +470,19 @@ impl Ctx<'_> {
                 )
                 .map_err(db_err)?;
         }
-        store::agent(self.db, handle).map_err(db_err)?.ok_or_else(|| UNKNOWN_HANDLE.into())
+        store::agent(self.db, handle)
+            .map_err(db_err)?
+            .ok_or_else(|| UNKNOWN_HANDLE.into())
     }
 
     /// This owner's asks still open or in the digest, oldest first.
     fn pending_of(&self, owner: &str) -> Result<Vec<AskRow>, String> {
-        store::ask_rows(self.db, "owner = ?1 AND status IN ('open', 'digest') ORDER BY created_ms, rowid", [owner])
-            .map_err(db_err)
+        store::ask_rows(
+            self.db,
+            "owner = ?1 AND status IN ('open', 'digest') ORDER BY created_ms, rowid",
+            [owner],
+        )
+        .map_err(db_err)
     }
 
     fn undelivered_of(&self, owner: &str) -> Result<Vec<Ask>, String> {
@@ -428,26 +503,41 @@ impl Ctx<'_> {
     /// Whether `owner` is provisional (neither bound by config nor approved on the Desk). An owner with no row
     /// counts as provisional.
     fn is_provisional(&self, owner: &str) -> Result<bool, String> {
-        Ok(store::owner(self.db, owner).map_err(db_err)?.is_none_or(|o| o.binding == "pending"))
+        Ok(store::owner(self.db, owner)
+            .map_err(db_err)?
+            .is_none_or(|o| o.binding == "pending"))
     }
 
     /// May `owner` take one of today's Inbox slots? Over the budget or over its fair share, no. Every
     /// provisional owner shares one fair-share bucket (`rules::PROVISIONAL_BUCKET`), so minting fresh owners
     /// buys no extra share of the day.
-    fn can_take_slot(&self, owner: &str, budget: u32, (start, end): (i64, i64)) -> Result<bool, String> {
+    fn can_take_slot(
+        &self,
+        owner: &str,
+        budget: u32,
+        (start, end): (i64, i64),
+    ) -> Result<bool, String> {
         // A slot is used by an ask placed in the Inbox today without the P0 skip, unless it was cancelled
         // before Artem saw it (that slot frees again).
         const USED: &str = "inbox_ms >= ?1 AND inbox_ms < ?2 AND p0_skip = 0
                             AND NOT (status = 'cancelled' AND shown_ms IS NULL)";
         const PROVISIONAL: &str = "COALESCE((SELECT o.binding FROM owners o WHERE o.name = asks.owner), 'pending') = 'pending'";
-        let used =
-            store::count(self.db, &format!("SELECT COUNT(*) FROM asks WHERE {USED}"), [start, end]).map_err(db_err)?;
+        let used = store::count(
+            self.db,
+            &format!("SELECT COUNT(*) FROM asks WHERE {USED}"),
+            [start, end],
+        )
+        .map_err(db_err)?;
         if used >= budget {
             return Ok(false);
         }
         // Buckets: "owner:<name>" for bound owners, the provisional bucket for the rest (no name collides).
         let bucket = |name: &str, provisional: bool| {
-            if provisional { rules::PROVISIONAL_BUCKET.to_string() } else { format!("owner:{name}") }
+            if provisional {
+                rules::PROVISIONAL_BUCKET.to_string()
+            } else {
+                format!("owner:{name}")
+            }
         };
         let mut active: BTreeSet<String> = {
             let mut stmt = self
@@ -459,7 +549,9 @@ impl Ctx<'_> {
                 ))
                 .map_err(db_err)?;
             let owners = stmt
-                .query_map([start, end], |r| Ok(bucket(&r.get::<_, String>(0)?, r.get::<_, bool>(1)?)))
+                .query_map([start, end], |r| {
+                    Ok(bucket(&r.get::<_, String>(0)?, r.get::<_, bool>(1)?))
+                })
                 .map_err(db_err)?;
             owners.collect::<rusqlite::Result<_>>().map_err(db_err)?
         };
@@ -467,7 +559,11 @@ impl Ctx<'_> {
         active.insert(bucket(owner, provisional));
         let share = rules::fair_share(budget, active.len() as u32);
         let own = if provisional {
-            store::count(self.db, &format!("SELECT COUNT(*) FROM asks WHERE {USED} AND {PROVISIONAL}"), [start, end])
+            store::count(
+                self.db,
+                &format!("SELECT COUNT(*) FROM asks WHERE {USED} AND {PROVISIONAL}"),
+                [start, end],
+            )
         } else {
             store::count(
                 self.db,
@@ -493,14 +589,21 @@ impl Ctx<'_> {
     fn promote(&mut self) -> Result<(), String> {
         let settings = self.settings()?;
         let bounds = self.bounds()?;
-        let digest = store::ask_rows(self.db, "status = 'digest' ORDER BY deadline_ms, created_ms, rowid", [])
-            .map_err(db_err)?;
+        let digest = store::ask_rows(
+            self.db,
+            "status = 'digest' ORDER BY deadline_ms, created_ms, rowid",
+            [],
+        )
+        .map_err(db_err)?;
         for mut row in digest {
             if !self.can_take_slot(&row.owner, settings.daily_budget, bounds)? {
                 continue;
             }
             self.db
-                .execute("UPDATE asks SET status = 'open', inbox_ms = ?1 WHERE id = ?2", params![self.now, row.id])
+                .execute(
+                    "UPDATE asks SET status = 'open', inbox_ms = ?1 WHERE id = ?2",
+                    params![self.now, row.id],
+                )
                 .map_err(db_err)?;
             self.event("ask.promoted", &row.id, json!({ "owner": row.owner }))?;
             row.status = AskStatus::Open;
@@ -515,7 +618,11 @@ impl Ctx<'_> {
         if settings.toasts_off || !rules::toast_worthy(&row.input, row.deadline_ms, self.now) {
             return Ok(());
         }
-        let buttons = if rules::toast_buttons_allowed(&row.input) { self.mint_buttons(row)? } else { Vec::new() };
+        let buttons = if rules::toast_buttons_allowed(&row.input) {
+            self.mint_buttons(row)?
+        } else {
+            Vec::new()
+        };
         self.effects.push(Effect::Toast {
             ask_id: row.id.clone(),
             title: row.input.title.clone(),
@@ -533,13 +640,22 @@ impl Ctx<'_> {
                 params![toast_id, row.id, self.now, self.now + tokens::TOKEN_TTL_MS],
             )
             .map_err(db_err)?;
-        self.event("toast.minted", &row.id, json!({ "toast": toast_id, "buttons": row.input.options.len() }))?;
+        self.event(
+            "toast.minted",
+            &row.id,
+            json!({ "toast": toast_id, "buttons": row.input.options.len() }),
+        )?;
         Ok(row
             .input
             .options
             .iter()
             .enumerate()
-            .map(|(i, label)| (label.clone(), tokens::mint(self.secret, &row.id, i, &toast_id)))
+            .map(|(i, label)| {
+                (
+                    label.clone(),
+                    tokens::mint(self.secret, &row.id, i, &toast_id),
+                )
+            })
             .collect())
     }
 
@@ -621,7 +737,10 @@ impl Ctx<'_> {
         )
         .map_err(db_err)?;
         let now = self.now;
-        let due = due.into_iter().filter(|r| r.shown_ms.is_some_and(|s| rules::default_due_ms(r.deadline_ms, s) <= now));
+        let due = due.into_iter().filter(|r| {
+            r.shown_ms
+                .is_some_and(|s| rules::default_due_ms(r.deadline_ms, s) <= now)
+        });
         for row in due {
             let (choice, values) = rules::default_answer(&row.input);
             self.write_answer(&row, AnswerVia::Defaulted, choice, values, None)?;
@@ -629,25 +748,55 @@ impl Ctx<'_> {
         Ok(())
     }
 
-    fn deliver(&self, ask_id: &str, to: &str, ok: bool, detail: Option<&str>, by: &str) -> Result<Answer, String> {
+    fn deliver(
+        &self,
+        ask_id: &str,
+        to: &str,
+        ok: bool,
+        detail: Option<&str>,
+        by: &str,
+    ) -> Result<Answer, String> {
         let to = to.trim();
         if to.is_empty() || to.chars().count() > 300 {
             return Err("a delivery needs `to`: where it went (1-300 characters)".into());
         }
-        let detail = detail.map(|d| rules::clean_line(d, 2000)).filter(|d| !d.is_empty());
-        let row = self.row(ask_id)?.ok_or_else(|| format!("no ask {ask_id}"))?;
+        let detail = detail
+            .map(|d| rules::clean_line(d, 2000))
+            .filter(|d| !d.is_empty());
+        let row = self
+            .row(ask_id)?
+            .ok_or_else(|| format!("no ask {ask_id}"))?;
         if !is_answered(row.status) {
             return Err(format!("ask {ask_id} has no answer to deliver"));
         }
-        store::insert_delivery(self.db, ask_id, to, self.now, ok, detail.as_deref()).map_err(db_err)?;
-        self.event("delivery", ask_id, json!({ "to": to, "ok": ok, "detail": detail, "by": by }))?;
-        store::answer_for(self.db, ask_id).map_err(db_err)?.ok_or_else(|| format!("ask {ask_id} has no answer"))
+        store::insert_delivery(self.db, ask_id, to, self.now, ok, detail.as_deref())
+            .map_err(db_err)?;
+        self.event(
+            "delivery",
+            ask_id,
+            json!({ "to": to, "ok": ok, "detail": detail, "by": by }),
+        )?;
+        store::answer_for(self.db, ask_id)
+            .map_err(db_err)?
+            .ok_or_else(|| format!("ask {ask_id} has no answer"))
     }
 
     // ---- MCP operations ----
 
-    fn register(&mut self, client: &ClientInfo, machine: &str, r: Registration) -> Result<RegisterResult, String> {
-        let Registration { owner, client: client_name, session_ref, cwd, doing, provisional_key } = r;
+    fn register(
+        &mut self,
+        client: &ClientInfo,
+        machine: &str,
+        r: Registration,
+    ) -> Result<RegisterResult, String> {
+        let Registration {
+            owner,
+            client: client_name,
+            session_ref,
+            cwd,
+            doing,
+            provisional_key,
+        } = r;
         let client_name = rules::clean_line(&client_name, 100);
         if client_name.is_empty() {
             return Err("desk_register needs `client`, such as claude-code or codex".into());
@@ -655,8 +804,13 @@ impl Ctx<'_> {
         let session_ref = opt_line(session_ref, 200, "session_ref")?;
         let provisional_key = opt_line(provisional_key, 200, "provisional_key")?;
         let cwd = opt_line(cwd, 1024, "cwd")?;
-        let doing = doing.map(|d| rules::clean_line(&d, 200)).filter(|d| !d.is_empty());
-        let owner_name = match owner.map(|o| o.trim().to_string()).filter(|o| !o.is_empty()) {
+        let doing = doing
+            .map(|d| rules::clean_line(&d, 200))
+            .filter(|d| !d.is_empty());
+        let owner_name = match owner
+            .map(|o| o.trim().to_string())
+            .filter(|o| !o.is_empty())
+        {
             Some(name) => {
                 rules::check_owner_name(&name)?;
                 self.bind_owner(&name, "config")?;
@@ -665,7 +819,10 @@ impl Ctx<'_> {
             None => {
                 // Provisional owners are per host session, never per folder: every Compass routine shares one
                 // cwd. With no host session, one per MCP process (its key is made once at process start).
-                let id = session_ref.clone().or(provisional_key).unwrap_or_else(|| tokens::random_hex(8));
+                let id = session_ref
+                    .clone()
+                    .or(provisional_key)
+                    .unwrap_or_else(|| tokens::random_hex(8));
                 let name = format!("session:{id}");
                 self.bind_owner(&name, "pending")?;
                 name
@@ -687,7 +844,9 @@ impl Ctx<'_> {
             },
         )
         .map_err(db_err)?;
-        let agent = store::agent(self.db, &handle).map_err(db_err)?.ok_or("the new handle vanished")?;
+        let agent = store::agent(self.db, &handle)
+            .map_err(db_err)?
+            .ok_or("the new handle vanished")?;
         self.event(
             "agent.registered",
             &owner_name,
@@ -715,7 +874,12 @@ impl Ctx<'_> {
                 Ok(o)
             }
             None => {
-                let o = Owner { name: name.into(), binding: binding.into(), codex_interactive: false, relay: false };
+                let o = Owner {
+                    name: name.into(),
+                    binding: binding.into(),
+                    codex_interactive: false,
+                    relay: false,
+                };
                 store::upsert_owner(self.db, &o, self.now).map_err(db_err)?;
                 self.event("owner.bound", name, json!({ "binding": binding }))?;
                 Ok(o)
@@ -723,14 +887,22 @@ impl Ctx<'_> {
         }
     }
 
-    fn ask(&mut self, client: &ClientInfo, handle: &str, input: &AskInput) -> Result<AskResult, String> {
+    fn ask(
+        &mut self,
+        client: &ClientInfo,
+        handle: &str,
+        input: &AskInput,
+    ) -> Result<AskResult, String> {
         let agent = self.touch(handle, client)?;
         let (mut input, deadline_ms) = rules::validate_ask(input, self.now)?;
         // Asks already waiting in the digest go before this one.
         self.promote()?;
 
         let pending = self.pending_of(&agent.owner)?;
-        if let Some(dup) = pending.iter().find(|r| rules::is_duplicate(&r.input, &input)) {
+        if let Some(dup) = pending
+            .iter()
+            .find(|r| rules::is_duplicate(&r.input, &input))
+        {
             return Ok(AskResult {
                 id: dup.id.clone(),
                 placed: "existing".into(),
@@ -768,11 +940,12 @@ impl Ctx<'_> {
                 p0_skip = true;
             }
         }
-        let status = if p0_skip || self.can_take_slot(&agent.owner, settings.daily_budget, bounds)? {
-            AskStatus::Open
-        } else {
-            AskStatus::Digest
-        };
+        let status =
+            if p0_skip || self.can_take_slot(&agent.owner, settings.daily_budget, bounds)? {
+                AskStatus::Open
+            } else {
+                AskStatus::Digest
+            };
         let id = format!("ask_{}", tokens::random_hex(8));
         store::insert_ask(
             self.db,
@@ -806,19 +979,38 @@ impl Ctx<'_> {
             let row = self.row(&id)?.ok_or("the new ask vanished")?;
             self.maybe_toast(&row, &settings)?;
         }
-        Ok(AskResult { id, placed: status_str(status).into(), existing: None, note: demoted.map(String::from) })
+        Ok(AskResult {
+            id,
+            placed: status_str(status).into(),
+            existing: None,
+            note: demoted.map(String::from),
+        })
     }
 
-    fn answers(&self, client: &ClientInfo, handle: &str, ids: &[String]) -> Result<AnswersResult, String> {
+    fn answers(
+        &self,
+        client: &ClientInfo,
+        handle: &str,
+        ids: &[String],
+    ) -> Result<AnswersResult, String> {
         let agent = self.touch(handle, client)?;
         let mut r = AnswersResult::default();
         if ids.is_empty() {
             r.answers = self.undelivered_of(&agent.owner)?;
-            r.waiting = self.pending_of(&agent.owner)?.into_iter().map(|a| a.id).collect();
+            r.waiting = self
+                .pending_of(&agent.owner)?
+                .into_iter()
+                .map(|a| a.id)
+                .collect();
             return Ok(r);
         }
         let mut seen = HashSet::new();
-        for id in ids.iter().map(|i| i.trim()).filter(|i| !i.is_empty()).take(MAX_IDS) {
+        for id in ids
+            .iter()
+            .map(|i| i.trim())
+            .filter(|i| !i.is_empty())
+            .take(MAX_IDS)
+        {
             if !seen.insert(id.to_string()) {
                 continue;
             }
@@ -844,7 +1036,10 @@ impl Ctx<'_> {
             return Err(format!("ask {id} is already {}", status_str(row.status)));
         }
         self.db
-            .execute("UPDATE asks SET status = 'cancelled', closed_ms = ?1 WHERE id = ?2", params![self.now, id])
+            .execute(
+                "UPDATE asks SET status = 'cancelled', closed_ms = ?1 WHERE id = ?2",
+                params![self.now, id],
+            )
             .map_err(db_err)?;
         self.revoke_toasts(id)?;
         self.event("ask.cancelled", id, json!({ "owner": agent.owner }))?;
@@ -856,7 +1051,9 @@ impl Ctx<'_> {
 
     fn relay_agent(&self, client: &ClientInfo, handle: &str) -> Result<Agent, String> {
         let agent = self.touch(handle, client)?;
-        let relay = store::owner(self.db, &agent.owner).map_err(db_err)?.is_some_and(|o| o.relay);
+        let relay = store::owner(self.db, &agent.owner)
+            .map_err(db_err)?
+            .is_some_and(|o| o.relay);
         if !relay {
             return Err(format!(
                 "desk_relay is only for the relay owner; {} isn't one (Artem sets it on the Desk)",
@@ -878,7 +1075,9 @@ impl Ctx<'_> {
             params![agent.owner, self.now - ANSWER_WINDOW_MS],
         )
         .map_err(db_err)?;
-        Ok(RelayListResult { answers: self.full_all(&rows)? })
+        Ok(RelayListResult {
+            answers: self.full_all(&rows)?,
+        })
     }
 
     // ---- Desk operations ----
@@ -886,20 +1085,35 @@ impl Ctx<'_> {
     fn mark_shown(&self, rows: &mut [AskRow]) -> Result<(), String> {
         for row in rows.iter_mut().filter(|r| r.shown_ms.is_none()) {
             self.db
-                .execute("UPDATE asks SET shown_ms = ?1 WHERE id = ?2", params![self.now, row.id])
+                .execute(
+                    "UPDATE asks SET shown_ms = ?1 WHERE id = ?2",
+                    params![self.now, row.id],
+                )
                 .map_err(db_err)?;
-            self.event("ask.shown", &row.id, json!({ "status": status_str(row.status) }))?;
+            self.event(
+                "ask.shown",
+                &row.id,
+                json!({ "status": status_str(row.status) }),
+            )?;
             row.shown_ms = Some(self.now);
         }
         Ok(())
     }
 
     fn list(&self) -> Result<ListResult, String> {
-        let mut inbox = store::ask_rows(self.db, "status = 'open' ORDER BY deadline_ms, priority, created_ms, rowid", [])
-            .map_err(db_err)?;
+        let mut inbox = store::ask_rows(
+            self.db,
+            "status = 'open' ORDER BY deadline_ms, priority, created_ms, rowid",
+            [],
+        )
+        .map_err(db_err)?;
         self.mark_shown(&mut inbox)?;
-        let digest_count =
-            store::count(self.db, "SELECT COUNT(*) FROM asks WHERE status = 'digest'", []).map_err(db_err)?;
+        let digest_count = store::count(
+            self.db,
+            "SELECT COUNT(*) FROM asks WHERE status = 'digest'",
+            [],
+        )
+        .map_err(db_err)?;
         let recent = store::ask_rows(
             self.db,
             &format!(
@@ -908,14 +1122,24 @@ impl Ctx<'_> {
             [],
         )
         .map_err(db_err)?;
-        Ok(ListResult { inbox: self.full_all(&inbox)?, digest_count, recent: self.full_all(&recent)? })
+        Ok(ListResult {
+            inbox: self.full_all(&inbox)?,
+            digest_count,
+            recent: self.full_all(&recent)?,
+        })
     }
 
     fn open_digest(&self) -> Result<DigestResult, String> {
-        let mut digest = store::ask_rows(self.db, "status = 'digest' ORDER BY deadline_ms, priority, created_ms, rowid", [])
-            .map_err(db_err)?;
+        let mut digest = store::ask_rows(
+            self.db,
+            "status = 'digest' ORDER BY deadline_ms, priority, created_ms, rowid",
+            [],
+        )
+        .map_err(db_err)?;
         self.mark_shown(&mut digest)?;
-        Ok(DigestResult { digest: self.full_all(&digest)? })
+        Ok(DigestResult {
+            digest: self.full_all(&digest)?,
+        })
     }
 
     fn desk_answer(
@@ -925,14 +1149,25 @@ impl Ctx<'_> {
         values: Option<Value>,
         note: Option<String>,
     ) -> Result<AnswerResult, String> {
-        let row = self.row(ask_id)?.ok_or_else(|| format!("no ask {ask_id}"))?;
+        let row = self
+            .row(ask_id)?
+            .ok_or_else(|| format!("no ask {ask_id}"))?;
         if !is_pending(row.status) {
-            return Err(format!("ask {ask_id} is already {}", status_str(row.status)));
+            return Err(format!(
+                "ask {ask_id} is already {}",
+                status_str(row.status)
+            ));
         }
         let (choice, values) = rules::check_answer(&row.input, choice, values)?;
         let note = note.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
-        if note.as_ref().is_some_and(|n| n.chars().count() > rules::MAX_NOTE) {
-            return Err(format!("a note takes at most {} characters", rules::MAX_NOTE));
+        if note
+            .as_ref()
+            .is_some_and(|n| n.chars().count() > rules::MAX_NOTE)
+        {
+            return Err(format!(
+                "a note takes at most {} characters",
+                rules::MAX_NOTE
+            ));
         }
         let answer = self.write_answer(&row, AnswerVia::Desk, choice, values, note)?;
         Ok(AnswerResult { answer })
@@ -958,9 +1193,14 @@ impl Ctx<'_> {
         if used_ms.is_some() {
             return Err("this answer token was already used".into());
         }
-        let row = self.row(&ask_id)?.ok_or_else(|| format!("no ask {ask_id}"))?;
+        let row = self
+            .row(&ask_id)?
+            .ok_or_else(|| format!("no ask {ask_id}"))?;
         if revoked_ms.is_some() || !is_pending(row.status) {
-            return Err(format!("ask {ask_id} is already {}; this token no longer works", status_str(row.status)));
+            return Err(format!(
+                "ask {ask_id} is already {}; this token no longer works",
+                status_str(row.status)
+            ));
         }
         if self.now >= expires_ms {
             return Err("this answer token has expired; answer on the Desk".into());
@@ -980,7 +1220,11 @@ impl Ctx<'_> {
                 params![self.now, parsed.option_index as i64, parsed.toast_id],
             )
             .map_err(db_err)?;
-        self.event("token.used", &ask_id, json!({ "toast": parsed.toast_id, "option": parsed.option_index }))?;
+        self.event(
+            "token.used",
+            &ask_id,
+            json!({ "toast": parsed.toast_id, "option": parsed.option_index }),
+        )?;
         let answer = self.write_answer(&row, AnswerVia::Toast, Some(choice), None, None)?;
         Ok(AnswerResult { answer })
     }
@@ -1005,18 +1249,32 @@ impl Ctx<'_> {
 
     fn set_settings(&mut self, s: Settings) -> Result<Settings, String> {
         if !(1..=rules::MAX_BUDGET).contains(&s.daily_budget) {
-            return Err(format!("daily_budget takes 1-{} asks a day", rules::MAX_BUDGET));
+            return Err(format!(
+                "daily_budget takes 1-{} asks a day",
+                rules::MAX_BUDGET
+            ));
         }
-        let ntfy_topic_url = s.ntfy_topic_url.map(|u| u.trim().to_string()).filter(|u| !u.is_empty());
+        let ntfy_topic_url = s
+            .ntfy_topic_url
+            .map(|u| u.trim().to_string())
+            .filter(|u| !u.is_empty());
         // The scheme is stored in lower case (`HTTPS://` is accepted), which is what the daemon's push checks.
         let ntfy_topic_url = match ntfy_topic_url {
-            Some(u) if u.len() <= 500 && !u.chars().any(|c| c.is_whitespace() || c.is_control()) => {
-                Some(rules::https_lowercase_scheme(&u).ok_or("ntfy_topic_url must be an https:// URL without spaces")?)
+            Some(u)
+                if u.len() <= 500 && !u.chars().any(|c| c.is_whitespace() || c.is_control()) =>
+            {
+                Some(
+                    rules::https_lowercase_scheme(&u)
+                        .ok_or("ntfy_topic_url must be an https:// URL without spaces")?,
+                )
             }
             Some(_) => return Err("ntfy_topic_url must be an https:// URL without spaces".into()),
             None => None,
         };
-        let s = Settings { ntfy_topic_url, ..s };
+        let s = Settings {
+            ntfy_topic_url,
+            ..s
+        };
         store::set_settings(self.db, &s).map_err(db_err)?;
         self.event(
             "settings.set",
@@ -1033,8 +1291,22 @@ impl Service for StoreService {
     fn mcp(&self, client: &ClientInfo, op: McpOp) -> Result<(Value, Vec<Effect>), String> {
         let now = self.now_ms();
         match op {
-            McpOp::Register { owner, client: name, session_ref, cwd, doing, provisional_key } => {
-                let r = Registration { owner, client: name, session_ref, cwd, doing, provisional_key };
+            McpOp::Register {
+                owner,
+                client: name,
+                session_ref,
+                cwd,
+                doing,
+                provisional_key,
+            } => {
+                let r = Registration {
+                    owner,
+                    client: name,
+                    session_ref,
+                    cwd,
+                    doing,
+                    provisional_key,
+                };
                 self.write_json(now, |c| c.register(client, &self.machine, r))
             }
             McpOp::Heartbeat { handle, doing } => self.write_json(now, |c| {
@@ -1047,14 +1319,28 @@ impl Service for StoreService {
                     )
                     .map_err(db_err)?;
                 }
-                store::agent(c.db, &handle).map_err(db_err)?.ok_or_else(|| UNKNOWN_HANDLE.to_string())
+                store::agent(c.db, &handle)
+                    .map_err(db_err)?
+                    .ok_or_else(|| UNKNOWN_HANDLE.to_string())
             }),
             McpOp::Ask { handle, ask } => self.write_json(now, |c| c.ask(client, &handle, &ask)),
             // Returns at once; the daemon does any waiting by asking again (`wait_ms` is the daemon's to honour).
-            McpOp::Answers { handle, ids, wait_ms: _ } => self.write_json(now, |c| c.answers(client, &handle, &ids)),
-            McpOp::Cancel { handle, id } => self.write_json(now, |c| c.cancel(client, &handle, &id)),
+            McpOp::Answers {
+                handle,
+                ids,
+                wait_ms: _,
+            } => self.write_json(now, |c| c.answers(client, &handle, &ids)),
+            McpOp::Cancel { handle, id } => {
+                self.write_json(now, |c| c.cancel(client, &handle, &id))
+            }
             McpOp::RelayList { handle } => self.write_json(now, |c| c.relay_list(client, &handle)),
-            McpOp::RelayMark { handle, ask_id, to, ok, detail } => self.write_json(now, |c| {
+            McpOp::RelayMark {
+                handle,
+                ask_id,
+                to,
+                ok,
+                detail,
+            } => self.write_json(now, |c| {
                 c.relay_agent(client, &handle)?;
                 let answer = c.deliver(&ask_id, &to, ok, detail.as_deref(), "relay")?;
                 Ok(AnswerResult { answer })
@@ -1068,17 +1354,25 @@ impl Service for StoreService {
         match op {
             DeskOp::List => self.write_json(now, |c| c.list()),
             DeskOp::OpenDigest => self.write_json(now, |c| c.open_digest()),
-            DeskOp::Answer { ask_id, choice, values, note } => {
-                self.write_json(now, |c| c.desk_answer(&ask_id, choice, values, note))
-            }
+            DeskOp::Answer {
+                ask_id,
+                choice,
+                values,
+                note,
+            } => self.write_json(now, |c| c.desk_answer(&ask_id, choice, values, note)),
             DeskOp::AnswerToken { token } => self.write_json(now, |c| c.answer_token(&token)),
-            DeskOp::Agents => {
-                self.write_json(now, |c| Ok(AgentsResult { agents: store::agents(c.db).map_err(db_err)? }))
-            }
+            DeskOp::Agents => self.write_json(now, |c| {
+                Ok(AgentsResult {
+                    agents: store::agents(c.db).map_err(db_err)?,
+                })
+            }),
             DeskOp::Owners => self.write_json(now, |c| {
                 let (owners, more_provisional) =
                     store::owners_for_desk(c.db, rules::DESK_PROVISIONAL_OWNERS).map_err(db_err)?;
-                Ok(OwnersResult { owners, more_provisional })
+                Ok(OwnersResult {
+                    owners,
+                    more_provisional,
+                })
             }),
             DeskOp::SetOwner { owner } => self.write_json(now, |c| c.set_owner(owner)),
             DeskOp::GetSettings => self.write_json(now, |c| c.settings()),
@@ -1092,15 +1386,18 @@ impl Service for StoreService {
         self.write(now, |c| {
             c.apply_defaults()?;
             c.promote()?;
-            let expired = c
-                .db
-                .execute("DELETE FROM agents WHERE last_seen_ms < ?1", [now - HANDLE_RETENTION_MS])
+            let expired =
+                c.db.execute(
+                    "DELETE FROM agents WHERE last_seen_ms < ?1",
+                    [now - HANDLE_RETENTION_MS],
+                )
                 .map_err(db_err)?;
             if expired > 0 {
                 c.event("agents.expired", "agents", json!({ "count": expired }))?;
             }
-            let pruned = store::prune_provisional_owners(c.db, now - rules::PROVISIONAL_OWNER_RETENTION_MS)
-                .map_err(db_err)?;
+            let pruned =
+                store::prune_provisional_owners(c.db, now - rules::PROVISIONAL_OWNER_RETENTION_MS)
+                    .map_err(db_err)?;
             if pruned > 0 {
                 c.event("owners.pruned", "owners", json!({ "count": pruned }))?;
             }
@@ -1112,6 +1409,9 @@ impl Service for StoreService {
 
     fn disconnected(&self, connection: u64) {
         let conn = self.lock();
-        let _ = conn.execute("UPDATE agents SET connection = NULL WHERE connection = ?1", [connection as i64]);
+        let _ = conn.execute(
+            "UPDATE agents SET connection = NULL WHERE connection = ?1",
+            [connection as i64],
+        );
     }
 }

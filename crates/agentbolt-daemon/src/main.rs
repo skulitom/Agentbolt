@@ -45,7 +45,10 @@ struct Args {
 }
 
 fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
-    let mut out = Args { channel: None, headless: false };
+    let mut out = Args {
+        channel: None,
+        headless: false,
+    };
     let mut it = args.into_iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -72,10 +75,16 @@ fn main() {
 }
 
 fn run() -> i32 {
-    let Ok(args) = parse_args(std::env::args().skip(1)) else { return 2 };
-    let Ok(names) = names_for(&args) else { return 2 };
+    let Ok(args) = parse_args(std::env::args().skip(1)) else {
+        return 2;
+    };
+    let Ok(names) = names_for(&args) else {
+        return 2;
+    };
     // No data folder (LOCALAPPDATA unset): nowhere to log or keep the store, so stop rather than use ".".
-    let Ok(data_dir) = names.data_dir() else { return 1 };
+    let Ok(data_dir) = names.data_dir() else {
+        return 1;
+    };
     if std::fs::create_dir_all(&data_dir).is_err() {
         return 1;
     }
@@ -85,7 +94,10 @@ fn run() -> i32 {
     let _instance = match winutil::single_instance(&names) {
         Ok(Some(instance)) => instance,
         Ok(None) => {
-            info!("another agentbolt-daemon already runs on channel {}; exiting", names.channel);
+            info!(
+                "another agentbolt-daemon already runs on channel {}; exiting",
+                names.channel
+            );
             return 0;
         }
         Err(e) => {
@@ -98,7 +110,11 @@ fn run() -> i32 {
         env!("CARGO_PKG_VERSION"),
         names.channel,
         std::process::id(),
-        if args.headless { "headless" } else { "tray and toasts" }
+        if args.headless {
+            "headless"
+        } else {
+            "tray and toasts"
+        }
     );
 
     remove_old_exes();
@@ -130,7 +146,12 @@ fn run() -> i32 {
     let failed = Arc::new(AtomicBool::new(false));
 
     // Bind both pipes before anything shows: a squatter or a stale daemon makes us stop here.
-    let bound = runtime.block_on(async { Ok::<_, IpcError>((Server::bind(&names, Pipe::Mcp)?, Server::bind(&names, Pipe::Desk)?)) });
+    let bound = runtime.block_on(async {
+        Ok::<_, IpcError>((
+            Server::bind(&names, Pipe::Mcp)?,
+            Server::bind(&names, Pipe::Desk)?,
+        ))
+    });
     let (mcp, desk) = match bound {
         Ok(servers) => servers,
         Err(IpcError::AlreadyServed(pipe)) => {
@@ -164,10 +185,17 @@ fn run() -> i32 {
         match &key {
             winutil::HandlerKey::Ours => {}
             winutil::HandlerKey::Missing => {
-                warning!("the {}:// handler isn't registered (HKCU\\Software\\Classes\\{}); toast buttons won't open the Desk", names.protocol, names.protocol)
+                warning!(
+                    "the {}:// handler isn't registered (HKCU\\Software\\Classes\\{}); toast buttons won't open the Desk",
+                    names.protocol,
+                    names.protocol
+                )
             }
             winutil::HandlerKey::Changed(command) => {
-                warning!("the {}:// handler doesn't point to agentbolt-desk.exe next to the daemon: {command}", names.protocol)
+                warning!(
+                    "the {}:// handler doesn't point to agentbolt-desk.exe next to the daemon: {command}",
+                    names.protocol
+                )
             }
         }
         info!("toasts for {}: {}", names.aumid, toast::setting(&names));
@@ -181,25 +209,56 @@ fn run() -> i32 {
     let handler_ok = false;
 
     #[cfg(windows)]
-    let (ui, ui_rx): (Arc<dyn Ui>, Option<std::sync::mpsc::Receiver<tray::UiCmd>>) = if !args.headless {
-        let (tx, rx) = std::sync::mpsc::channel();
-        (Arc::new(tray::TrayUi(std::sync::Mutex::new(tx))), Some(rx))
-    } else {
-        (Arc::new(NoUi), None)
-    };
+    let (ui, ui_rx): (Arc<dyn Ui>, Option<std::sync::mpsc::Receiver<tray::UiCmd>>) =
+        if !args.headless {
+            let (tx, rx) = std::sync::mpsc::channel();
+            (Arc::new(tray::TrayUi(std::sync::Mutex::new(tx))), Some(rx))
+        } else {
+            (Arc::new(NoUi), None)
+        };
     #[cfg(not(windows))]
     let ui: Arc<dyn Ui> = Arc::new(NoUi);
 
-    spawn_server(&runtime, mcp, Arc::new(McpHandler(shared.clone())), "mcp", &shutdown, &failed);
-    spawn_server(&runtime, desk, Arc::new(DeskHandler(shared.clone())), "desk", &shutdown, &failed);
+    spawn_server(
+        &runtime,
+        mcp,
+        Arc::new(McpHandler(shared.clone())),
+        "mcp",
+        &shutdown,
+        &failed,
+    );
+    spawn_server(
+        &runtime,
+        desk,
+        Arc::new(DeskHandler(shared.clone())),
+        "desk",
+        &shutdown,
+        &failed,
+    );
     runtime.spawn(daemon::tick_loop(shared.clone()));
-    runtime.spawn(daemon::effects_loop(shared.clone(), events, ui, paused, !args.headless, handler_ok));
-    info!("serving {} and {}", Pipe::Mcp.path(&names).display(), Pipe::Desk.path(&names).display());
+    runtime.spawn(daemon::effects_loop(
+        shared.clone(),
+        events,
+        ui,
+        paused,
+        !args.headless,
+        handler_ok,
+    ));
+    info!(
+        "serving {} and {}",
+        Pipe::Mcp.path(&names).display(),
+        Pipe::Desk.path(&names).display()
+    );
 
     #[cfg(windows)]
     {
         if let Some(rx) = ui_rx {
-            let state = tray::TrayState { open, digest, paused, handler };
+            let state = tray::TrayState {
+                open,
+                digest,
+                paused,
+                handler,
+            };
             if let Err(e) = tray::run(shared.clone(), rx, shutdown.clone(), state) {
                 error!("{e}; carrying on without a tray");
                 wait_for_shutdown(&shutdown);
@@ -226,10 +285,15 @@ fn run() -> i32 {
 /// Delete the `<exe>.old-*` copies `agentbolt install` renamed aside next to this daemon, best effort: one still
 /// running (an older `agentbolt mcp`) can't be deleted yet and waits for the next start or install.
 fn remove_old_exes() {
-    let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(std::path::Path::to_path_buf)) else {
+    let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(std::path::Path::to_path_buf))
+    else {
         return;
     };
-    let Ok(entries) = std::fs::read_dir(&dir) else { return };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
         if is_old_exe(&name) && std::fs::remove_file(entry.path()).is_ok() {
@@ -240,10 +304,20 @@ fn remove_old_exes() {
 
 /// `agentbolt.exe.old-<stamp>`, `agentbolt-daemon.exe.old-<stamp>` or `agentbolt-desk.exe.old-<stamp>`.
 fn is_old_exe(name: &str) -> bool {
-    ["agentbolt.exe", "agentbolt-daemon.exe", "agentbolt-desk.exe"].iter().any(|exe| {
+    [
+        "agentbolt.exe",
+        "agentbolt-daemon.exe",
+        "agentbolt-desk.exe",
+    ]
+    .iter()
+    .any(|exe| {
         name.len() > exe.len() + 5
-            && name.get(..exe.len()).is_some_and(|p| p.eq_ignore_ascii_case(exe))
-            && name.get(exe.len()..exe.len() + 5).is_some_and(|p| p.eq_ignore_ascii_case(".old-"))
+            && name
+                .get(..exe.len())
+                .is_some_and(|p| p.eq_ignore_ascii_case(exe))
+            && name
+                .get(exe.len()..exe.len() + 5)
+                .is_some_and(|p| p.eq_ignore_ascii_case(".old-"))
     })
 }
 
@@ -282,9 +356,27 @@ mod tests {
 
     #[test]
     fn arguments() {
-        assert_eq!(args(&[]).unwrap(), Args { channel: None, headless: false });
-        assert_eq!(args(&["--channel", "t1"]).unwrap(), Args { channel: Some("t1".into()), headless: false });
-        assert_eq!(args(&["--channel=t2", "--headless"]).unwrap(), Args { channel: Some("t2".into()), headless: true });
+        assert_eq!(
+            args(&[]).unwrap(),
+            Args {
+                channel: None,
+                headless: false
+            }
+        );
+        assert_eq!(
+            args(&["--channel", "t1"]).unwrap(),
+            Args {
+                channel: Some("t1".into()),
+                headless: false
+            }
+        );
+        assert_eq!(
+            args(&["--channel=t2", "--headless"]).unwrap(),
+            Args {
+                channel: Some("t2".into()),
+                headless: true
+            }
+        );
         assert!(args(&["--channel"]).is_err());
         assert!(args(&["--sandbox"]).is_err());
         let names = names_for(&args(&["--channel", "ipctest-args"]).unwrap()).unwrap();
@@ -294,10 +386,21 @@ mod tests {
 
     #[test]
     fn only_renamed_install_leftovers_count_as_old_exes() {
-        for old in ["agentbolt.exe.old-20261018T120000", "Agentbolt-Daemon.EXE.old-1", "agentbolt-desk.exe.old-x"] {
+        for old in [
+            "agentbolt.exe.old-20261018T120000",
+            "Agentbolt-Daemon.EXE.old-1",
+            "agentbolt-desk.exe.old-x",
+        ] {
             assert!(is_old_exe(old), "{old}");
         }
-        for keep in ["agentbolt.exe", "agentbolt.exe.old-", "agentbolt.db", "agentbolt.log", "other.exe.old-1", "é.exe.old-1"] {
+        for keep in [
+            "agentbolt.exe",
+            "agentbolt.exe.old-",
+            "agentbolt.db",
+            "agentbolt.log",
+            "other.exe.old-1",
+            "é.exe.old-1",
+        ] {
             assert!(!is_old_exe(keep), "{keep}");
         }
     }

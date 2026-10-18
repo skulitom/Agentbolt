@@ -28,7 +28,9 @@ impl Names {
     pub fn for_channel(channel: &str) -> Result<Self, String> {
         let valid = !channel.is_empty()
             && channel.len() <= 32
-            && channel.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+            && channel
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
             && !channel.starts_with('-');
         if !valid {
             return Err(format!(
@@ -36,12 +38,24 @@ impl Names {
             ));
         }
         let main = channel == MAIN;
-        let suffix = if main { String::new() } else { format!("-{channel}") };
+        let suffix = if main {
+            String::new()
+        } else {
+            format!("-{channel}")
+        };
         Ok(Self {
             channel: channel.to_string(),
-            aumid: if main { "Skulitom.Agentbolt".into() } else { format!("Skulitom.Agentbolt.{channel}") },
+            aumid: if main {
+                "Skulitom.Agentbolt".into()
+            } else {
+                format!("Skulitom.Agentbolt.{channel}")
+            },
             protocol: format!("agentbolt{suffix}"),
-            task: if main { "Agentbolt".into() } else { format!("Agentbolt ({channel})") },
+            task: if main {
+                "Agentbolt".into()
+            } else {
+                format!("Agentbolt ({channel})")
+            },
             mcp_pipe: format!("agentbolt{suffix}-mcp"),
             desk_pipe: format!("agentbolt{suffix}-desk"),
             mutex: format!("Agentbolt{suffix}-daemon"),
@@ -75,11 +89,16 @@ impl Names {
 pub fn env_dir(var: &str) -> Result<PathBuf, String> {
     let value = std::env::var_os(var).filter(|v| !v.is_empty());
     let Some(value) = value else {
-        return Err(format!("{var} isn't set, so Agentbolt can't tell where its folders go; set it and try again"));
+        return Err(format!(
+            "{var} isn't set, so Agentbolt can't tell where its folders go; set it and try again"
+        ));
     };
     let path = PathBuf::from(value);
     if !path.is_absolute() {
-        return Err(format!("{var} is {}, which isn't an absolute path; Agentbolt won't use it", path.display()));
+        return Err(format!(
+            "{var} is {}, which isn't an absolute path; Agentbolt won't use it",
+            path.display()
+        ));
     }
     Ok(path)
 }
@@ -118,15 +137,26 @@ mod tests {
     #[test]
     fn folders_from_the_environment_must_be_absolute() {
         // Read-only checks on variables no other test sets.
-        assert!(env_dir("AGENTBOLT_TEST_SURELY_UNSET_VAR").unwrap_err().contains("isn't set"));
-        let var = if cfg!(windows) { "LOCALAPPDATA" } else { "HOME" };
+        assert!(
+            env_dir("AGENTBOLT_TEST_SURELY_UNSET_VAR")
+                .unwrap_err()
+                .contains("isn't set")
+        );
+        let var = if cfg!(windows) {
+            "LOCALAPPDATA"
+        } else {
+            "HOME"
+        };
         assert!(env_dir(var).unwrap().is_absolute());
     }
 
     #[test]
     fn bad_channel_names_are_refused() {
         for bad in ["", "Test", "a b", "-x", "x/y", &"a".repeat(33)] {
-            assert!(Names::for_channel(bad).is_err(), "{bad:?} should be refused");
+            assert!(
+                Names::for_channel(bad).is_err(),
+                "{bad:?} should be refused"
+            );
         }
     }
 }

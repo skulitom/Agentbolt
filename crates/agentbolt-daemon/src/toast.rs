@@ -19,7 +19,10 @@ const MAX_BUTTONS: usize = 5;
 
 /// Plain text: control characters become spaces, then cut to `max` characters with an ellipsis.
 pub fn plain(text: &str, max: usize) -> String {
-    let cleaned: String = text.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+    let cleaned: String = text
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
     let cleaned = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
     if cleaned.chars().count() <= max {
         cleaned
@@ -70,17 +73,30 @@ pub fn answer_url(names: &Names, token: &str) -> String {
 /// same: options may be 120 characters, and two that differ only past the cut can't be told apart, so such a
 /// toast gets no buttons (its body click still opens the Desk).
 pub fn button_labels(buttons: &[(String, String)]) -> Option<Vec<String>> {
-    let labels: Vec<String> = buttons.iter().take(MAX_BUTTONS).map(|(label, _)| plain(label, MAX_LABEL)).collect();
+    let labels: Vec<String> = buttons
+        .iter()
+        .take(MAX_BUTTONS)
+        .map(|(label, _)| plain(label, MAX_LABEL))
+        .collect();
     let mut seen = std::collections::HashSet::new();
-    labels.iter().all(|l| !l.is_empty() && seen.insert(l.as_str())).then_some(labels)
+    labels
+        .iter()
+        .all(|l| !l.is_empty() && seen.insert(l.as_str()))
+        .then_some(labels)
 }
 
 /// The toast XML for one ask. `buttons` are (label, token) pairs from `Effect::Toast`.
 pub fn xml(names: &Names, title: &str, body: &str, buttons: &[(String, String)]) -> String {
     let mut x = String::new();
-    x.push_str(&format!(r#"<toast activationType="protocol" launch="{}">"#, xml_escape(&open_url(names))));
+    x.push_str(&format!(
+        r#"<toast activationType="protocol" launch="{}">"#,
+        xml_escape(&open_url(names))
+    ));
     x.push_str(r#"<visual><binding template="ToastGeneric">"#);
-    x.push_str(&format!(r#"<text hint-maxLines="2">{}</text>"#, xml_escape(&plain(title, MAX_TITLE))));
+    x.push_str(&format!(
+        r#"<text hint-maxLines="2">{}</text>"#,
+        xml_escape(&plain(title, MAX_TITLE))
+    ));
     let body = plain(body, MAX_BODY);
     if !body.is_empty() {
         x.push_str(&format!("<text>{}</text>", xml_escape(&body)));
@@ -104,7 +120,13 @@ pub fn xml(names: &Names, title: &str, body: &str, buttons: &[(String, String)])
 
 /// Show the toast. Tagged with the ask id so a later version could withdraw it.
 #[cfg(windows)]
-pub fn show(names: &Names, ask_id: &str, title: &str, body: &str, buttons: &[(String, String)]) -> Result<(), String> {
+pub fn show(
+    names: &Names,
+    ask_id: &str,
+    title: &str,
+    body: &str,
+    buttons: &[(String, String)],
+) -> Result<(), String> {
     use windows::Data::Xml::Dom::XmlDocument;
     use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
     use windows::core::HSTRING;
@@ -113,12 +135,17 @@ pub fn show(names: &Names, ask_id: &str, title: &str, body: &str, buttons: &[(St
         let doc = XmlDocument::new()?;
         doc.LoadXml(&HSTRING::from(xml(names, title, body, buttons)))?;
         let toast = ToastNotification::CreateToastNotification(&doc)?;
-        let tag: String = ask_id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(64).collect();
+        let tag: String = ask_id
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+            .take(64)
+            .collect();
         if !tag.is_empty() {
             toast.SetTag(&HSTRING::from(tag))?;
             toast.SetGroup(&HSTRING::from("asks"))?;
         }
-        ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(&names.aumid))?.Show(&toast)
+        ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(&names.aumid))?
+            .Show(&toast)
     };
     run().map_err(|e| format!("toast failed: {e}"))
 }
@@ -128,9 +155,13 @@ pub fn show(names: &Names, ask_id: &str, title: &str, body: &str, buttons: &[(St
 pub fn setting(names: &Names) -> String {
     use windows::UI::Notifications::{NotificationSetting, ToastNotificationManager};
     use windows::core::HSTRING;
-    match ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(&names.aumid)).and_then(|n| n.Setting()) {
+    match ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(&names.aumid))
+        .and_then(|n| n.Setting())
+    {
         Ok(NotificationSetting::Enabled) => "enabled".into(),
-        Ok(NotificationSetting::DisabledForApplication) => "turned off for Agentbolt in Settings".into(),
+        Ok(NotificationSetting::DisabledForApplication) => {
+            "turned off for Agentbolt in Settings".into()
+        }
         Ok(NotificationSetting::DisabledForUser) => "turned off for this user".into(),
         Ok(NotificationSetting::DisabledByGroupPolicy) => "turned off by group policy".into(),
         Ok(NotificationSetting::DisabledByManifest) => "turned off by the manifest".into(),
@@ -150,7 +181,10 @@ mod tests {
     #[test]
     fn the_toast_is_silent_with_protocol_buttons() {
         let n = names();
-        let buttons = vec![("Ship it".to_string(), "ab12.cd34".to_string()), ("Wait".to_string(), "ef56.0789".to_string())];
+        let buttons = vec![
+            ("Ship it".to_string(), "ab12.cd34".to_string()),
+            ("Wait".to_string(), "ef56.0789".to_string()),
+        ];
         let x = xml(&n, "Merge PR #12?", "Tests pass.", &buttons);
         assert!(x.contains(r#"<audio silent="true"/>"#));
         assert!(x.contains(r#"launch="agentbolt-ipctest-toast://open""#));
@@ -162,7 +196,8 @@ mod tests {
     #[test]
     fn untrusted_text_is_escaped_and_cut() {
         let n = names();
-        let hostile = r#"</text><action content="x" activationType="protocol" arguments="evil://"/>"#;
+        let hostile =
+            r#"</text><action content="x" activationType="protocol" arguments="evil://"/>"#;
         let long = format!("{hostile} {}", "word ".repeat(100));
         let buttons = vec![(r#"A"&<b>"#.to_string(), "t&x=1".to_string())];
         let x = xml(&n, hostile, &long, &buttons);
@@ -175,8 +210,15 @@ mod tests {
         assert!(body.ends_with('…'));
         assert_eq!(plain("a\r\n\tb\u{7}c", 50), "a b c");
         let six: Vec<_> = (0..6).map(|i| (format!("o{i}"), format!("{i}"))).collect();
-        assert_eq!(xml(&n, "t", "", &six).matches("<action ").count(), 5, "at most five buttons");
-        assert!(!xml(&n, "t", "", &[]).contains("<actions>"), "no buttons: the body click opens the Desk");
+        assert_eq!(
+            xml(&n, "t", "", &six).matches("<action ").count(),
+            5,
+            "at most five buttons"
+        );
+        assert!(
+            !xml(&n, "t", "", &[]).contains("<actions>"),
+            "no buttons: the body click opens the Desk"
+        );
     }
 
     #[test]
@@ -186,11 +228,18 @@ mod tests {
         let body = "Ünïcödé ".repeat(60);
         // 39 'é' then a two-byte 'ß' at byte 78-79: a byte cut at 40 would land inside a character.
         let long = format!("{}ßxyz", "é".repeat(39));
-        let buttons = vec![(long.clone(), "aa.bb".to_string()), ("Ja, bitte 🙂".to_string(), "cc.dd".to_string())];
+        let buttons = vec![
+            (long.clone(), "aa.bb".to_string()),
+            ("Ja, bitte 🙂".to_string(), "cc.dd".to_string()),
+        ];
         let x = xml(&n, &title, &body, &buttons);
         let labels = button_labels(&buttons).unwrap();
         assert_eq!(labels[0].chars().count(), MAX_LABEL);
-        assert!(labels[0].starts_with(&"é".repeat(39)) && labels[0].ends_with('…'), "{}", labels[0]);
+        assert!(
+            labels[0].starts_with(&"é".repeat(39)) && labels[0].ends_with('…'),
+            "{}",
+            labels[0]
+        );
         assert_eq!(labels[1], "Ja, bitte 🙂");
         assert!(x.contains(&format!("content=\"{}\"", labels[0])));
         assert_eq!(plain(&title, MAX_TITLE).chars().count(), MAX_TITLE);
@@ -204,13 +253,33 @@ mod tests {
         let stem = "Merge the branch and then deploy to the"; // 39 characters
         let a = format!("{stem} staging servers first");
         let b = format!("{stem} production servers right away");
-        let buttons = vec![(a, "aa.bb".to_string()), (b, "cc.dd".to_string()), ("Wait".to_string(), "ee.ff".to_string())];
-        assert_eq!(button_labels(&buttons), None, "two labels cut to the same text");
+        let buttons = vec![
+            (a, "aa.bb".to_string()),
+            (b, "cc.dd".to_string()),
+            ("Wait".to_string(), "ee.ff".to_string()),
+        ];
+        assert_eq!(
+            button_labels(&buttons),
+            None,
+            "two labels cut to the same text"
+        );
         let x = xml(&n, "Deploy?", "", &buttons);
-        assert!(!x.contains("<actions>") && !x.contains("answer?t="), "no buttons at all: {x}");
-        assert!(x.contains(r#"launch="agentbolt-ipctest-toast://open""#), "the body still opens the Desk");
-        let distinct = vec![("Ship".to_string(), "aa.bb".to_string()), ("Wait".to_string(), "cc.dd".to_string())];
-        assert_eq!(button_labels(&distinct), Some(vec!["Ship".to_string(), "Wait".to_string()]));
+        assert!(
+            !x.contains("<actions>") && !x.contains("answer?t="),
+            "no buttons at all: {x}"
+        );
+        assert!(
+            x.contains(r#"launch="agentbolt-ipctest-toast://open""#),
+            "the body still opens the Desk"
+        );
+        let distinct = vec![
+            ("Ship".to_string(), "aa.bb".to_string()),
+            ("Wait".to_string(), "cc.dd".to_string()),
+        ];
+        assert_eq!(
+            button_labels(&distinct),
+            Some(vec!["Ship".to_string(), "Wait".to_string()])
+        );
     }
 
     /// The XML is valid for Windows' own parser and makes a ToastNotification (nothing is shown).
@@ -221,9 +290,18 @@ mod tests {
         use windows::UI::Notifications::ToastNotification;
         use windows::core::HSTRING;
         let n = names();
-        let buttons = vec![("Yes".to_string(), "aa.bb".to_string()), ("No <way>".to_string(), "cc.dd".to_string())];
+        let buttons = vec![
+            ("Yes".to_string(), "aa.bb".to_string()),
+            ("No <way>".to_string(), "cc.dd".to_string()),
+        ];
         let doc = XmlDocument::new().unwrap();
-        doc.LoadXml(&HSTRING::from(xml(&n, "Title & <more>", "Body \"quoted\"", &buttons))).unwrap();
+        doc.LoadXml(&HSTRING::from(xml(
+            &n,
+            "Title & <more>",
+            "Body \"quoted\"",
+            &buttons,
+        )))
+        .unwrap();
         ToastNotification::CreateToastNotification(&doc).unwrap();
         let actions = doc.GetElementsByTagName(&HSTRING::from("action")).unwrap();
         assert_eq!(actions.Length().unwrap(), 2);

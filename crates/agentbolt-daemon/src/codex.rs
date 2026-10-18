@@ -30,7 +30,10 @@ pub fn find() -> Option<CodexExe> {
 pub fn find_in(dirs: &[PathBuf]) -> Option<CodexExe> {
     let exe = format!("codex{}", std::env::consts::EXE_SUFFIX);
     if let Some(dir) = dirs.iter().find(|d| d.join(&exe).is_file()) {
-        return Some(CodexExe { path: dir.join(&exe), env: Vec::new() });
+        return Some(CodexExe {
+            path: dir.join(&exe),
+            env: Vec::new(),
+        });
     }
     if !cfg!(windows) {
         return None;
@@ -44,8 +47,14 @@ pub fn find_in(dirs: &[PathBuf]) -> Option<CodexExe> {
     for dir in dirs.iter().filter(|d| d.join("codex.cmd").is_file()) {
         let root = dir.join("node_modules").join("@openai").join("codex");
         let candidates = [
-            root.join("node_modules").join("@openai").join(package).join("vendor"),
-            dir.join("node_modules").join("@openai").join(package).join("vendor"),
+            root.join("node_modules")
+                .join("@openai")
+                .join(package)
+                .join("vendor"),
+            dir.join("node_modules")
+                .join("@openai")
+                .join(package)
+                .join("vendor"),
             root.join("vendor"),
         ];
         for vendor in candidates {
@@ -53,7 +62,10 @@ pub fn find_in(dirs: &[PathBuf]) -> Option<CodexExe> {
             if native.is_file() {
                 let env = vec![
                     ("CODEX_MANAGED_BY_NPM".to_string(), "1".to_string()),
-                    ("CODEX_MANAGED_PACKAGE_ROOT".to_string(), root.to_string_lossy().into_owned()),
+                    (
+                        "CODEX_MANAGED_PACKAGE_ROOT".to_string(),
+                        root.to_string_lossy().into_owned(),
+                    ),
                 ];
                 return Some(CodexExe { path: native, env });
             }
@@ -64,13 +76,20 @@ pub fn find_in(dirs: &[PathBuf]) -> Option<CodexExe> {
 
 /// The arguments, in `--flag=value` form so a message starting with `-` stays a value.
 pub fn args(thread: &str, text: &str) -> Vec<String> {
-    vec!["queue".into(), format!("--thread={thread}"), format!("--message={text}")]
+    vec![
+        "queue".into(),
+        format!("--thread={thread}"),
+        format!("--message={text}"),
+    ]
 }
 
 /// Run `codex queue` and wait for it (up to `wait`). Returns (ok, detail) for the delivery record.
 pub fn run(exe: &CodexExe, thread: &str, text: &str, wait: Duration) -> (bool, String) {
     let mut cmd = Command::new(&exe.path);
-    cmd.args(args(thread, text)).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    cmd.args(args(thread, text))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     for (k, v) in &exe.env {
         cmd.env(k, v);
     }
@@ -83,7 +102,12 @@ pub fn run(exe: &CodexExe, thread: &str, text: &str, wait: Duration) -> (bool, S
     }
     let mut child = match cmd.spawn() {
         Ok(child) => child,
-        Err(e) => return (false, format!("could not start {}: {e}", display(&exe.path))),
+        Err(e) => {
+            return (
+                false,
+                format!("could not start {}: {e}", display(&exe.path)),
+            );
+        }
     };
     let started = Instant::now();
     loop {
@@ -92,7 +116,10 @@ pub fn run(exe: &CodexExe, thread: &str, text: &str, wait: Duration) -> (bool, S
             Ok(Some(status)) => return (false, format!("codex queue failed ({status})")),
             Ok(None) if started.elapsed() >= wait => {
                 // Leave it running (it may be carrying the turn); the delivery is unconfirmed.
-                return (false, format!("codex queue still running after {} s", wait.as_secs()));
+                return (
+                    false,
+                    format!("codex queue still running after {} s", wait.as_secs()),
+                );
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(200)),
             Err(e) => return (false, format!("codex queue: {e}")),
@@ -110,12 +137,28 @@ mod tests {
 
     #[test]
     fn args_carry_no_sandbox_or_approval_flags() {
-        let a = args("019a-thread", "-s danger-full-access --dangerously-bypass-approvals-and-sandbox");
+        let a = args(
+            "019a-thread",
+            "-s danger-full-access --dangerously-bypass-approvals-and-sandbox",
+        );
         assert_eq!(a[0], "queue");
         assert_eq!(a[1], "--thread=019a-thread");
-        assert!(a[2].starts_with("--message=-s danger"), "a hostile message stays one value");
+        assert!(
+            a[2].starts_with("--message=-s danger"),
+            "a hostile message stays one value"
+        );
         assert_eq!(a.len(), 3);
-        for flag in ["-s", "--sandbox", "--approve-for-me", "-c", "--config", "-p", "--profile", "-C", "--cd"] {
+        for flag in [
+            "-s",
+            "--sandbox",
+            "--approve-for-me",
+            "-c",
+            "--config",
+            "-p",
+            "--profile",
+            "-C",
+            "--cd",
+        ] {
             assert!(!a.iter().any(|x| x == flag), "{flag} is never passed");
         }
     }
@@ -130,9 +173,21 @@ mod tests {
         assert_eq!(find_in(&[empty.clone(), npm.clone()]), None);
         if cfg!(windows) {
             std::fs::write(npm.join("codex.cmd"), "@echo off").unwrap();
-            assert_eq!(find_in(&[empty.clone(), npm.clone()]), None, "a shim alone is never run");
-            let triple = if cfg!(target_arch = "aarch64") { "aarch64-pc-windows-msvc" } else { "x86_64-pc-windows-msvc" };
-            let package = if cfg!(target_arch = "aarch64") { "codex-win32-arm64" } else { "codex-win32-x64" };
+            assert_eq!(
+                find_in(&[empty.clone(), npm.clone()]),
+                None,
+                "a shim alone is never run"
+            );
+            let triple = if cfg!(target_arch = "aarch64") {
+                "aarch64-pc-windows-msvc"
+            } else {
+                "x86_64-pc-windows-msvc"
+            };
+            let package = if cfg!(target_arch = "aarch64") {
+                "codex-win32-arm64"
+            } else {
+                "codex-win32-x64"
+            };
             let bin = npm.join(format!(
                 "node_modules/@openai/codex/node_modules/@openai/{package}/vendor/{triple}/bin"
             ));
@@ -140,7 +195,12 @@ mod tests {
             std::fs::write(bin.join("codex.exe"), "").unwrap();
             let found = find_in(&[empty.clone(), npm.clone()]).expect("found");
             assert_eq!(found.path, bin.join("codex.exe"));
-            assert!(found.env.iter().any(|(k, v)| k == "CODEX_MANAGED_BY_NPM" && v == "1"));
+            assert!(
+                found
+                    .env
+                    .iter()
+                    .any(|(k, v)| k == "CODEX_MANAGED_BY_NPM" && v == "1")
+            );
         }
         // A codex executable directly on PATH wins.
         let direct = tmp.path().join("direct");
@@ -152,7 +212,10 @@ mod tests {
 
     #[test]
     fn a_missing_exe_is_a_failed_delivery() {
-        let exe = CodexExe { path: PathBuf::from("Z:/nowhere/codex.exe"), env: Vec::new() };
+        let exe = CodexExe {
+            path: PathBuf::from("Z:/nowhere/codex.exe"),
+            env: Vec::new(),
+        };
         let (ok, detail) = run(&exe, "t", "x", Duration::from_secs(1));
         assert!(!ok);
         assert!(detail.starts_with("could not start"), "{detail}");
