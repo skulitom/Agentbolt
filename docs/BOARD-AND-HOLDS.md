@@ -35,12 +35,18 @@ An empty allowlist disables scanning. Excluded roots are checked lexically befor
 again after resolving its path. A source containing an excluded subtree is refused too, so Git cannot
 walk into a closed folder while collecting untracked files. A configured folder must be the repository root with the matching origin.
 
-The daemon reads Git metadata only: `git --no-optional-locks -c core.fsmonitor=false status --porcelain=v2`
+The daemon reads Git state without writing: `git --no-optional-locks -c core.fsmonitor=false status --porcelain=v2`
 and unpushed commit paths from `git log @{upstream}..HEAD`, with NUL-separated paths. It does not fetch,
 refresh the index, run hooks, modify files or scan unlisted repositories. Scans have time/output bounds;
 errors, missing upstreams, overflow and results older than three minutes remain unknown. Dirty and unpushed
 paths become Artem's advisory holds. Gitlinks are read from the parent index only; each submodule path
 and its descendants are held conservatively without inspecting the nested checkout. Agent holds are separate and expire with handle inactivity.
+
+Before collecting status, a bounded directory-entry walk refuses symbolic links/reparse points and
+unlisted nested repositories. It skips Git metadata and indexed submodule contents. Unreadable entries
+or more than 100,000 entries/two seconds make the scan unknown; large or linked working trees may therefore
+need a smaller dedicated checkout. This protects ordinary path boundaries, not malicious same-user
+directory replacement races. Actual Windows junction behavior still needs a fixture check.
 
 Before opening a PR, pass the actual changed paths (both sides of a rename) to `work_holds` with
 `action: check` and `stage: pr_open`; repeat with `stage: merge` immediately before merging. Relative

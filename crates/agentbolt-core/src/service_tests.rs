@@ -21,6 +21,9 @@ use crate::{rules, store};
 
 const START: OffsetDateTime = datetime!(2026-10-19 09:00 UTC);
 
+#[path = "expanded_tests.rs"]
+mod expanded;
+
 fn propose(t: &T, handle: &str, name: &str) -> Result<Owner, String> {
     t.mcp(McpOp::RequestOwner {
         handle: handle.into(),

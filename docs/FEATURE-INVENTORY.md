@@ -3,7 +3,8 @@
 Source inventory, 2026-10-19. Scope is the private v4 plan, with Artem's latest feedback and his later
 instruction to implement M2–M7 before heavy testing. This replaces the older handoff cutoff and Board
 evidence gate. The table records implementation coverage, not observed behavior or production readiness.
-Expanded features have formatting/compilation feedback only. Earlier test reports refer to older commits.
+Expanded features now have [focused local checks](EXPANDED-VALIDATION.md). Earlier release test reports
+refer to older commits; live integrations and production readiness remain unverified.
 
 | Requirement | Implementation | Evidence still needed |
 |---|---|---|
@@ -26,7 +27,7 @@ Expanded features have formatting/compilation feedback only. Earlier test report
 | Dirty/unpushed/agent holds and PR/merge checks | Core `holds.rs`; complete collision scan with bounded result pages; leases; conservative submodule holds; `holds` and `pr-check` commands | Scanner/glob/lease regressions and actual authorized workflow integration |
 | M5: roles/who/doing and matching work at registration/request creation | Core `board.rs`; profile preservation/clearing; public agent IDs, lease ceilings and lapse visibility | Routing/matching, multi-session and lease-boundary cases |
 | Routed/threaded/deduplicated messages, references and reads | Board post/read; cursor reads; safe references; searchable Desk Board pages | Message routing, retry/dedupe and paging scenarios |
-| Atomic request claim, lease, fencing, owner cap and terminal outcomes | Board request/claim/renew/release/done/cancel; 10 open requests per owner; `failed` outcome; stale fencing refusal | 20-agent race, stale completion, retries and cap enforcement |
+| Atomic request claim, lease, fencing, owner cap and terminal outcomes | Board request/claim/renew/release/done/cancel; 10 open requests per owner; `failed` outcome; stale fencing refusal | Crash/restart and live multi-client behavior; focused 20-agent race, fencing, retry and cap checks pass |
 | M6: protected phone questions and one-time replies | Core/daemon phone modules; Desk-only settings and receipt activation; durable outbox/receipts; private-topic checks, bounded HTTPS and acknowledgements | Real protected ntfy service, offline/replay/revocation cases, credential handling and phone behavior |
 | Beads linkage | CLI exact-issue importer creates a linked deduplicated Board handoff; leaves the source issue unchanged | Isolated real-format adapter and CLI cases |
 | Claude plugin and integrations | Decision/coordination skills; twelve-tool generated catalog; Registry/Glama/winget/Scoop/release sources | Expanded behavioral evaluation and hosted acceptance; no publication has occurred |
@@ -51,7 +52,7 @@ Expanded features have formatting/compilation feedback only. Earlier test report
 - The 14-day adoption comparison and outside traction criteria require actual elapsed observation after
   rollout/publication. Merely implementing their measurement or distribution interface cannot satisfy them.
 
-The named product features now have implementations. Next, validate the expanded code with focused
-regression/security/platform checks and repair findings before rebuilding packages, live-host checks,
+The named product features now have implementations. Focused core/CLI/MCP/Git checks have begun and
+found fixes recorded in the validation report. Continue security/platform/UI checks before rebuilding packages, live-host checks,
 idle measurement or a fresh uninterrupted reliability run. Signing remains explicitly deferred for 0.2.
 The production goal stays active until its required evidence exists; nothing has been tagged or published.

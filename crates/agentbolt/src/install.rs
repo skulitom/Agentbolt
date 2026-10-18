@@ -1143,7 +1143,7 @@ mod tests {
         let lines: Vec<String> = cmds.iter().map(|(_, p, a)| shell_line(p, a)).collect();
         assert_eq!(
             lines[0],
-            "claude mcp add --scope user agentbolt -- \"C:\\Users\\a b\\Programs\\Agentbolt\\agentbolt.exe\" mcp"
+            "claude mcp add --scope user agentbolt -- \"C:\\Users\\a b\\Programs\\Agentbolt\\agentbolt.exe\" mcp --max-wait-ms 600000"
         );
         assert_eq!(
             lines[1],

@@ -502,7 +502,7 @@ impl DeskApp {
                 }
                 Resp::Metrics(r) => {
                     self.metrics_inflight = false;
-                    self.metrics = Some(r);
+                    self.metrics = Some(*r);
                 }
                 Resp::Holds { after, result } => {
                     self.holds_inflight = false;
@@ -1186,10 +1186,10 @@ impl DeskApp {
             .find(|a| Some(&a.id) == self.history_selected.as_ref())
             .cloned();
         egui::CentralPanel::default().show(ui, |ui| {
-            if let Some(ask) = ask {
-                if let Some(req) = self.details(ui, &ask) {
-                    self.send(req);
-                }
+            if let Some(ask) = ask
+                && let Some(req) = self.details(ui, &ask)
+            {
+                self.send(req);
             }
         });
     }
@@ -2090,10 +2090,9 @@ fn evidence_row(
                 .add_enabled(exists, egui::Button::new("Show in Explorer").small())
                 .on_disabled_hover_text("Not found on this PC")
                 .clicked()
+                && let Err(error) = os::show_in_explorer(&p)
             {
-                if let Err(error) = os::show_in_explorer(&p) {
-                    ui.colored_label(ui.visuals().error_fg_color, error);
-                }
+                ui.colored_label(ui.visuals().error_fg_color, error);
             }
         }
         Link::Text => {

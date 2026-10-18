@@ -1,7 +1,13 @@
 //! Read-only working-copy scanner. Empty configuration means no Git processes or repository reads.
 use crate::daemon::Shared;
 use agentbolt_core::holds::{Config, Scan, WorkingCopy};
-use std::{collections::BTreeSet, path::Path, process::Stdio, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+    process::Stdio,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tokio::io::AsyncReadExt;
 
 pub async fn run(shared: Arc<Shared>) {
@@ -98,10 +104,12 @@ fn add_path(paths: &mut BTreeSet<String>, raw: &[u8]) -> Result<(), String> {
     if path.is_empty() {
         return Ok(());
     }
-    if path.chars().any(char::is_control) || path.len() > 2048 {
+    // Git's -z output already uses '/' separators, even on Windows. A literal backslash is a
+    // filename character on Unix and must not silently become a different held path.
+    if path.chars().any(char::is_control) || path.len() > 2048 || path.contains('\\') {
         return Err("A changed path cannot be represented safely".into());
     }
-    paths.insert(path.replace('\\', "/"));
+    paths.insert(path.to_owned());
     Ok(())
 }
 
@@ -129,6 +137,57 @@ fn dirty(raw: &[u8], paths: &mut BTreeSet<String>) -> Result<(), String> {
     Ok(())
 }
 
+fn is_link(metadata: &std::fs::Metadata) -> bool {
+    let linked = metadata.file_type().is_symlink();
+    #[cfg(windows)]
+    let linked = {
+        use std::os::windows::fs::MetadataExt;
+        linked || metadata.file_attributes() & 0x400 != 0 // FILE_ATTRIBUTE_REPARSE_POINT
+    };
+    linked
+}
+
+/// Directory junctions can lead a working-tree walk outside the configured folder. Inspect entries
+/// without following links before asking it to walk the working tree. This is a bounded conservative
+/// check, not a sandbox against a same-user process replacing directories during the subsequent scan.
+fn check_tree_boundaries(root: &Path, submodules: &BTreeSet<PathBuf>) -> Result<(), String> {
+    let started = Instant::now();
+    let mut pending = vec![root.to_path_buf()];
+    let mut entries = 0usize;
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(&directory)
+            .map_err(|e| format!("cannot check working-copy boundaries: {e}"))?
+        {
+            let entry = entry.map_err(|e| format!("cannot check working-copy entry: {e}"))?;
+            entries += 1;
+            if entries > 100_000 || started.elapsed() > Duration::from_secs(2) {
+                return Err(
+                    "working-copy boundary check exceeded its limit; collision status is unknown"
+                        .into(),
+                );
+            }
+            let path = entry.path();
+            let metadata = std::fs::symlink_metadata(&path)
+                .map_err(|e| format!("cannot inspect working-copy entry: {e}"))?;
+            if is_link(&metadata) {
+                return Err("working copy contains a symbolic link or reparse point; its target will not be scanned and collision status is unknown".into());
+            }
+            if directory == root && entry.file_name() == ".git" || submodules.contains(&path) {
+                continue;
+            }
+            if metadata.is_dir() {
+                match std::fs::symlink_metadata(path.join(".git")) {
+                    Ok(_) => return Err("working copy contains a nested repository outside the scan scope; collision status is unknown".into()),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
+                    Err(e) => return Err(format!("cannot check nested repository boundary: {e}")),
+                }
+                pending.push(path);
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn scan(source: &WorkingCopy, config: &Config) -> Scan {
     let mut paths = BTreeSet::new();
     let mut conservative_submodules = false;
@@ -144,6 +203,12 @@ async fn scan(source: &WorkingCopy, config: &Config) -> Scan {
             .to_owned();
         if agentbolt_core::holds::excluded(&canonical, config) {
             return Err("working copy resolves into an excluded root".into());
+        }
+        if std::fs::symlink_metadata(path.join(".git")).is_ok_and(|metadata| is_link(&metadata)) {
+            return Err(
+                "repository metadata is a symbolic link or reparse point and will not be scanned"
+                    .into(),
+            );
         }
         // The chosen folder must be the repository root; never silently scan a parent or a nested repository.
         let root = git(&path, &["rev-parse", "--show-toplevel"]).await?;
@@ -161,6 +226,7 @@ async fn scan(source: &WorkingCopy, config: &Config) -> Scan {
         // Read gitlinks from this repository's index, without opening a nested checkout. Status below
         // deliberately ignores submodules, so their paths must be held conservatively, not called clean.
         let index = git(&path, &["ls-files", "--stage", "-z"]).await?;
+        let mut submodules = BTreeSet::new();
         for record in index
             .split(|b| *b == 0)
             .filter(|r| r.starts_with(b"160000 "))
@@ -175,8 +241,15 @@ async fn scan(source: &WorkingCopy, config: &Config) -> Scan {
                 std::str::from_utf8(raw).map_err(|_| "submodule path is not UTF-8")?
             );
             add_path(&mut paths, nested.as_bytes())?;
+            submodules.insert(
+                path.join(std::str::from_utf8(raw).map_err(|_| "submodule path is not UTF-8")?),
+            );
             conservative_submodules = true;
         }
+        let checked_path = path.clone();
+        tokio::task::spawn_blocking(move || check_tree_boundaries(&checked_path, &submodules))
+            .await
+            .map_err(|e| format!("working-copy boundary check failed: {e}"))??;
         let status = git(
             &path,
             &[
@@ -193,6 +266,8 @@ async fn scan(source: &WorkingCopy, config: &Config) -> Scan {
             &path,
             &[
                 "log",
+                "--no-ext-diff",
+                "--no-textconv",
                 "--format=",
                 "--name-only",
                 "-z",
@@ -232,5 +307,190 @@ async fn scan(source: &WorkingCopy, config: &Config) -> Scan {
         paths,
         error,
         conservative_submodules,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testutil::TempDir;
+
+    async fn setup() -> (TempDir, WorkingCopy, Config) {
+        let dir = TempDir::new("holds-git");
+        git(dir.path(), &["init", "--initial-branch=main"])
+            .await
+            .unwrap();
+        git(dir.path(), &["config", "user.name", "Agentbolt Test"])
+            .await
+            .unwrap();
+        git(
+            dir.path(),
+            &["config", "user.email", "agentbolt-test@example.invalid"],
+        )
+        .await
+        .unwrap();
+        git(dir.path(), &["config", "commit.gpgsign", "false"])
+            .await
+            .unwrap();
+        git(
+            dir.path(),
+            &[
+                "remote",
+                "add",
+                "origin",
+                "https://github.com/example/project.git",
+            ],
+        )
+        .await
+        .unwrap();
+        std::fs::write(dir.path().join("tracked.rs"), "original\n").unwrap();
+        std::fs::write(dir.path().join("old name.rs"), "original\n").unwrap();
+        git(dir.path(), &["add", "--all"]).await.unwrap();
+        git(dir.path(), &["commit", "-m", "base"]).await.unwrap();
+        git(
+            dir.path(),
+            &["update-ref", "refs/remotes/origin/main", "HEAD"],
+        )
+        .await
+        .unwrap();
+        git(dir.path(), &["config", "branch.main.remote", "origin"])
+            .await
+            .unwrap();
+        git(
+            dir.path(),
+            &["config", "branch.main.merge", "refs/heads/main"],
+        )
+        .await
+        .unwrap();
+        let source = WorkingCopy {
+            path: dir.path().display().to_string(),
+            repo: "example/project".into(),
+        };
+        let config = Config {
+            working_copies: vec![source.clone()],
+            ..Default::default()
+        };
+        (dir, source, config)
+    }
+
+    #[tokio::test]
+    async fn real_git_scan_includes_dirty_untracked_rename_and_unpushed_paths_without_writing() {
+        let (dir, source, config) = setup().await;
+        assert!(scan(&source, &config).await.paths.is_empty());
+        std::fs::write(dir.path().join("unpushed.rs"), "new commit\n").unwrap();
+        git(dir.path(), &["add", "--all"]).await.unwrap();
+        git(dir.path(), &["commit", "-m", "unpushed"])
+            .await
+            .unwrap();
+        git(dir.path(), &["mv", "old name.rs", "new name.rs"])
+            .await
+            .unwrap();
+        std::fs::write(dir.path().join("tracked.rs"), "modified\n").unwrap();
+        std::fs::write(dir.path().join("untracked café.rs"), "new file\n").unwrap();
+        let index = std::fs::read(dir.path().join(".git/index")).unwrap();
+        let head = git(dir.path(), &["rev-parse", "HEAD"]).await.unwrap();
+        let result = scan(&source, &config).await;
+        assert!(result.error.is_none(), "{:?}", result.error);
+        assert_eq!(
+            result.paths,
+            vec![
+                "new name.rs",
+                "old name.rs",
+                "tracked.rs",
+                "unpushed.rs",
+                "untracked café.rs"
+            ]
+        );
+        assert_eq!(std::fs::read(dir.path().join(".git/index")).unwrap(), index);
+        assert_eq!(git(dir.path(), &["rev-parse", "HEAD"]).await.unwrap(), head);
+        assert!(!result.conservative_submodules);
+    }
+
+    #[tokio::test]
+    async fn missing_upstream_wrong_origin_and_exclusions_never_report_clear() {
+        let (dir, source, config) = setup().await;
+        git(dir.path(), &["config", "--unset", "branch.main.merge"])
+            .await
+            .unwrap();
+        assert!(scan(&source, &config).await.error.is_some());
+        let mut wrong = source.clone();
+        wrong.repo = "other/project".into();
+        assert!(
+            scan(&wrong, &config)
+                .await
+                .error
+                .unwrap()
+                .contains("origin")
+        );
+        let mut excluded = config.clone();
+        excluded
+            .excluded_paths
+            .push(dir.path().join("private").display().to_string());
+        assert!(
+            scan(&source, &excluded)
+                .await
+                .error
+                .unwrap()
+                .contains("excluded")
+        );
+        let mut nested = source.clone();
+        std::fs::create_dir(dir.path().join("nested")).unwrap();
+        nested.path = dir.path().join("nested").display().to_string();
+        assert!(scan(&nested, &config).await.error.unwrap().contains("root"));
+    }
+
+    #[tokio::test]
+    async fn indexed_submodule_holds_its_entire_subtree_without_opening_it() {
+        let (dir, source, config) = setup().await;
+        let head =
+            String::from_utf8(git(dir.path(), &["rev-parse", "HEAD"]).await.unwrap()).unwrap();
+        git(
+            dir.path(),
+            &[
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                &format!("160000,{},vendor/module", head.trim()),
+            ],
+        )
+        .await
+        .unwrap();
+        let result = scan(&source, &config).await;
+        assert!(result.error.is_none(), "{:?}", result.error);
+        assert!(result.conservative_submodules);
+        assert!(result.paths.contains(&"vendor/module".into()));
+        assert!(result.paths.contains(&"vendor/module/**".into()));
+        assert!(!dir.path().join("vendor/module").exists());
+    }
+
+    #[test]
+    fn status_parser_refuses_partial_or_unrepresentable_paths() {
+        for raw in [
+            &b"2 missing-fields\0"[..],
+            &b"? bad\nname\0"[..],
+            &b"? invalid-\xff\0"[..],
+            &b"? literal\\backslash\0"[..],
+            &b"unknown\0"[..],
+        ] {
+            assert!(dirty(raw, &mut BTreeSet::new()).is_err());
+        }
+    }
+
+    #[test]
+    fn boundary_walk_stops_at_nested_repositories_and_skips_gitlink_contents() {
+        let dir = TempDir::new("holds-boundaries");
+        let nested = dir.path().join("nested");
+        std::fs::create_dir_all(nested.join(".git")).unwrap();
+        assert!(
+            check_tree_boundaries(dir.path(), &BTreeSet::new())
+                .unwrap_err()
+                .contains("nested repository")
+        );
+        assert!(check_tree_boundaries(dir.path(), &BTreeSet::from([nested])).is_ok());
+        // Git metadata is not a second working tree to traverse; Git itself reads its index/config.
+        std::fs::create_dir_all(dir.path().join(".git/objects/nested/.git")).unwrap();
+        assert!(
+            check_tree_boundaries(dir.path(), &BTreeSet::from([dir.path().join("nested")])).is_ok()
+        );
     }
 }

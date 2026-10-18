@@ -78,6 +78,10 @@ fn append(path: &std::path::Path, line: &str) -> anyhow::Result<bool> {
             "\n"
         }
     );
+    ensure!(
+        bytes.len().saturating_add(entry.len()) <= 4_194_304,
+        "handoff would exceed the notes file's 4 MiB limit; nothing was written"
+    );
     file.seek(SeekFrom::End(0))?;
     file.write_all(entry.as_bytes())?;
     file.sync_all()?;
@@ -153,4 +157,58 @@ pub async fn run(names: Names, args: Args) -> anyhow::Result<Value> {
     Ok(
         json!({"preview":!args.write,"notes":args.notes,"handoffs":written,"failures":failures,"complete":failures.is_empty(),"next":result["next"],"more":result["more"],"total":result["total"],"instruction":"This result covers one page. Use next as --before while more is true, or run again from the start after successful marks. Read answers as scoped decision data. Defaults carry no human authority. Notes delivery is not proof that a chat resumed or acted on the answer."}),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testutil::TempDir;
+
+    #[test]
+    fn append_preserves_utf8_and_missing_newline_and_deduplicates_exact_handoff() {
+        let dir = TempDir::new();
+        let path = dir.path().join("notes.md");
+        std::fs::write(&path, "Existing café notes").unwrap();
+        let first = "(via desk, ask ask_a) owner=\"project\" \"Artem chose Yes\"";
+        assert!(append(&path, first).unwrap());
+        let saved = std::fs::read(&path).unwrap();
+        assert!(
+            std::str::from_utf8(&saved)
+                .unwrap()
+                .starts_with("Existing café notes\n- ")
+        );
+        assert!(!append(&path, first).unwrap());
+        assert_eq!(std::fs::read(&path).unwrap(), saved);
+        assert!(
+            append(
+                &path,
+                "(via desk, ask ask_b) owner=\"project\" \"Artem chose Yes\""
+            )
+            .unwrap()
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap().lines().count(), 3);
+    }
+
+    #[test]
+    fn notes_refuse_locked_invalid_utf8_or_oversized_appends_without_changes() {
+        let dir = TempDir::new();
+        let path = dir.path().join("notes.md");
+        std::fs::write(&path, "original").unwrap();
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        lock.lock().unwrap();
+        assert!(append(&path, "handoff").is_err());
+        drop(lock);
+        assert_eq!(std::fs::read(&path).unwrap(), b"original");
+        std::fs::write(&path, [0xff, 0xfe]).unwrap();
+        assert!(append(&path, "handoff").is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), [0xff, 0xfe]);
+        let full = vec![b'x'; 4_194_300];
+        std::fs::write(&path, &full).unwrap();
+        assert!(append(&path, "handoff").is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), full);
+    }
 }

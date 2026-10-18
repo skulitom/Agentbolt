@@ -334,6 +334,8 @@ mod platform {
 }
 
 #[cfg(test)]
+mod testutil;
+#[cfg(test)]
 mod tests {
     use super::*;
 

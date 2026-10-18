@@ -609,4 +609,113 @@ mod tests {
         assert_eq!(names(Some("t1")).unwrap().channel, "t1");
         assert!(names(Some("Bad Name")).is_err());
     }
+
+    #[test]
+    fn expanded_commands_require_explicit_scope_and_default_to_notes_preview() {
+        let Command::RelayNotes(notes) = p(&[
+            "relay-notes",
+            "--owner",
+            "dispatcher",
+            "--recipient-owner",
+            "worker",
+            "--notes",
+            "handoffs.md",
+            "--before",
+            "ask_cursor",
+        ])
+        .unwrap() else {
+            panic!()
+        };
+        assert!(!notes.write);
+        assert_eq!(notes.recipients, ["worker"]);
+        assert_eq!(notes.before.as_deref(), Some("ask_cursor"));
+        assert!(
+            p(&[
+                "relay-notes",
+                "--owner",
+                "dispatcher",
+                "--notes",
+                "handoffs.md",
+                "--write"
+            ])
+            .is_err()
+        );
+        let Command::Mcp(remote) = p(&[
+            "mcp",
+            "--ssh",
+            "desk",
+            "--machine",
+            "laptop",
+            "--remote-exe",
+            "C:/Program Files/Agentbolt/agentbolt.exe",
+            "--max-wait-ms",
+            "600000",
+        ])
+        .unwrap() else {
+            panic!()
+        };
+        assert_eq!(remote.max_wait_ms, 600_000);
+        assert_eq!(remote.ssh.unwrap().machine, "laptop");
+        for flags in [
+            vec!["mcp", "--ssh", "desk"],
+            vec!["mcp", "--machine", "laptop"],
+            vec!["mcp", "--remote-exe", "custom"],
+            vec!["relay"],
+        ] {
+            assert!(p(&flags).is_err(), "{flags:?}");
+        }
+        let Command::Beads(beads) = p(&[
+            "beads",
+            "--owner",
+            "importer",
+            "--repo",
+            "example/project",
+            "--issue",
+            "proj-1",
+            "--json-file",
+            "issue.json",
+            "--path",
+            "src/**",
+        ])
+        .unwrap() else {
+            panic!()
+        };
+        assert_eq!(beads.paths, ["src/**"]);
+        let Command::PrCheck(check) = p(&[
+            "pr-check",
+            "--owner",
+            "reviewer",
+            "--repo",
+            "example/project",
+            "--cwd",
+            "scratch",
+            "--base",
+            "main",
+            "--head",
+            "HEAD",
+            "--stage",
+            "merge",
+        ])
+        .unwrap() else {
+            panic!()
+        };
+        assert_eq!(check.stage, "merge");
+        assert!(
+            p(&[
+                "pr-check",
+                "--owner",
+                "reviewer",
+                "--repo",
+                "example/project",
+                "--cwd",
+                "scratch",
+                "--base=--help",
+                "--head",
+                "HEAD",
+                "--stage",
+                "merge"
+            ])
+            .is_err()
+        );
+    }
 }

@@ -119,7 +119,7 @@ pub enum Resp {
     },
     HoldsSaved(Result<(), String>),
     FocusImported(Result<agentbolt_core::holds::Config, String>),
-    Metrics(agentbolt_core::metrics::Report),
+    Metrics(Box<agentbolt_core::metrics::Report>),
     MetricsSaved(Result<(), String>),
     LeaseSaved(Result<(), String>),
     Owners {

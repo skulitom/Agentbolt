@@ -10,8 +10,8 @@ testing, licensing or release validation. [Full feature work](docs/FULL-PLAN.md)
 The expanded implementation now includes selectable question history, Board tools and Desk tab,
 working-copy/agent holds, Activity reporting and saved baselines, Claude long waits, protected phone
 replies, Beads links and authenticated SSH access for remote agents. Concrete `relay-notes` and `pr-check`
-commands implement durable Reception handoffs and PR/merge hold checks. These additions have compile
-feedback only. No phone account, live workflow, scan configuration or baseline has been activated.
+commands implement durable Reception handoffs and PR/merge hold checks. These additions now have
+[focused local validation](docs/EXPANDED-VALIDATION.md). No phone account, live workflow, scan configuration or baseline has been activated.
 Earlier test results below predate these additions.
 
 Timed mute, partial Board profile updates, Inbox/History/Board/hold navigation, filtered relay and answer
@@ -19,7 +19,7 @@ paging, linked Board messages and failed handoff outcomes are implemented. The t
 catalog now comes from the server schema source. Agents/Owners directories, closed-draft reconciliation,
 complete delivery history and fixed-period adoption reporting are implemented too. The
 [feature inventory](docs/FEATURE-INVENTORY.md) maps the full plan to code. Implementation coverage is
-recorded; the expanded features still need their first regression, security, platform and host validation.
+recorded; focused core/CLI/MCP/Git checks pass. Expanded security, Linux, UI and host validation remain open.
 No phone account, scan, adoption period or live workflow has been activated.
 
 

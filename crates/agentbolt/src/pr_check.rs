@@ -113,6 +113,34 @@ fn repository(remote: &str) -> anyhow::Result<String> {
         .map_err(anyhow::Error::msg)
 }
 
+fn changed_paths(bytes: &[u8]) -> anyhow::Result<(Vec<String>, usize, bool)> {
+    ensure!(
+        bytes.is_empty() || bytes.last() == Some(&0),
+        "Git returned incomplete changed paths"
+    );
+    let mut paths = BTreeSet::new();
+    for path in bytes.split(|b| *b == 0).filter(|p| !p.is_empty()) {
+        paths.insert(
+            std::str::from_utf8(path)
+                .context("changed path is not UTF-8; clearance cannot be established")?
+                .to_owned(),
+        );
+    }
+    ensure!(!paths.is_empty(), "the selected commits have no PR changes");
+    let path_count = paths.len();
+    // No subset can silently stand in for a large PR. A conservative whole-repository check keeps
+    // the wire bounded and cannot miss a collision, including unusual filenames/glob characters.
+    let exact: Vec<String> = paths.iter().cloned().collect();
+    let whole_repo = exact.iter().any(|p| p.contains(['*', '?', '\\']))
+        || !matches!(board::paths(exact.clone()), Ok(normalized) if normalized == exact);
+    let paths = if whole_repo {
+        vec!["**".into()]
+    } else {
+        paths.into_iter().collect()
+    };
+    Ok((paths, path_count, whole_repo))
+}
+
 pub async fn run(names: Names, args: Args) -> anyhow::Result<Value> {
     args.validate().map_err(anyhow::Error::msg)?;
     let cwd = std::fs::canonicalize(&args.cwd)?;
@@ -149,31 +177,7 @@ pub async fn run(names: Names, args: Args) -> anyhow::Result<Value> {
         ],
     )
     .await?;
-    ensure!(
-        bytes.is_empty() || bytes.last() == Some(&0),
-        "Git returned incomplete changed paths"
-    );
-    let mut paths = BTreeSet::new();
-    for path in bytes.split(|b| *b == 0).filter(|p| !p.is_empty()) {
-        paths.insert(
-            std::str::from_utf8(path)
-                .context("changed path is not UTF-8; clearance cannot be established")?
-                .to_owned(),
-        );
-    }
-    ensure!(!paths.is_empty(), "the selected commits have no PR changes");
-    let path_count = paths.len();
-    // No subset can silently stand in for a large PR. A conservative whole-repository check keeps
-    // the wire bounded and cannot miss a collision, including unusual filenames/glob characters.
-    let whole_repo = paths.len() > 100
-        || paths
-            .iter()
-            .any(|p| p.contains(['*', '?', '\\']) || board::paths(vec![p.clone()]).is_err());
-    let paths = if whole_repo {
-        vec!["**".into()]
-    } else {
-        paths.into_iter().collect()
-    };
+    let (paths, path_count, whole_repo) = changed_paths(&bytes)?;
     let d = Daemon::new(names, Pipe::Mcp, true);
     let reg = d
         .call(&McpOp::Register {
@@ -208,4 +212,66 @@ pub async fn run(names: Names, args: Args) -> anyhow::Result<Value> {
         "Use only this exact head for the dependent PR action. Recheck after any change to the PR, base or working-copy holds; immediately before merge use the fetched current PR head and --match-head-commit. A clear hold check is advisory, not review or merge approval."
     );
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn changed_paths_are_complete_or_conservatively_check_the_whole_repository() {
+        let (paths, count, whole) = changed_paths(b"src/old.rs\0src/new.rs\0src/old.rs\0").unwrap();
+        assert_eq!(paths, ["src/new.rs", "src/old.rs"]);
+        assert_eq!(count, 2);
+        assert!(!whole);
+        for bytes in [
+            &b" leading-space.rs\0"[..],
+            &b"trailing-space \0"[..],
+            &b"literal?name\0"[..],
+            &b"back\\slash\0"[..],
+            &b"colon:name\0"[..],
+            &b"line\nname\0"[..],
+        ] {
+            let (paths, count, whole) = changed_paths(bytes).unwrap();
+            assert_eq!(paths, ["**"], "{bytes:?}");
+            assert_eq!(count, 1);
+            assert!(whole);
+        }
+        let many = (0..101)
+            .map(|i| format!("file{i}.rs\0"))
+            .collect::<String>();
+        let (paths, count, whole) = changed_paths(many.as_bytes()).unwrap();
+        assert_eq!(paths, ["**"]);
+        assert_eq!(count, 101);
+        assert!(whole);
+        let large = (0..90)
+            .map(|i| format!("{i}/{}\0", "x".repeat(200)))
+            .collect::<String>();
+        let (paths, count, whole) = changed_paths(large.as_bytes()).unwrap();
+        assert_eq!(paths, ["**"]);
+        assert_eq!(count, 90);
+        assert!(whole);
+        for incomplete in [&b""[..], &b"unterminated"[..], &b"invalid\xff\0"[..]] {
+            assert!(changed_paths(incomplete).is_err());
+        }
+    }
+
+    #[test]
+    fn repository_identity_refuses_credentials_other_hosts_and_extra_components() {
+        for remote in [
+            "https://github.com/Example/Project.git",
+            "git@github.com:Example/Project.git",
+            "ssh://git@github.com/Example/Project.git",
+        ] {
+            assert_eq!(repository(remote).unwrap(), "example/project");
+        }
+        for remote in [
+            "https://token@github.com/example/project.git",
+            "https://github.com.evil.test/example/project",
+            "file:///example/project",
+            "https://github.com/example/project/extra",
+        ] {
+            assert!(repository(remote).is_err(), "{remote}");
+        }
+    }
 }

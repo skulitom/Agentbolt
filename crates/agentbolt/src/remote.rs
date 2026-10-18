@@ -352,3 +352,138 @@ pub async fn relay(names: Names, machine: &str) -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use agentbolt_core::{board::BoardOp, holds::HoldOp};
+
+    #[test]
+    fn ssh_command_has_no_shell_expansion_or_caller_selected_identity() {
+        let base = Config {
+            host: "artem@desk.example.test".into(),
+            machine: "laptop-2".into(),
+            executable: "C:\\Program Files\\Agentbolt\\agentbolt.exe".into(),
+        };
+        assert_eq!(
+            base.command("remote-test").unwrap(),
+            "\"C:/Program Files/Agentbolt/agentbolt.exe\" relay --channel remote-test --machine laptop-2"
+        );
+        for host in [
+            "-oProxyCommand=bad",
+            "desk;bad",
+            "desk\ncommand",
+            "$(command)",
+            "desk`command`",
+            "desk name",
+        ] {
+            let mut cfg = base.clone();
+            cfg.host = host.into();
+            assert!(cfg.command("remote-test").is_err(), "{host}");
+        }
+        for executable in [
+            "agentbolt;bad",
+            "$(command)",
+            "~/agentbolt",
+            "%TEMP%/agentbolt",
+            "x\" y",
+            "-x",
+            " agentbolt",
+            "agentbolt\n",
+        ] {
+            let mut cfg = base.clone();
+            cfg.executable = executable.into();
+            assert!(cfg.command("remote-test").is_err(), "{executable}");
+        }
+        for machine in ["", "two machines", "desk;command", "desk\ncommand"] {
+            let mut cfg = base.clone();
+            cfg.machine = machine.into();
+            assert!(cfg.command("remote-test").is_err(), "{machine}");
+        }
+        assert!(base.command("main;bad").is_err());
+    }
+
+    #[tokio::test]
+    async fn remote_refuses_human_answers_and_forged_registration_before_connecting() {
+        let remote = Remote::new(
+            Config {
+                host: "unused.invalid".into(),
+                machine: "test".into(),
+                executable: "agentbolt".into(),
+            },
+            "remote-test".into(),
+        );
+        for value in [
+            serde_json::json!({"op":"answer","ask_id":"ask_test","choice":"Yes"}),
+            serde_json::json!({"op":"phone_reply","id":"receipt"}),
+        ] {
+            assert!(matches!(
+                remote.call(&value).await,
+                Err(CallError::Refused(_))
+            ));
+        }
+        let forged = McpOp::RegisterRemote {
+            machine: "local".into(),
+            registration: RemoteRegistration {
+                owner: None,
+                client: "fake".into(),
+                session_ref: None,
+                cwd: None,
+                doing: None,
+                provisional_key: None,
+            },
+        };
+        assert!(matches!(
+            remote.call(&forged).await,
+            Err(CallError::Refused(_))
+        ));
+    }
+
+    #[test]
+    fn only_reads_are_replayed_after_an_uncertain_disconnect() {
+        let wrap = |action| McpOp::Board {
+            handle: "handle".into(),
+            action,
+        };
+        assert!(retryable(&McpOp::Status));
+        assert!(retryable(&wrap(BoardOp::Who)));
+        assert!(!retryable(&wrap(BoardOp::Claim {
+            id: "request".into()
+        })));
+        assert!(!retryable(&wrap(BoardOp::Done {
+            id: "request".into(),
+            fence: 1,
+            result: "Done".into(),
+            failed: false
+        })));
+        assert!(!retryable(&McpOp::Cancel {
+            handle: "handle".into(),
+            id: "ask".into()
+        }));
+        assert!(!retryable(&McpOp::Holds {
+            handle: "handle".into(),
+            action: HoldOp::Check {
+                repo: "example/project".into(),
+                paths: vec!["src/**".into()],
+                stage: Some("merge".into())
+            }
+        }));
+    }
+
+    #[tokio::test]
+    async fn relay_reader_bounds_fragmented_input_and_keeps_next_message() {
+        let mut reader = BufReader::with_capacity(2, &b"1234\nnext\n"[..]);
+        assert_eq!(line(&mut reader, 4).await.unwrap(), Some(b"1234".to_vec()));
+        assert_eq!(line(&mut reader, 4).await.unwrap(), Some(b"next".to_vec()));
+        assert_eq!(line(&mut reader, 4).await.unwrap(), None);
+        let mut oversized = BufReader::with_capacity(2, &b"12345\n"[..]);
+        assert!(line(&mut oversized, 4).await.unwrap_err().contains("limit"));
+        let mut truncated = BufReader::with_capacity(2, &b"123"[..]);
+        assert!(
+            line(&mut truncated, 4)
+                .await
+                .unwrap_err()
+                .contains("incomplete")
+        );
+    }
+}

@@ -26,6 +26,9 @@ Do not tag or publish. Do not change the real main-channel installation as part 
 
 ## Implementation progress
 
+The implementation passes below are historical. The first expanded checks and repairs are now recorded
+in [EXPANDED-VALIDATION.md](EXPANDED-VALIDATION.md); they do not establish release readiness.
+
 The first expanded implementation pass adds the following code (compile checks only; no feature or
 release test run has been claimed):
 

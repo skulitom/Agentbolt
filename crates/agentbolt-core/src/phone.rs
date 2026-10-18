@@ -376,8 +376,8 @@ fn receive(
         // One response per issued notification, including two quick taps on different options.
         let seen: bool = db
             .query_row(
-                "SELECT EXISTS(SELECT 1 FROM phone_receipts WHERE ask_id=?1)",
-                [&ask_id],
+                "SELECT EXISTS(SELECT 1 FROM phone_receipts WHERE toast_id=?1 OR (toast_id IS NULL AND ask_id=?2 AND completed_ms IS NULL))",
+                params![parsed.toast_id,ask_id],
                 |r| r.get(0),
             )
             .map_err(db_err)?;
@@ -385,8 +385,8 @@ fn receive(
             continue;
         }
         db.execute(
-            "INSERT OR IGNORE INTO phone_receipts(id,ask_id,token,received_ms) VALUES(?1,?2,?3,?4)",
-            params![message.id, ask_id, message.token.0, now],
+            "INSERT OR IGNORE INTO phone_receipts(id,ask_id,token,received_ms,toast_id) VALUES(?1,?2,?3,?4,?5)",
+            params![message.id, ask_id, message.token.0, now, parsed.toast_id],
         )
         .map_err(db_err)?;
         events::append(

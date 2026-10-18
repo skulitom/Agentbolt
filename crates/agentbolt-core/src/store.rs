@@ -199,6 +199,7 @@ CREATE TABLE phone_receipts (
 "#,
     "ALTER TABLE owners ADD COLUMN muted_until_ms INTEGER; CREATE INDEX owners_mute_expiry ON owners(muted_until_ms) WHERE muted_until_ms IS NOT NULL;",
     "CREATE INDEX asks_history ON asks(closed_ms DESC,id DESC); CREATE INDEX board_request_history ON board_requests(updated_ms DESC,id DESC);",
+    "ALTER TABLE phone_receipts ADD COLUMN toast_id TEXT; CREATE UNIQUE INDEX phone_receipt_notification ON phone_receipts(toast_id) WHERE toast_id IS NOT NULL;",
 ];
 
 pub(crate) fn db_err(e: rusqlite::Error) -> String {
@@ -868,6 +869,48 @@ pub(crate) fn set_settings(conn: &Connection, s: &Settings) -> rusqlite::Result<
 #[cfg(test)]
 mod migration_tests {
     use super::*;
+
+    #[test]
+    fn phone_receipt_upgrade_preserves_pending_and_completed_legacy_receipts() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        for migration in &MIGRATIONS[..12] {
+            conn.execute_batch(migration).unwrap();
+        }
+        conn.execute_batch("PRAGMA user_version=12;").unwrap();
+        let input = serde_json::json!({"kind":"choose","title":"Legacy phone question","options":["Yes","No"],"default":"No","deadline":"2026-10-20T00:00:00Z","reversible":true,"priority":"P1"});
+        conn.execute("INSERT INTO asks(id,owner,input_json,priority,reversible,deadline_ms,status,created_ms) VALUES ('ask_old','legacy',?1,'P1',1,3000,'open',900),('ask_closed','legacy',?1,'P1',1,3000,'answered',900)",[input.to_string()]).unwrap();
+        conn.execute_batch("INSERT INTO answers(ask_id,via,choice,answered_ms) VALUES ('ask_closed','phone','Yes',1100);").unwrap();
+        conn.execute_batch("INSERT INTO phone_receipts(id,ask_id,token,received_ms,completed_ms,outcome) VALUES ('pending','ask_old','opaque-unconsumed-token',1000,NULL,NULL),('completed','ask_closed','',1000,1100,'Answered');").unwrap();
+        migrate(&mut conn).unwrap();
+        migrate(&mut conn).unwrap();
+        assert_eq!(
+            crate::phone::receipt(&conn, "pending").unwrap(),
+            Some(("ask_old".into(), "opaque-unconsumed-token".into(), None))
+        );
+        assert_eq!(
+            crate::phone::receipt(&conn, "completed").unwrap(),
+            Some(("ask_closed".into(), String::new(), Some(1100)))
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM phone_receipts WHERE toast_id IS NULL",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            2
+        );
+        conn.execute(
+            "UPDATE phone_receipts SET toast_id='notification' WHERE id='pending'",
+            [],
+        )
+        .unwrap();
+        assert!(conn.execute("INSERT INTO phone_receipts(id,ask_id,token,received_ms,toast_id) VALUES ('duplicate','ask_old','other-option',2000,'notification')",[]).is_err());
+        assert_eq!(
+            crate::phone::receipt(&conn, "pending").unwrap().unwrap().1,
+            "opaque-unconsumed-token"
+        );
+    }
 
     #[test]
     fn released_database_upgrade_preserves_answers_and_never_guesses_a_chat() {

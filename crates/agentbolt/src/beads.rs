@@ -176,3 +176,78 @@ pub async fn import(names: Names, args: Args) -> anyhow::Result<Value> {
     result["beads"] = json!({"issue":args.issue,"changed":false,"instruction":"This is a linked handoff. Claim/close the Beads issue only through your authorized Beads workflow."});
     Ok(result)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args() -> Args {
+        Args {
+            owner: "test-importer".into(),
+            repo: "example/project".into(),
+            issue: "proj-123".into(),
+            paths: vec!["src/**".into()],
+            to_role: Some("reviewer".into()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn imports_exact_issue_and_preserves_scope_and_acceptance_criteria() {
+        let value = json!([
+            {"id":"proj-12","title":"Wrong issue","status":"open"},
+            {"id":"proj-123","title":"Unicode: café","status":"in_progress","description":"Fix the widget","acceptance_criteria":"Keeps edits","design":"Use saved state","notes":"One attempt"}
+        ]);
+        let input = request(&args(), value).unwrap();
+        assert_eq!(input.title, "Unicode: café");
+        assert_eq!(input.repo.as_deref(), Some("example/project"));
+        assert_eq!(input.to_role.as_deref(), Some("reviewer"));
+        assert_eq!(input.beads_issue.as_deref(), Some("proj-123"));
+        assert_eq!(input.dedupe_key.as_deref(), Some("beads:proj-123"));
+        assert_eq!(input.paths, vec!["src/**"]);
+        for text in [
+            "in_progress",
+            "Keeps edits",
+            "Use saved state",
+            "One attempt",
+        ] {
+            assert!(input.body.contains(text));
+        }
+        assert!(!input.body.contains("Wrong issue"));
+        assert!(
+            request(
+                &args(),
+                json!({"issue":{"id":"proj-123","title":"Wrapped", "status":"open"}})
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn refuses_missing_ambiguous_closed_and_oversized_issues() {
+        let valid = json!({"id":"proj-123","title":"Work", "status":"open"});
+        assert!(request(&args(), json!({"id":"proj-1234","title":"Fuzzy"})).is_err());
+        assert!(request(&args(), json!([valid.clone(), valid])).is_err());
+        for status in ["closed", "tombstone"] {
+            assert!(
+                request(
+                    &args(),
+                    json!({"id":"proj-123","title":"Closed", "status":status})
+                )
+                .is_err()
+            );
+        }
+        assert!(
+            request(
+                &args(),
+                json!({"id":"proj-123","title":"Long","description":"x".repeat(16_384)})
+            )
+            .is_err()
+        );
+        for issue in ["--help", "proj-1;bad", "proj 1", "../proj"] {
+            let mut a = args();
+            a.issue = issue.into();
+            assert!(a.validate().is_err());
+        }
+    }
+}
