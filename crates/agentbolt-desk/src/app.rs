@@ -14,6 +14,7 @@ use agentbolt_core::protocol::{DeskAnswer, MAX_BATCH_ANSWERS};
 use eframe::egui::{self, Color32, RichText};
 use serde_json::Value;
 
+use crate::drafts::{Draft, Snapshot as DraftSnapshot, Store as DraftStore};
 use crate::os;
 use crate::view::{self, FieldInput, Link};
 use crate::worker::{self, Req, Resp, Worker};
@@ -25,16 +26,6 @@ enum Tab {
     Inbox,
     Agents,
     Settings,
-}
-
-#[derive(Default)]
-struct Draft {
-    choice: Option<String>,
-    note: String,
-    text: String,
-    /// The reply box got the ask's default already (once per ask; clearing it doesn't refill it).
-    text_filled: bool,
-    fields: Option<HashMap<String, FieldInput>>,
 }
 
 enum Conn {
@@ -67,6 +58,9 @@ pub struct DeskApp {
     batch_selection: HashSet<String>,
     review_batch: bool,
     drafts: HashMap<String, Draft>,
+    draft_store: DraftStore,
+    draft_error: Option<String>,
+    draft_retry: Option<Instant>,
     sending: HashSet<String>,
     agents: Vec<Agent>,
     owners: Vec<Owner>,
@@ -99,12 +93,17 @@ pub fn run(names: Names, warm: bool) -> anyhow::Result<()> {
         return Ok(());
     }
     crate::os::trace_window_shown(&title);
+    let data = names.data_dir().map_err(anyhow::Error::msg)?;
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(title.clone())
             .with_active(!warm)
             .with_inner_size([900.0, 620.0])
             .with_min_inner_size([640.0, 420.0]),
+        centered: true,
+        persistence_path: Some(
+            data.join(format!("desk-window-{}.ron", crate::drafts::session_id())),
+        ),
         ..Default::default()
     };
     crate::startup::mark("native_start");
@@ -124,6 +123,12 @@ pub fn run(names: Names, warm: bool) -> anyhow::Result<()> {
 
 impl DeskApp {
     fn new(names: Names, worker: Worker) -> Self {
+        let (draft_store, state) = DraftStore::load(
+            &names
+                .data_dir()
+                .expect("data path checked before opening the window"),
+        );
+        let draft_error = draft_store.load_error().map(str::to_owned);
         Self {
             names,
             worker,
@@ -131,10 +136,13 @@ impl DeskApp {
             inbox: Vec::new(),
             open_count: None,
             recent: Vec::new(),
-            selected_inbox: None,
-            batch_selection: HashSet::new(),
+            selected_inbox: state.selected,
+            batch_selection: state.batch,
             review_batch: false,
-            drafts: HashMap::new(),
+            drafts: state.drafts,
+            draft_store,
+            draft_error,
+            draft_retry: None,
             sending: HashSet::new(),
             agents: Vec::new(),
             owners: Vec::new(),
@@ -182,6 +190,7 @@ impl DeskApp {
                     self.recent = r.recent;
                     let ids: HashSet<&str> = self.inbox.iter().map(|a| a.id.as_str()).collect();
                     self.batch_selection.retain(|id| ids.contains(id.as_str()));
+                    self.drafts.retain(|id, _| ids.contains(id.as_str()));
                     if self
                         .selected_inbox
                         .as_deref()
@@ -341,6 +350,15 @@ impl DeskApp {
             self.send(Req::Owners);
         }
         ctx.request_repaint_after(POLL);
+    }
+
+    /// Save only on a change. The atomic file is synced before remembering that state as saved.
+    fn save_drafts(&mut self) -> Result<(), String> {
+        self.draft_store.save(DraftSnapshot {
+            drafts: self.drafts.clone(),
+            selected: self.selected_inbox.clone(),
+            batch: self.batch_selection.clone(),
+        })
     }
 
     fn switch_to(&mut self, tab: Tab) {
@@ -1129,6 +1147,12 @@ impl eframe::App for DeskApp {
             if let Some(warning) = &self.notification_warning {
                 ui.colored_label(ui.visuals().warn_fg_color, warning);
             }
+            if let Some(error) = &self.draft_error {
+                ui.colored_label(
+                    ui.visuals().error_fg_color,
+                    format!("Unsent drafts are not being saved. {error}"),
+                );
+            }
             ui.add_space(2.0);
         });
         if let Some(n) = &self.notice
@@ -1160,6 +1184,21 @@ impl eframe::App for DeskApp {
             Tab::Agents => self.agents_tab(ui),
             Tab::Settings => self.settings_tab(ui),
         });
+        if self
+            .draft_retry
+            .is_none_or(|at| at.elapsed() >= Duration::from_secs(1))
+        {
+            match self.save_drafts() {
+                Ok(()) => {
+                    self.draft_error = None;
+                    self.draft_retry = None;
+                }
+                Err(error) => {
+                    self.draft_error = Some(error);
+                    self.draft_retry = Some(Instant::now());
+                }
+            }
+        }
         if crate::startup::enabled() {
             // Runs after egui has built the font atlas and submitted the UI shapes to the painter.
             ui.painter().add(egui::PaintCallback {

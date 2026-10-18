@@ -1,0 +1,44 @@
+{
+  "purpose": "72-hour sign-in scheduler reliability probe, separate from final release-candidate validation",
+  "channel": "codex-02-soak-1018",
+  "sourceCommit": "b96ddc3",
+  "sourceDirectory": "C:\\DEV\\Agentbolt\\target\\soak-source-b96ddc3",
+  "installDirectory": "C:\\Users\\artem\\AppData\\Local\\Programs\\Agentbolt-codex-02-soak-1018",
+  "dataDirectory": "C:\\Users\\artem\\AppData\\Local\\Agentbolt\\codex-02-soak-1018",
+  "taskName": "Agentbolt (codex-02-soak-1018)",
+  "startedUtc": "2026-10-18T19:53:02.7631508Z",
+  "notBeforeFinishUtc": "2026-10-21T19:54:00Z",
+  "daemonPid": 44196,
+  "supervisorPid": 66868,
+  "warmDeskPid": 77176,
+  "taskExecutionTimeLimit": "PT0S",
+  "state": "running",
+  "binaries": [
+    {
+      "name": "agentbolt.exe",
+      "sha256": "8b0251399a778fab0f936c527d13fe5ec5872ba24bf548c4d2a0377593c48280",
+      "builtAt": "2026-10-18T19:42:30.0903077Z"
+    },
+    {
+      "name": "agentbolt-daemon.exe",
+      "sha256": "84434e2dc067aa0e866c64545023946ea36ef96e33769f542844d8c6bb911ef0",
+      "builtAt": "2026-10-18T19:42:13.1133256Z"
+    },
+    {
+      "name": "agentbolt-desk.exe",
+      "sha256": "4fd63160531fabd6c5c2ff26e75bd463f96eab6703376dc679a6475dabe22009",
+      "builtAt": "2026-10-18T19:43:11.3807203Z"
+    }
+  ],
+  "observations": [
+    {
+      "atUtc": "2026-10-18T19:53:45.1335703Z",
+      "taskState": "Running",
+      "lastTaskResult": 267009,
+      "daemonPid": 44196,
+      "status": "0 open, 0 agents; event chain intact",
+      "note": "Started from Anode session 4; InteractiveToken selected console session 1. No synthetic asks posted."
+    }
+  ],
+  "automationId": "agentbolt-72-hour-reliability-check"
+}

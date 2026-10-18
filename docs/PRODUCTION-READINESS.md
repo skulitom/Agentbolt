@@ -194,3 +194,35 @@ reject the first proposal, approve the second, then verify re-registration, the 
 Every MCP result in this test had matching complete text and structured branches. Its processes and data
 were removed. This exercises the real MCP executable with a test client; live Claude/Codex host checks
 remain pending.
+
+## Durable unsent drafts
+
+Choices, replies (including deliberately cleared replies), form fields, notes, selected asks and batch
+selection are saved locally when they change, using a synced temporary file and atomic replacement.
+Loading them never sends an answer. Closed asks are removed from saved drafts on the next Inbox refresh.
+Unreadable or future-version files are retained and a visible warning explains that saving is blocked.
+Drafts are bounded to 4 MiB. Each Windows session uses its own file, so two sessions do not overwrite each
+other; a new session can restore the latest saved state.
+
+Both drafts and egui window preferences now live inside the channel's data folder. New windows are
+centered; the live 1280x720 test now fits wholly on screen. Previous builds used egui's default Roaming
+folder, so some earlier fixtures left window preferences there despite removing their channel data.
+Those legacy preference folders need separate cleanup; never remove the real `Agentbolt` folder or
+another task's fixture.
+
+The release batch GUI fixture passed with `AGENTBOLT_DRAFT_RESTART_TEST=1`: edit Yes, Edited reply,
+quantity 7 and note Survives restart; forcibly kill the Desk; reopen and visually confirm all edits and
+three selected asks; explicitly send. All three answers arrived atomically. Its channel data disappeared
+on cleanup and no Roaming preference folder was created. Desk unit tests and workspace clippy pass.
+This is draft/crash recovery evidence, **not yet an open-Desk installer-upgrade pass**.
+
+## Running 72-hour scheduler probe
+
+The isolated channel `codex-02-soak-1018` started at **2026-10-18 19:53:02 UTC**, from Anode. Its scheduled
+task uses `PT0S` and `--supervise`; Windows selected console session 1. It holds no asks. The binary
+snapshot from `b96ddc3`, process ids, hashes and observations are recorded in
+[SOAK-2026-10-18.json](SOAK-2026-10-18.json). Do not upgrade or restart this installation during measurement.
+An hourly thread heartbeat checks it quietly and will record the result and remove the test installation
+after at least 72 hours, no earlier than **2026-10-21 19:54 UTC**. This measures the pinned scheduler build;
+it does not replace final release-candidate validation. A restart or reboot invalidates uninterrupted
+uptime evidence and must be reported, never silently reset.

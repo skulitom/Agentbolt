@@ -203,7 +203,7 @@ pub fn parse_url(url: &str, protocol: &str) -> Result<UrlAction, String> {
 }
 
 /// One form field's input on the Desk.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum FieldInput {
     Text(String),
     Bool(bool),

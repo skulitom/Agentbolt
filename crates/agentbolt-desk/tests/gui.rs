@@ -304,7 +304,7 @@ fn batch_review_through_the_real_desk() {
         assert_eq!(result.placed, "open");
         ids.push(result.id);
     }
-    let _desk = Process(
+    let mut live_desk = Process(
         Command::new(&desk)
             .args(["--channel", &channel])
             .env("AGENTBOLT_CHANNEL", &channel)
@@ -316,8 +316,58 @@ fn batch_review_through_the_real_desk() {
     );
     println!(
         "Live fixture: channel {channel}, Desk pid {}. Select all, Review, Yes / Edited reply / quantity 7, Send answers.",
-        _desk.0.id()
+        live_desk.0.id()
     );
+    if std::env::var("AGENTBOLT_DRAFT_RESTART_TEST").as_deref() == Ok("1") {
+        println!(
+            "Restart check: make those edits but DO NOT SEND. Add note 'Survives restart' to Batch choice. The test will restart the Desk once all edits are saved."
+        );
+        let start = Instant::now();
+        loop {
+            let saved = std::fs::read_dir(&data.0)
+                .unwrap()
+                .flatten()
+                .filter(|e| {
+                    e.file_name().to_string_lossy().starts_with("desk-drafts-")
+                        && e.path().extension().is_some_and(|e| e == "json")
+                })
+                .any(|entry| {
+                    let Ok(bytes) = std::fs::read(entry.path()) else {
+                        return false;
+                    };
+                    let Ok(v) = serde_json::from_slice::<Value>(&bytes) else {
+                        return false;
+                    };
+                    let d = &v["state"]["drafts"];
+                    d[&ids[0]]["choice"] == "Yes"
+                        && d[&ids[0]]["note"] == "Survives restart"
+                        && d[&ids[1]]["text"] == "Edited reply"
+                        && d[&ids[2]]["fields"]["quantity"]["Text"] == "7"
+                });
+            if saved {
+                break;
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(480),
+                "waiting for saved edits timed out"
+            );
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        live_desk.0.kill().unwrap();
+        live_desk.0.wait().unwrap();
+        live_desk.0 = Command::new(&desk)
+            .args(["--channel", &channel])
+            .env("AGENTBOLT_CHANNEL", &channel)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        println!(
+            "Desk restarted (pid {}). Review the three restored selections and edits, then Send answers.",
+            live_desk.0.id()
+        );
+    }
     let started = Instant::now();
     let answers = loop {
         let result: AnswersResult = serde_json::from_value(
@@ -353,6 +403,9 @@ fn batch_review_through_the_real_desk() {
     };
     assert_eq!(answer(&ids[0]).choice.as_deref(), Some("Yes"));
     assert_eq!(answer(&ids[1]).choice.as_deref(), Some("Edited reply"));
+    if std::env::var("AGENTBOLT_DRAFT_RESTART_TEST").as_deref() == Ok("1") {
+        assert_eq!(answer(&ids[0]).note.as_deref(), Some("Survives restart"));
+    }
     assert_eq!(
         answer(&ids[2]).values,
         Some(serde_json::json!({"quantity":7}))
