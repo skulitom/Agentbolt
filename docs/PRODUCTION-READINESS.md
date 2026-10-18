@@ -57,9 +57,15 @@ daemon removed the warm window. The native visibility checks run throughout prel
 Set `AGENTBOLT_MEASURE_IDLE=1` for the warm probe to additionally measure both processes for ten minutes;
 the combined CPU limit is 0.5% of one core (stricter than Task Manager's all-core percentage).
 
-The ten-minute CPU sample measured **0.323% of one core combined** (daemon 0.065%, Desk 0.258%,
-600.18 seconds). CPU passed, but the following reopen probe failed to refresh the Inbox; investigation is
-still open. This longer test is not recorded as an overall pass.
+The first ten-minute CPU sample measured **0.323% of one core combined** (daemon 0.065%, Desk 0.258%,
+600.18 seconds). CPU passed, but the following reopen probe failed to refresh the Inbox. The launcher now
+passes its foreground permission to the warm Desk with `AllowSetForegroundWindow`, allowing the user's
+click to focus the resident process without bypassing Windows' focus rules.
+
+The full repeat passed: **0.276% combined** (daemon 0.042%, Desk 0.234%, 600.18 seconds), then all five
+reopen cycles passed at **10.1–13.7 ms window / 22.7–61.3 ms Inbox**, including hidden-ask checks and crash
+cleanup. This sample includes direct Inbox and the focus fix; later noise-control and delivery changes
+will need the final release-candidate performance check too.
 
 ## Chat navigation
 
