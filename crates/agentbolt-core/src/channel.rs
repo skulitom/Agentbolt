@@ -58,27 +58,41 @@ impl Names {
         self.channel == MAIN
     }
 
-    /// Data directory: `%LOCALAPPDATA%\Agentbolt\<channel>` on Windows, `$XDG_DATA_HOME/agentbolt/<channel>` elsewhere.
-    pub fn data_dir(&self) -> PathBuf {
-        base_data_dir().join(&self.channel)
+    /// Data directory: `%LOCALAPPDATA%\Agentbolt\<channel>` on Windows, `$XDG_DATA_HOME/agentbolt/<channel>`
+    /// (else `$HOME/.local/share/agentbolt/<channel>`) elsewhere. An error, never a relative fallback, when the
+    /// variable is unset or not an absolute path: callers create and delete this folder.
+    pub fn data_dir(&self) -> Result<PathBuf, String> {
+        Ok(base_data_dir()?.join(&self.channel))
     }
 
-    pub fn db_path(&self) -> PathBuf {
-        self.data_dir().join("agentbolt.db")
+    pub fn db_path(&self) -> Result<PathBuf, String> {
+        Ok(self.data_dir()?.join("agentbolt.db"))
     }
 }
 
-fn base_data_dir() -> PathBuf {
+/// The absolute folder an environment variable names. Unset, empty or relative values are refused with a reason,
+/// so nothing ever falls back to the current folder.
+pub fn env_dir(var: &str) -> Result<PathBuf, String> {
+    let value = std::env::var_os(var).filter(|v| !v.is_empty());
+    let Some(value) = value else {
+        return Err(format!("{var} isn't set, so Agentbolt can't tell where its folders go; set it and try again"));
+    };
+    let path = PathBuf::from(value);
+    if !path.is_absolute() {
+        return Err(format!("{var} is {}, which isn't an absolute path; Agentbolt won't use it", path.display()));
+    }
+    Ok(path)
+}
+
+fn base_data_dir() -> Result<PathBuf, String> {
     if cfg!(windows) {
-        let local = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".into());
-        PathBuf::from(local).join("Agentbolt")
+        Ok(env_dir("LOCALAPPDATA")?.join("Agentbolt"))
     } else {
-        let base = std::env::var("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| {
-                PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into())).join(".local/share")
-            });
-        base.join("agentbolt")
+        let base = match env_dir("XDG_DATA_HOME") {
+            Ok(dir) => dir,
+            Err(_) => env_dir("HOME")?.join(".local").join("share"),
+        };
+        Ok(base.join("agentbolt"))
     }
 }
 
@@ -97,7 +111,16 @@ mod tests {
         assert_ne!(main.mcp_pipe, test.mcp_pipe);
         assert_ne!(main.desk_pipe, test.desk_pipe);
         assert_ne!(main.mutex, test.mutex);
-        assert_ne!(main.data_dir(), test.data_dir());
+        assert_ne!(main.data_dir().unwrap(), test.data_dir().unwrap());
+        assert!(test.data_dir().unwrap().is_absolute());
+    }
+
+    #[test]
+    fn folders_from_the_environment_must_be_absolute() {
+        // Read-only checks on variables no other test sets.
+        assert!(env_dir("AGENTBOLT_TEST_SURELY_UNSET_VAR").unwrap_err().contains("isn't set"));
+        let var = if cfg!(windows) { "LOCALAPPDATA" } else { "HOME" };
+        assert!(env_dir(var).unwrap().is_absolute());
     }
 
     #[test]

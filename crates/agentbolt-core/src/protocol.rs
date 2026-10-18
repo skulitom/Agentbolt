@@ -32,13 +32,17 @@ pub struct Response {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", content = "args", rename_all = "snake_case")]
 pub enum McpOp {
-    /// Say who you are. `owner` comes from `agentbolt mcp --owner`; None gets a provisional per-session owner.
+    /// Say who you are. `owner` comes from `agentbolt mcp --owner`; None gets a provisional owner: per host
+    /// session (`session_ref`, which the front-end takes only from the host, never from a tool argument), else
+    /// per MCP process (`provisional_key`, made once when the process starts), else a fresh one.
     Register {
         owner: Option<String>,
         client: String,
         session_ref: Option<String>,
         cwd: Option<String>,
         doing: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provisional_key: Option<String>,
     },
     /// Keep the handle alive and update what you're doing.
     Heartbeat { handle: String, doing: Option<String> },
@@ -75,6 +79,9 @@ pub struct AskResult {
     /// When `placed` is "existing", or when the owner is at its cap: the ask it was matched to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub existing: Option<Ask>,
+    /// Anything the daemon changed about the ask, such as a P0 stored as P1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 /// Result of `McpOp::Answers`. Reading never consumes, and silence is never an answer: an ask without an
@@ -95,8 +102,9 @@ pub struct AnswersResult {
     pub unknown: Vec<String>,
 }
 
-/// Result of `McpOp::RelayList`: answered asks of other owners with no successful delivery to their asking
-/// session (or, when an ask has none, to its owner) yet. `RelayMark` returns an `AnswerResult`.
+/// Result of `McpOp::RelayList`: answered asks of other owners, answered in the last 14 days, with no successful
+/// delivery recorded yet (by `RelayMark`, to a session or to NOTES.md, or by the daemon's `codex queue`); newest
+/// first, at most 100. `RelayMark` returns an `AnswerResult`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RelayListResult {
     pub answers: Vec<Ask>,
@@ -116,7 +124,8 @@ pub struct StatusResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", content = "args", rename_all = "snake_case")]
 pub enum DeskOp {
-    /// Inbox (open), digest, recent answered. Listing the Inbox marks those asks shown.
+    /// Inbox (open), digest, recent answered. Listing the Inbox marks those asks shown, so the Desk sends it only
+    /// while its window is focused and not minimized (`Status` refreshes the counts otherwise).
     List,
     /// Opening the digest marks its asks shown.
     OpenDigest,
@@ -153,9 +162,14 @@ pub struct AgentsResult {
     pub agents: Vec<Agent>,
 }
 
+/// Every bound or approved owner (by name), then the most recent provisional owners (newest first, at most
+/// `rules::DESK_PROVISIONAL_OWNERS`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OwnersResult {
     pub owners: Vec<Owner>,
+    /// Older provisional owners left out of `owners`.
+    #[serde(default)]
+    pub more_provisional: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

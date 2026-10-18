@@ -86,6 +86,7 @@ async fn post_ask(names: Names, a: &AskArgs) -> anyhow::Result<Value> {
             session_ref: None,
             cwd: std::env::current_dir().ok().map(|p| p.display().to_string()),
             doing: Some("agentbolt ask".into()),
+            provisional_key: None,
         })
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -145,7 +146,7 @@ fn dispatch(cmd: Command) -> anyhow::Result<()> {
 }
 
 fn clients(names: &Names, yes: bool) -> anyhow::Result<()> {
-    let install = install::install_dir(names);
+    let install = install::install_dir(names)?;
     let cmds = install::client_commands(names, &install);
     for (what, program, args) in &cmds {
         println!("{what}:\n  {}", install::shell_line(program, args));

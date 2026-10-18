@@ -14,7 +14,7 @@ use crate::protocol::{
 };
 use crate::service::{ClientInfo, Effect, Service};
 use crate::service_impl::{Clock, StoreService, UNKNOWN_HANDLE};
-use crate::store;
+use crate::{rules, store};
 
 const START: OffsetDateTime = datetime!(2026-10-19 09:00 UTC);
 
@@ -71,6 +71,20 @@ impl T {
             session_ref: session.map(String::from),
             cwd: cwd.map(String::from),
             doing: None,
+            provisional_key: None,
+        };
+        de(self.mcp(op).unwrap().0)
+    }
+
+    /// A registration with no owner and no host session, from the MCP process with this key.
+    fn register_process(&self, key: Option<&str>) -> RegisterResult {
+        let op = McpOp::Register {
+            owner: None,
+            client: "claude-code".into(),
+            session_ref: None,
+            cwd: Some("C:\\DEV\\Compass".into()),
+            doing: None,
+            provisional_key: key.map(String::from),
         };
         de(self.mcp(op).unwrap().0)
     }
@@ -378,8 +392,14 @@ fn provisional_owners_are_per_session_even_in_the_same_folder() {
     assert!(s1.provisional && s2.provisional);
     let anon1 = t.register_full(None, None, cwd);
     let anon2 = t.register_full(None, None, cwd);
-    assert_ne!(anon1.owner, anon2.owner, "no session ref: a fresh random owner each time");
+    assert_ne!(anon1.owner, anon2.owner, "no session ref and no process key: a fresh random owner each time");
     assert_eq!(t.register_full(None, Some("routine-run-1"), None).owner, s1.owner, "the same session, the same owner");
+
+    // No host session: one provisional owner per MCP process, however often it registers.
+    let p1 = t.register_process(Some("mcp-0a1b"));
+    assert_eq!(p1.owner, "session:mcp-0a1b");
+    assert_eq!(t.register_process(Some("mcp-0a1b")).owner, p1.owner);
+    assert_ne!(t.register_process(Some("mcp-9f9f")).owner, p1.owner, "another process, another owner");
 
     let asked = t.ask(&s1.handle, t.input("Mine"));
     let other = t.answers(&s2.handle, &[&asked.id]);
@@ -403,6 +423,7 @@ fn config_owners_are_bound_and_the_desk_can_approve_provisional_ones() {
         session_ref: None,
         cwd: None,
         doing: None,
+        provisional_key: None,
     };
     assert!(t.mcp(claim).unwrap_err().contains("session:"));
 
@@ -413,6 +434,118 @@ fn config_owners_are_bound_and_the_desk_can_approve_provisional_ones() {
     let agents: AgentsResult = de(t.desk(DeskOp::Agents).unwrap().0);
     assert!(agents.agents.iter().filter(|a| a.owner == p.owner).all(|a| !a.provisional));
     assert!(t.desk(DeskOp::SetOwner { owner: Owner { binding: "boss".into(), ..o.clone() } }).is_err());
+}
+
+#[test]
+fn provisional_owners_get_no_p0_skip_and_share_one_fair_share() {
+    let t = T::new();
+    t.set_budget(4);
+    let bound = t.register("compass-storefront");
+    // Five fresh provisional owners, as an agent minting a new one per register would get.
+    let fresh: Vec<RegisterResult> = (0..5).map(|i| t.register_full(None, Some(&format!("s{i}")), None)).collect();
+    assert!(fresh.iter().all(|r| r.provisional));
+
+    let p0 = |title: &str| AskInput { priority: Priority::P0, p0_reason: Some("urgent".into()), ..t.input(title) };
+    let (r, _) = t.try_ask(&fresh[0].handle, p0("Provisional P0")).unwrap();
+    let note = r.note.clone().unwrap_or_default();
+    assert!(note.contains("P1") && note.contains("provisional"), "{note}");
+    let conn_priority = |id: &str| {
+        let conn = t.svc.conn_for_tests();
+        store::ask_row(&conn, id).unwrap().unwrap().input.priority
+    };
+    assert_eq!(conn_priority(&r.id), Priority::P1, "stored as P1");
+    {
+        let conn = t.svc.conn_for_tests();
+        let skip: bool = conn.query_row("SELECT p0_skip FROM asks WHERE id = ?1", [&r.id], |row| row.get(0)).unwrap();
+        assert!(!skip, "no P0 skip for a provisional owner");
+    }
+    assert_eq!(r.placed, "open", "it took a normal slot of the provisional bucket");
+
+    // Two buckets are active (the bound owner and "provisional"): a share of ceil(4 / 2) = 2 each, for all the
+    // provisional owners together.
+    assert_eq!(t.placed(&bound, "b1"), "open");
+    assert_eq!(t.placed(&fresh[1].handle, "f1"), "open", "the provisional bucket's second slot");
+    for (i, f) in fresh.iter().enumerate().skip(2) {
+        assert_eq!(t.placed(&f.handle, &format!("f{i}")), "digest", "a fresh owner buys no fresh share");
+    }
+    assert_eq!(t.placed(&bound, "b2"), "open", "the bound owner still has its share");
+    assert_eq!(t.list().inbox.len(), 4);
+
+    // The cap stays per owner: three each, provisional or not.
+    let one = &fresh[0].handle;
+    assert_eq!(t.placed(one, "x2"), "digest");
+    assert_eq!(t.placed(one, "x3"), "digest");
+    assert_eq!(t.placed(one, "x4"), "cap");
+
+    // Once Artem approves an owner it is out of the bucket and may use its P0 skip.
+    t.set_owner(&fresh[4].owner, "approved", false, false);
+    let (r, _) = t.try_ask(&fresh[4].handle, p0("Approved P0")).unwrap();
+    assert_eq!((r.placed.as_str(), r.note.as_deref()), ("open", None));
+    assert_eq!(conn_priority(&r.id), Priority::P0);
+}
+
+#[test]
+fn the_desk_owner_list_is_bounded_and_idle_provisional_owners_are_pruned() {
+    let t = T::new();
+    t.register("compass-storefront");
+    t.set_owner("approved-one", "approved", false, false);
+    let first = t.register_full(None, Some("first-session"), None);
+    let asked = t.ask(&first.handle, t.input("Keeps its owner"));
+    for i in 0..60 {
+        t.advance(Duration::seconds(1));
+        t.register_full(None, Some(&format!("run-{i:02}")), None);
+    }
+    let owners: OwnersResult = de(t.desk(DeskOp::Owners).unwrap().0);
+    let names: Vec<&str> = owners.owners.iter().map(|o| o.name.as_str()).collect();
+    assert_eq!(&names[..2], ["approved-one", "compass-storefront"], "every bound or approved owner, by name");
+    assert_eq!(names.len(), 2 + 50, "at most 50 provisional owners");
+    assert_eq!(names[2], "session:run-59", "the most recent first");
+    assert_eq!(owners.more_provisional, 11);
+
+    // A week later, with no activity, the provisional owners without asks are gone; the rest stay.
+    t.advance(Duration::days(7) + Duration::minutes(2));
+    t.tick();
+    let owners: OwnersResult = de(t.desk(DeskOp::Owners).unwrap().0);
+    let names: Vec<&str> = owners.owners.iter().map(|o| o.name.as_str()).collect();
+    assert_eq!(names, ["approved-one", "compass-storefront", first.owner.as_str()]);
+    assert_eq!(owners.more_provisional, 0);
+    assert_eq!(t.ask_status(&asked.id), AskStatus::Open);
+}
+
+#[test]
+fn non_ascii_asks_round_trip() {
+    let t = T::new();
+    let r = t.register_full(None, Some("sessión-ü-日本"), Some("C:\\DEV\\Résumé"));
+    assert_eq!(r.owner, "session:sessión-ü-日本");
+    let input = AskInput {
+        priority: Priority::P1,
+        title: "Résumé prüfen? 日本語".into(),
+        body: "Ünïcödé body ".repeat(30),
+        evidence: vec![
+            Evidence { label: "Lebenslauf".into(), url: "Notes/Résumé.md".into() },
+            Evidence { label: "Byte 8 is inside é".into(), url: "1234567éx".into() },
+            Evidence { label: "Pfad".into(), url: "C:\\DEV\\Notes\\Résumé.md".into() },
+        ],
+        options: vec!["Ja, bitte 🙂".into(), "Nein — später".into(), "Vielleicht…".into()],
+        default: json!("Nein — später"),
+        ..t.input("x")
+    };
+    let (asked, fx) = t.try_ask(&r.handle, input).unwrap();
+    let toast = fx.iter().find_map(|e| match e {
+        Effect::Toast { title, body, buttons, .. } => Some((title.clone(), body.clone(), buttons.clone())),
+        _ => None,
+    });
+    let (title, body, buttons) = toast.expect("a P1 gets a toast");
+    assert_eq!(title, "Résumé prüfen? 日本語");
+    assert!(body.starts_with("From session:sessión-ü-日本. Ünïcödé"), "{body}");
+    assert_eq!(buttons.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>(), ["Ja, bitte 🙂", "Nein — später", "Vielleicht…"]);
+    let listed = t.list().inbox;
+    assert_eq!(listed[0].input.evidence[1].url, "1234567éx");
+    assert_eq!(listed[0].asking_session.as_deref(), Some("sessión-ü-日本"));
+    let again = t.ask(&r.handle, AskInput { title: "RÉSUMÉ PRÜFEN 日本語".into(), ..listed[0].input.clone() });
+    assert_eq!((again.placed.as_str(), again.id.as_str()), ("existing", asked.id.as_str()), "dedupe folds case");
+    let (answer, _) = t.answer(&asked.id, "Ja, bitte 🙂").unwrap();
+    assert_eq!(answer.choice.as_deref(), Some("Ja, bitte 🙂"));
 }
 
 // ---- rule 4: validation through the service ----
@@ -452,6 +585,9 @@ fn defaults_apply_only_to_shown_reversible_asks() {
     let shown = t.list();
     assert!(shown.inbox[0].shown_at.is_some(), "listing the Inbox marks it shown");
     t.tick();
+    assert_eq!(t.ask_status(&asked.id), AskStatus::Open, "overdue, but just shown: the grace runs first");
+    t.advance(Duration::milliseconds(rules::DEFAULT_GRACE_MS));
+    t.tick();
     assert_eq!(t.ask_status(&asked.id), AskStatus::Defaulted);
     let got = t.answers(&a, &[&asked.id]).answers;
     let answer = got[0].answer.as_ref().unwrap();
@@ -487,7 +623,46 @@ fn digest_asks_default_only_after_the_digest_is_opened() {
     let d = t.open_digest();
     assert!(d.digest[0].shown_at.is_some());
     t.tick();
+    assert_eq!(t.ask_status(&held.id), AskStatus::Digest, "just shown: the grace runs first");
+    t.advance(Duration::hours(1));
+    t.tick();
     assert_eq!(t.ask_status(&held.id), AskStatus::Defaulted);
+}
+
+#[test]
+fn a_shown_ask_defaults_at_its_deadline_or_an_hour_after_shown_whichever_is_later() {
+    let t = T::new();
+    let a = t.register("owner-a");
+    // Shown long before its deadline: it defaults at the deadline itself.
+    let early = t.ask(&a, t.due_in(t.input("Early"), Duration::hours(3)));
+    // Opening the Desk after a day away: overdue the moment it is first shown.
+    let late = t.ask(&a, t.due_in(t.input("Late"), Duration::minutes(30)));
+    t.advance(Duration::days(1));
+    t.tick();
+    assert_eq!(t.ask_status(&late.id), AskStatus::Open, "never shown");
+    // `early` was due 21 h ago and is shown only now as well, so both wait out the grace.
+    t.list();
+    let shown_at = t.now();
+    for step in [Duration::seconds(1), Duration::minutes(30), Duration::minutes(59)] {
+        t.set(shown_at + step);
+        t.tick();
+        assert_eq!(t.ask_status(&late.id), AskStatus::Open, "{step} after it was shown");
+        assert_eq!(t.ask_status(&early.id), AskStatus::Open, "{step} after it was shown");
+    }
+    t.set(shown_at + Duration::hours(1));
+    t.tick();
+    assert_eq!(t.ask_status(&late.id), AskStatus::Defaulted, "an hour after it was shown");
+    assert_eq!(t.ask_status(&early.id), AskStatus::Defaulted);
+
+    // Shown well ahead: no extra wait past the deadline.
+    let ahead = t.ask(&a, t.due_in(t.input("Ahead"), Duration::hours(2)));
+    t.list();
+    t.advance(Duration::hours(2) - Duration::seconds(1));
+    t.tick();
+    assert_eq!(t.ask_status(&ahead.id), AskStatus::Open);
+    t.advance(Duration::seconds(1));
+    t.tick();
+    assert_eq!(t.ask_status(&ahead.id), AskStatus::Defaulted, "at its deadline");
 }
 
 // ---- rule 7: answers ----
@@ -713,7 +888,7 @@ fn relay_calls_are_refused_to_every_other_owner() {
 }
 
 #[test]
-fn the_relay_lists_answers_until_they_reach_the_asking_session() {
+fn the_relay_lists_answers_until_any_delivery_succeeds() {
     let t = T::new();
     t.set_owner("compass-reception", "config", false, true);
     let relay = t.register("compass-reception");
@@ -723,6 +898,7 @@ fn the_relay_lists_answers_until_they_reach_the_asking_session() {
     let two = t.ask(&b, t.input("Two"));
     let open = t.ask(&b, t.input("Still open"));
     t.answer(&one.id, "Yes").unwrap();
+    t.advance(Duration::seconds(1));
     t.answer(&two.id, "No").unwrap();
     let mine = t.ask(&relay, t.input("Relay's own"));
     t.answer(&mine.id, "Yes").unwrap();
@@ -731,7 +907,7 @@ fn the_relay_lists_answers_until_they_reach_the_asking_session() {
         let r: RelayListResult = de(t.mcp(McpOp::RelayList { handle: relay.clone() }).unwrap().0);
         r.answers.into_iter().map(|a| a.id).collect()
     };
-    assert_eq!(list(&t), vec![one.id.clone(), two.id.clone()], "answered asks of other owners only");
+    assert_eq!(list(&t), vec![two.id.clone(), one.id.clone()], "answered asks of other owners only, newest first");
     assert!(!list(&t).contains(&open.id));
 
     let mark = |ok: bool, to: &str| McpOp::RelayMark {
@@ -743,10 +919,9 @@ fn the_relay_lists_answers_until_they_reach_the_asking_session() {
     };
     t.mcp(mark(false, "compass-storefront-session")).unwrap();
     assert!(list(&t).contains(&one.id), "a failed delivery doesn't count");
-    t.mcp(mark(true, "somewhere-else")).unwrap();
-    assert!(list(&t).contains(&one.id), "only a delivery to the asking session counts");
-    let (v, _) = t.mcp(mark(true, "compass-storefront-session")).unwrap();
-    assert_eq!(de::<AnswerResult>(v).answer.deliveries.len(), 3);
+    // The relay could only write it to NOTES.md: that is a delivery too, so it leaves the list.
+    let (v, _) = t.mcp(mark(true, "notes")).unwrap();
+    assert_eq!(de::<AnswerResult>(v).answer.deliveries.len(), 2);
     assert_eq!(list(&t), vec![two.id.clone()]);
     assert!(t.answers(&a, &[]).answers.is_empty(), "delivered: off the owner's undelivered list");
     assert_eq!(t.answers(&a, &[&one.id]).answers.len(), 1, "but still readable by id");
@@ -756,6 +931,35 @@ fn the_relay_lists_answers_until_they_reach_the_asking_session() {
     assert!(list(&t).is_empty());
     assert!(t.svc.record_delivery(&open.id, "owner-b-session", true, None).unwrap_err().contains("no answer"));
     assert!(t.svc.record_delivery("ask_missing", "x", true, None).is_err());
+}
+
+#[test]
+fn the_relay_list_keeps_a_14_day_window_and_the_newest_100() {
+    let t = T::new();
+    t.set_budget(50);
+    t.set_owner("compass-reception", "config", false, true);
+    let relay = t.register("compass-reception");
+    let old_owner = t.register("old-owner");
+    let old = t.ask(&old_owner, t.input("Old"));
+    t.answer(&old.id, "Yes").unwrap();
+    t.advance(Duration::days(15));
+    // 102 fresh answers from 34 owners (3 each, under the cap), one second apart.
+    let mut fresh = Vec::new();
+    for o in 0..34 {
+        let h = t.register(&format!("owner-{o:02}"));
+        for k in 0..3 {
+            let id = t.ask(&h, t.due_in(t.input(&format!("q{o}-{k}")), Duration::days(20))).id;
+            t.advance(Duration::seconds(1));
+            t.answer(&id, "Yes").unwrap();
+            fresh.push(id);
+        }
+    }
+    let r: RelayListResult = de(t.mcp(McpOp::RelayList { handle: relay.clone() }).unwrap().0);
+    let ids: Vec<&str> = r.answers.iter().map(|a| a.id.as_str()).collect();
+    assert_eq!(ids.len(), 100);
+    assert_eq!(ids[0], fresh[101], "newest first");
+    assert_eq!(ids[99], fresh[2], "the two oldest fresh ones wait for the next call");
+    assert!(!ids.contains(&old.id.as_str()), "answered 15 days ago: outside the window");
 }
 
 #[test]
@@ -881,6 +1085,12 @@ fn settings_round_trip_and_are_checked() {
     let good = Settings { ntfy_topic_url: Some("https://ntfy.sh/secret-topic".into()), daily_budget: 3, toasts_off: true };
     set(good.clone()).unwrap();
     assert_eq!(de::<Settings>(t.desk(DeskOp::GetSettings).unwrap().0), good);
+    // An upper-case scheme is accepted and stored lower-case, which is what the daemon's push checks.
+    set(Settings { ntfy_topic_url: Some("HTTPS://ntfy.sh/Secret-Topic".into()), ..good.clone() }).unwrap();
+    let stored = de::<Settings>(t.desk(DeskOp::GetSettings).unwrap().0).ntfy_topic_url;
+    assert_eq!(stored.as_deref(), Some("https://ntfy.sh/Secret-Topic"));
+    assert!(set(Settings { ntfy_topic_url: Some("https://".into()), ..good.clone() }).is_err());
+    assert!(set(Settings { ntfy_topic_url: Some("1234567é/topic".into()), ..good.clone() }).is_err());
     set(Settings { ntfy_topic_url: Some("  ".into()), ..good }).unwrap();
     assert_eq!(de::<Settings>(t.desk(DeskOp::GetSettings).unwrap().0).ntfy_topic_url, None);
 }
@@ -923,6 +1133,7 @@ fn the_service_is_send_and_sync() {
                     session_ref: None,
                     cwd: None,
                     doing: None,
+                    provisional_key: None,
                 };
                 svc.mcp(&ClientInfo::default(), op).unwrap();
             })

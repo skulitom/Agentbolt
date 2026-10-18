@@ -62,7 +62,6 @@ pub fn tools() -> Vec<Tool> {
             json!({"type": "object", "properties": {
                 "handle": {"type": "string", "description": HANDLE},
                 "doing": {"type": "string", "description": "One line: what you're working on"},
-                "session": {"type": "string", "description": "Your session or thread id, if you know it"},
                 "cwd": {"type": "string", "description": "Your working folder, if not the server's"}
             }}),
             false,
@@ -125,13 +124,13 @@ pub fn tools() -> Vec<Tool> {
         tool(
             RELAY,
             "Relay answers (relay owner only)",
-            "Relay owner only: list the answers waiting for other owners, then mark each one delivered once you \
-             have passed it on. Refused to every other owner.",
+            "Relay owner only: list the answers waiting for other owners (last 14 days, newest first), then mark \
+             each one delivered once you have passed it on. Refused to every other owner.",
             json!({"type": "object", "properties": {
                 "handle": {"type": "string", "description": HANDLE},
                 "action": {"type": "string", "enum": ["list", "mark"]},
                 "ask_id": {"type": "string", "description": "For mark"},
-                "to": {"type": "string", "description": "For mark: where you delivered it"},
+                "to": {"type": "string", "description": "For mark: where you delivered it: a session id, or \"notes\" for NOTES.md"},
                 "ok": {"type": "boolean", "description": "For mark: did delivery work"},
                 "detail": {"type": "string"}
             }, "required": ["action"]}),
@@ -354,6 +353,14 @@ fn is_same_ask(existing: &AskInput, sent: &AskInput) -> bool {
 }
 
 pub fn ask_line(v: &Value, sent: Option<&AskInput>) -> String {
+    let line = placed_line(v, sent);
+    match v.get("note").and_then(Value::as_str).filter(|n| !n.trim().is_empty()) {
+        Some(note) => format!("{line} {note}"),
+        None => line,
+    }
+}
+
+fn placed_line(v: &Value, sent: Option<&AskInput>) -> String {
     let id = v.get("id").and_then(Value::as_str).unwrap_or("?");
     match v.get("placed").and_then(Value::as_str) {
         Some("digest") => format!(
@@ -441,6 +448,11 @@ mod tests {
         let names: Vec<_> = tools.iter().map(|t| t.name.to_string()).collect();
         assert_eq!(names, NAMES);
         assert!(tools.iter().all(|t| t.output_schema.is_none()));
+        let register = serde_json::to_value(&tools[0]).unwrap();
+        assert!(register["inputSchema"]["properties"].get("session").is_none(), "agents can't choose their session");
+        let relay = serde_json::to_value(&tools[4]).unwrap();
+        let to = relay["inputSchema"]["properties"]["to"]["description"].as_str().unwrap();
+        assert!(to.contains("session id") && to.contains("\"notes\""), "{to}");
         let size = serde_json::to_string(&json!({ "tools": tools })).unwrap().len();
         assert!(size < 6000, "tools/list is {size} characters");
     }
@@ -533,6 +545,8 @@ mod tests {
         other.title = "Something else".into();
         let line = ask_line(&same, Some(&other));
         assert!(line.contains("limit of open asks") && line.contains("desk_cancel"), "{line}");
+        let p1 = ask_line(&json!({"id": "a1", "placed": "open", "note": "Stored as P1: this one is provisional."}), None);
+        assert!(p1.contains("Inbox") && p1.ends_with("Stored as P1: this one is provisional."), "{p1}");
         let r = register_line(&json!({"handle": "h1", "owner": "o", "provisional": true, "answers": [], "open_asks": [1]}));
         assert!(r.contains("provisional") && r.contains("0 answers") && r.contains("1 ask open"), "{r}");
     }

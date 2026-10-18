@@ -29,7 +29,9 @@ impl TestChannel {
 
 impl Drop for TestChannel {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(self.names.data_dir());
+        if let Ok(dir) = self.names.data_dir() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
     }
 }
 

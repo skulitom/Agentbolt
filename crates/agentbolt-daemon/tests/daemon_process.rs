@@ -127,6 +127,30 @@ fn choose_ask() -> AskInput {
     }
 }
 
+/// With LOCALAPPDATA unset the daemon has no data folder: it stops (exit 1, the task's retries show it) and never
+/// falls back to a store and log under the current folder.
+#[test]
+fn without_localappdata_the_daemon_stops_and_writes_nothing() {
+    let setup = Setup::new();
+    let mut child = Command::new(setup.daemon_exe())
+        .args(["--channel", &setup.names.channel, "--headless"])
+        .env_remove("LOCALAPPDATA")
+        .env_remove("AGENTBOLT_CHANNEL")
+        .current_dir(&setup.dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("start the daemon");
+    let code = wait_exit(&mut child, Duration::from_secs(10));
+    if code.is_none() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    assert_eq!(code, Some(1), "the daemon must stop without a data folder");
+    assert!(!setup.dir.join("Agentbolt").exists(), "it made a data folder under the current folder");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_daemon_serves_refuses_and_waits() {
     let mut setup = Setup::new();
@@ -166,6 +190,7 @@ async fn the_daemon_serves_refuses_and_waits() {
         session_ref: None,
         cwd: None,
         doing: Some("testing".into()),
+        provisional_key: None,
     };
     let handle = mcp.call(&reg).await.expect("register")["handle"].as_str().unwrap().to_string();
     let asked = mcp.call(&McpOp::Ask { handle: handle.clone(), ask: choose_ask() }).await.expect("ask");
@@ -237,6 +262,7 @@ async fn manual_toast_smoke() {
     let reg = McpOp::Register {
         owner: Some("ipctest-smoke".into()),
         client: "manual-toast-smoke".into(),
+        provisional_key: None,
         session_ref: None,
         cwd: None,
         doing: None,

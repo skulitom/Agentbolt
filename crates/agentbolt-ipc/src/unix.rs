@@ -14,8 +14,18 @@ pub(crate) const IMAGE_CHECKS: bool = cfg!(target_os = "linux");
 
 pub(crate) type ClientStream = UnixStream;
 
+/// The socket's path, for display (`Pipe::path`). Without a data folder (no `$HOME`) it says so instead.
 pub(crate) fn pipe_path(names: &Names, name: &str) -> PathBuf {
-    names.data_dir().join(format!("{name}.sock"))
+    socket_path(names, name).unwrap_or_else(|_| PathBuf::from(format!("<no data folder>/{name}.sock")))
+}
+
+/// The socket's path in the channel's data folder; an error when there's no data folder.
+fn socket_path(names: &Names, name: &str) -> Result<PathBuf, IpcError> {
+    Ok(data_dir(names)?.join(format!("{name}.sock")))
+}
+
+fn data_dir(names: &Names) -> Result<PathBuf, IpcError> {
+    names.data_dir().map_err(|e| IpcError::Io(io::Error::new(io::ErrorKind::NotFound, e)))
 }
 
 pub(crate) enum AcceptError {
@@ -31,10 +41,10 @@ pub(crate) struct Listener {
 
 impl Listener {
     pub(crate) fn bind(names: &Names, name: &str) -> Result<Self, IpcError> {
-        let dir = names.data_dir();
+        let dir = data_dir(names)?;
         std::fs::create_dir_all(&dir)?;
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
-        let path = pipe_path(names, name);
+        let path = socket_path(names, name)?;
         if path.exists() {
             // A live server answers; a stale socket from a crash doesn't, and is replaced.
             if std::os::unix::net::UnixStream::connect(&path).is_ok() {
@@ -71,7 +81,7 @@ pub(crate) fn drop_client(stream: UnixStream) {
 }
 
 pub(crate) async fn connect(names: &Names, name: &str) -> Result<(UnixStream, Option<u32>), IpcError> {
-    let path = pipe_path(names, name);
+    let path = socket_path(names, name)?;
     let stream = match UnixStream::connect(&path).await {
         Ok(stream) => stream,
         Err(e) if matches!(e.kind(), io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused) => {

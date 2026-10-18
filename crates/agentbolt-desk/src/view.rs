@@ -79,8 +79,10 @@ fn url_chars_ok(s: &str) -> bool {
         && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._~:/?#[]@!$&'()*+,;=%".contains(&b))
 }
 
+/// `s` starts with `prefix` (ASCII case ignored) and has more after it. Never slices inside a character: byte
+/// `prefix.len()` may fall inside a multi-byte one, as in "1234567éx" or "Notes/Résumé.md".
 fn has_prefix(s: &str, prefix: &str) -> bool {
-    s.len() > prefix.len() && s[..prefix.len()].eq_ignore_ascii_case(prefix)
+    s.len() > prefix.len() && agentbolt_core::rules::starts_with_ignore_ascii_case(s, prefix)
 }
 
 pub fn classify(url: &str) -> Link {
@@ -94,7 +96,11 @@ pub fn classify(url: &str) -> Link {
     // A local drive path such as C:\DEV\x or C:/DEV/x. Never UNC (\\server\share would reach the network).
     let b = u.as_bytes();
     let drive = b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/');
-    if drive && !u.contains(['"', '<', '>', '|', '?', '*']) && !u.chars().any(char::is_control) && !u[2..].contains(':') {
+    if drive
+        && !u.contains(['"', '<', '>', '|', '?', '*'])
+        && !u.chars().any(char::is_control)
+        && u.get(2..).is_some_and(|rest| !rest.contains(':'))
+    {
         return Link::Path(PathBuf::from(u.replace('/', "\\")));
     }
     Link::Text
@@ -242,6 +248,65 @@ pub fn form_values(fields: &[Field], inputs: &HashMap<String, FieldInput>) -> Re
     Ok(Value::Object(out))
 }
 
+/// What one poll of the daemon asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Poll {
+    /// `DeskOp::List`: the Inbox itself. Listing marks its asks shown, which starts their default clocks.
+    List,
+    /// `DeskOp::Status`: the counts only, which marks nothing shown.
+    Status,
+}
+
+/// List the Inbox only while Artem can see it: the window is focused and not minimized. Otherwise only the
+/// counts are refreshed, so an unattended Desk never marks asks shown.
+pub fn poll_kind(focused: bool, minimized: bool) -> Poll {
+    if focused && !minimized { Poll::List } else { Poll::Status }
+}
+
+/// The Text reply box starts with the ask's default once per ask (`filled` says it has). After that it holds
+/// what Artem typed, even when he cleared it.
+pub fn fill_reply_once(text: &mut String, filled: &mut bool, default: Option<&str>) {
+    if !*filled {
+        *filled = true;
+        if text.is_empty()
+            && let Some(d) = default
+        {
+            *text = d.to_string();
+        }
+    }
+}
+
+/// Whether each local path in the selected ask's evidence exists, checked once when an ask is selected rather
+/// than on every frame (a missing network drive can make one check slow).
+#[derive(Debug, Default)]
+pub struct PathCache {
+    ask: Option<String>,
+    exists: HashMap<PathBuf, bool>,
+}
+
+impl PathCache {
+    /// The answers for `ask`, checking its paths with `check` only when the selection changed.
+    pub fn for_ask(&mut self, ask: &Ask, check: impl Fn(&std::path::Path) -> bool) -> &HashMap<PathBuf, bool> {
+        if self.ask.as_deref() != Some(ask.id.as_str()) {
+            self.ask = Some(ask.id.clone());
+            self.exists = ask
+                .input
+                .evidence
+                .iter()
+                .filter_map(|e| match classify(&e.url) {
+                    Link::Path(p) => Some(p),
+                    _ => None,
+                })
+                .map(|p| {
+                    let found = check(&p);
+                    (p, found)
+                })
+                .collect();
+        }
+        &self.exists
+    }
+}
+
 /// The empty-state line for each list.
 pub const EMPTY_INBOX: &str = "Nothing waiting. Agents ask you here.";
 pub const EMPTY_DIGEST: &str = "The digest is empty. Asks over the daily budget wait here.";
@@ -339,6 +404,106 @@ mod tests {
         ];
         assert_eq!(session_link(&ev).as_deref(), Some("claude://resume/abc"));
         assert_eq!(session_link(&ev[..1]), None);
+    }
+
+    #[test]
+    fn non_ascii_links_never_panic() {
+        // Byte 8 ("https://".len()) or 9 ("claude://".len()) falls inside a multi-byte character in each of these.
+        for text in [
+            "1234567éx",
+            "12345678éx",
+            "Notes/Résumé.md",
+            "Résumé.md",
+            "日本語のファイル.md",
+            "é",
+            "🙂🙂🙂",
+            "C:é\\x",
+            "ÄÖÜ://x",
+            "https:/é/x",
+            "claude:/é",
+            "https://exämple.com/ü",
+        ] {
+            assert_eq!(classify(text), Link::Text, "{text:?}");
+        }
+        assert_eq!(classify("C:\\DEV\\Notes\\Résumé.md"), Link::Path(PathBuf::from("C:\\DEV\\Notes\\Résumé.md")));
+        assert_eq!(classify("C:/Users/Åsa/日本.md"), Link::Path(PathBuf::from("C:\\Users\\Åsa\\日本.md")));
+        let ev = vec![
+            Evidence { label: "Résumé".into(), url: "Notes/Résumé.md".into() },
+            Evidence { label: "ünïcödé".into(), url: "1234567éx".into() },
+            Evidence { label: "Session".into(), url: "claude://resume/abc".into() },
+        ];
+        assert_eq!(session_link(&ev).as_deref(), Some("claude://resume/abc"));
+        assert_eq!(session_link(&ev[..2]), None);
+        // The Agents tab classifies session refs the host gave, which can be anything.
+        for session_ref in ["sessión-1", "セッション", "019a-thread", "claude:/é"] {
+            assert_eq!(classify(session_ref), Link::Text, "{session_ref:?}");
+        }
+    }
+
+    #[test]
+    fn non_ascii_titles_and_options_read_and_sort() {
+        let mut a = ask("ü-1", Priority::P1, "2026-10-19T12:00:00Z", "1");
+        a.input.title = "Ünïcödé title 日本".into();
+        a.input.options = vec!["Ja, bitte 🙂".into(), "Nein — später".into()];
+        a.input.default = json!("Nein — später");
+        assert_eq!(options_for(&a), vec!["Ja, bitte 🙂", "Nein — später"]);
+        assert_eq!(option_label(&a, "Nein — später"), "Nein — später (recommended)");
+        assert_eq!(option_label(&a, "Ja, bitte 🙂"), "Ja, bitte 🙂");
+        let mut b = ask("é-0", Priority::P1, "2026-10-19T11:00:00Z", "0");
+        b.input.title = "Résumé".into();
+        let mut v = vec![a, b];
+        sort_asks(&mut v);
+        assert_eq!(v[0].id, "é-0");
+    }
+
+    #[test]
+    fn the_inbox_is_listed_only_while_the_window_is_seen() {
+        assert_eq!(poll_kind(true, false), Poll::List);
+        assert_eq!(poll_kind(false, false), Poll::Status, "unfocused: counts only, nothing marked shown");
+        assert_eq!(poll_kind(true, true), Poll::Status);
+        assert_eq!(poll_kind(false, true), Poll::Status);
+    }
+
+    #[test]
+    fn the_reply_box_fills_with_the_default_once() {
+        let (mut text, mut filled) = (String::new(), false);
+        fill_reply_once(&mut text, &mut filled, Some("Agentbolt"));
+        assert_eq!(text, "Agentbolt");
+        text.clear();
+        for _ in 0..3 {
+            fill_reply_once(&mut text, &mut filled, Some("Agentbolt"));
+        }
+        assert_eq!(text, "", "cleared stays cleared");
+        let (mut text, mut filled) = (String::new(), false);
+        fill_reply_once(&mut text, &mut filled, None);
+        assert!(text.is_empty() && filled);
+    }
+
+    #[test]
+    fn path_checks_run_once_per_selected_ask() {
+        use std::cell::Cell;
+        let mut a = ask("a", Priority::P1, "x", "0");
+        a.input.evidence = vec![
+            Evidence { label: "Here".into(), url: "C:\\DEV\\x.md".into() },
+            Evidence { label: "There".into(), url: "C:\\DEV\\Résumé.md".into() },
+            Evidence { label: "Web".into(), url: "https://example.com".into() },
+        ];
+        let b = ask("b", Priority::P1, "x", "0");
+        let calls = Cell::new(0);
+        let check = |p: &std::path::Path| {
+            calls.set(calls.get() + 1);
+            p.to_string_lossy().contains("Résumé")
+        };
+        let mut cache = PathCache::default();
+        for _ in 0..10 {
+            let seen = cache.for_ask(&a, check);
+            assert_eq!(seen.get(&PathBuf::from("C:\\DEV\\Résumé.md")), Some(&true));
+            assert_eq!(seen.get(&PathBuf::from("C:\\DEV\\x.md")), Some(&false));
+        }
+        assert_eq!(calls.get(), 2, "two paths, checked once for ten frames");
+        assert!(cache.for_ask(&b, check).is_empty());
+        cache.for_ask(&a, check);
+        assert_eq!(calls.get(), 4, "selecting it again checks again");
     }
 
     #[test]

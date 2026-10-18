@@ -134,8 +134,7 @@ impl StoreService {
     }
 
     /// Record a delivery the daemon made (e.g. after `codex queue`). `to` is where it went: for Codex, the
-    /// thread, which is the ask's asking session. A successful delivery to the asking session (or, when the ask
-    /// has none, to its owner) takes the answer off the undelivered lists.
+    /// thread. Any successful delivery takes the answer off the undelivered lists.
     pub fn record_delivery(&self, ask_id: &str, to: &str, ok: bool, detail: Option<&str>) -> Result<(), String> {
         let now = self.now_ms();
         self.write(now, |c| c.deliver(ask_id, to, ok, detail, "daemon")).map(|_| ())
@@ -256,9 +255,19 @@ fn opt_line(s: Option<String>, max: usize, what: &str) -> Result<Option<String>,
     }
 }
 
-/// Undelivered: no successful delivery to the asking session, or to the owner when there's no session.
-const UNDELIVERED: &str = "NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.ask_id = asks.id AND d.ok = 1
-                           AND (d.target = asks.asking_session OR (asks.asking_session IS NULL AND d.target = asks.owner)))";
+/// Undelivered: no successful delivery recorded yet, wherever it went. The relay may only be able to write an
+/// answer to NOTES.md (`to` = "notes"), and that counts: otherwise such answers would sit on its list forever.
+const UNDELIVERED: &str = "NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.ask_id = asks.id AND d.ok = 1)";
+
+/// The fields of `McpOp::Register`.
+struct Registration {
+    owner: Option<String>,
+    client: String,
+    session_ref: Option<String>,
+    cwd: Option<String>,
+    doing: Option<String>,
+    provisional_key: Option<String>,
+}
 
 /// One transaction's view: the connection, "now", the toast secret, and the effects collected so far.
 struct Ctx<'a> {
@@ -345,36 +354,56 @@ impl Ctx<'_> {
 
     // ---- the budget ----
 
-    /// May `owner` take one of today's Inbox slots? Over the budget or over its fair share, no.
+    /// Whether `owner` is provisional (neither bound by config nor approved on the Desk). An owner with no row
+    /// counts as provisional.
+    fn is_provisional(&self, owner: &str) -> Result<bool, String> {
+        Ok(store::owner(self.db, owner).map_err(db_err)?.is_none_or(|o| o.binding == "pending"))
+    }
+
+    /// May `owner` take one of today's Inbox slots? Over the budget or over its fair share, no. Every
+    /// provisional owner shares one fair-share bucket (`rules::PROVISIONAL_BUCKET`), so minting fresh owners
+    /// buys no extra share of the day.
     fn can_take_slot(&self, owner: &str, budget: u32, (start, end): (i64, i64)) -> Result<bool, String> {
         // A slot is used by an ask placed in the Inbox today without the P0 skip, unless it was cancelled
         // before Artem saw it (that slot frees again).
         const USED: &str = "inbox_ms >= ?1 AND inbox_ms < ?2 AND p0_skip = 0
                             AND NOT (status = 'cancelled' AND shown_ms IS NULL)";
+        const PROVISIONAL: &str = "COALESCE((SELECT o.binding FROM owners o WHERE o.name = asks.owner), 'pending') = 'pending'";
         let used =
             store::count(self.db, &format!("SELECT COUNT(*) FROM asks WHERE {USED}"), [start, end]).map_err(db_err)?;
         if used >= budget {
             return Ok(false);
         }
+        // Buckets: "owner:<name>" for bound owners, the provisional bucket for the rest (no name collides).
+        let bucket = |name: &str, provisional: bool| {
+            if provisional { rules::PROVISIONAL_BUCKET.to_string() } else { format!("owner:{name}") }
+        };
         let mut active: BTreeSet<String> = {
             let mut stmt = self
                 .db
-                .prepare(
-                    "SELECT DISTINCT owner FROM asks
+                .prepare(&format!(
+                    "SELECT DISTINCT owner, {PROVISIONAL} FROM asks
                      WHERE (created_ms >= ?1 AND created_ms < ?2) OR (inbox_ms >= ?1 AND inbox_ms < ?2)
-                        OR status = 'digest'",
-                )
+                        OR status = 'digest'"
+                ))
                 .map_err(db_err)?;
-            let owners = stmt.query_map([start, end], |r| r.get::<_, String>(0)).map_err(db_err)?;
+            let owners = stmt
+                .query_map([start, end], |r| Ok(bucket(&r.get::<_, String>(0)?, r.get::<_, bool>(1)?)))
+                .map_err(db_err)?;
             owners.collect::<rusqlite::Result<_>>().map_err(db_err)?
         };
-        active.insert(owner.to_string());
+        let provisional = self.is_provisional(owner)?;
+        active.insert(bucket(owner, provisional));
         let share = rules::fair_share(budget, active.len() as u32);
-        let own = store::count(
-            self.db,
-            &format!("SELECT COUNT(*) FROM asks WHERE {USED} AND owner = ?3"),
-            params![start, end, owner],
-        )
+        let own = if provisional {
+            store::count(self.db, &format!("SELECT COUNT(*) FROM asks WHERE {USED} AND {PROVISIONAL}"), [start, end])
+        } else {
+            store::count(
+                self.db,
+                &format!("SELECT COUNT(*) FROM asks WHERE {USED} AND owner = ?3"),
+                params![start, end, owner],
+            )
+        }
         .map_err(db_err)?;
         Ok(own < share)
     }
@@ -509,7 +538,8 @@ impl Ctx<'_> {
         Ok(answer)
     }
 
-    /// Rule: a deadline default applies only to a reversible ask Artem has been shown. Irreversible asks and
+    /// Rule: a deadline default applies only to a reversible ask Artem has been shown, and no sooner than
+    /// `rules::DEFAULT_GRACE_MS` after he was first shown it (`rules::default_due_ms`). Irreversible asks and
     /// unseen asks stay open, overdue.
     fn apply_defaults(&mut self) -> Result<(), String> {
         let due = store::ask_rows(
@@ -519,6 +549,8 @@ impl Ctx<'_> {
             [self.now],
         )
         .map_err(db_err)?;
+        let now = self.now;
+        let due = due.into_iter().filter(|r| r.shown_ms.is_some_and(|s| rules::default_due_ms(r.deadline_ms, s) <= now));
         for row in due {
             let (choice, values) = rules::default_answer(&row.input);
             self.write_answer(&row, AnswerVia::Defaulted, choice, values, None)?;
@@ -543,22 +575,14 @@ impl Ctx<'_> {
 
     // ---- MCP operations ----
 
-    #[allow(clippy::too_many_arguments)]
-    fn register(
-        &mut self,
-        client: &ClientInfo,
-        machine: &str,
-        owner: Option<String>,
-        client_name: String,
-        session_ref: Option<String>,
-        cwd: Option<String>,
-        doing: Option<String>,
-    ) -> Result<RegisterResult, String> {
+    fn register(&mut self, client: &ClientInfo, machine: &str, r: Registration) -> Result<RegisterResult, String> {
+        let Registration { owner, client: client_name, session_ref, cwd, doing, provisional_key } = r;
         let client_name = rules::clean_line(&client_name, 100);
         if client_name.is_empty() {
             return Err("desk_register needs `client`, such as claude-code or codex".into());
         }
         let session_ref = opt_line(session_ref, 200, "session_ref")?;
+        let provisional_key = opt_line(provisional_key, 200, "provisional_key")?;
         let cwd = opt_line(cwd, 1024, "cwd")?;
         let doing = doing.map(|d| rules::clean_line(&d, 200)).filter(|d| !d.is_empty());
         let owner_name = match owner.map(|o| o.trim().to_string()).filter(|o| !o.is_empty()) {
@@ -568,8 +592,9 @@ impl Ctx<'_> {
                 name
             }
             None => {
-                // Provisional owners are per session, never per folder: every Compass routine shares one cwd.
-                let id = session_ref.clone().unwrap_or_else(|| tokens::random_hex(8));
+                // Provisional owners are per host session, never per folder: every Compass routine shares one
+                // cwd. With no host session, one per MCP process (its key is made once at process start).
+                let id = session_ref.clone().or(provisional_key).unwrap_or_else(|| tokens::random_hex(8));
                 let name = format!("session:{id}");
                 self.bind_owner(&name, "pending")?;
                 name
@@ -635,7 +660,12 @@ impl Ctx<'_> {
 
         let pending = self.pending_of(&agent.owner)?;
         if let Some(dup) = pending.iter().find(|r| rules::is_duplicate(&r.input, &input)) {
-            return Ok(AskResult { id: dup.id.clone(), placed: "existing".into(), existing: Some(self.full(dup)?) });
+            return Ok(AskResult {
+                id: dup.id.clone(),
+                placed: "existing".into(),
+                existing: Some(self.full(dup)?),
+                note: None,
+            });
         }
         if pending.len() >= rules::OWNER_CAP {
             let oldest = &pending[0];
@@ -643,18 +673,26 @@ impl Ctx<'_> {
                 id: oldest.id.clone(),
                 placed: "cap".into(),
                 existing: Some(self.full(oldest)?),
+                note: None,
             });
         }
 
         let settings = self.settings()?;
         let bounds = self.bounds()?;
         let mut p0_skip = false;
-        let mut demoted = false;
+        let mut demoted = None;
         if input.priority == Priority::P0 {
-            if self.p0_used_today(&agent.owner, bounds)? {
+            if agent.provisional {
+                // A provisional owner costs nothing to mint, so it gets no P0 skip at all.
+                input.priority = Priority::P1;
+                demoted = Some(
+                    "Stored as P1: P0 skips the budget only for an owner bound by the server's --owner or \
+                     approved by Artem on the Desk; this one is provisional.",
+                );
+            } else if self.p0_used_today(&agent.owner, bounds)? {
                 // Once per owner per day; a second P0 that day is a P1.
                 input.priority = Priority::P1;
-                demoted = true;
+                demoted = Some("Stored as P1: this owner already used its one P0 skip today.");
             } else {
                 p0_skip = true;
             }
@@ -687,7 +725,9 @@ impl Ctx<'_> {
                 "owner": agent.owner,
                 "placed": status_str(status),
                 "p0_skip": p0_skip,
-                "demoted_from_p0": demoted,
+                "demoted_from_p0": demoted.is_some(),
+                "note": demoted,
+                "provisional": agent.provisional,
                 "input": input,
             }),
         )?;
@@ -695,7 +735,7 @@ impl Ctx<'_> {
             let row = self.row(&id)?.ok_or("the new ask vanished")?;
             self.maybe_toast(&row, &settings)?;
         }
-        Ok(AskResult { id, placed: status_str(status).into(), existing: None })
+        Ok(AskResult { id, placed: status_str(status).into(), existing: None, note: demoted.map(String::from) })
     }
 
     fn answers(&self, client: &ClientInfo, handle: &str, ids: &[String]) -> Result<AnswersResult, String> {
@@ -757,13 +797,14 @@ impl Ctx<'_> {
 
     fn relay_list(&self, client: &ClientInfo, handle: &str) -> Result<RelayListResult, String> {
         let agent = self.relay_agent(client, handle)?;
+        // The same 14-day window as an owner's own list, newest first, so old answers can't crowd out new ones.
         let rows = store::ask_rows(
             self.db,
             &format!(
-                "owner <> ?1 AND status IN ('answered', 'defaulted') AND {UNDELIVERED}
-                 ORDER BY closed_ms, rowid LIMIT {RELAY_LIST_LIMIT}"
+                "owner <> ?1 AND status IN ('answered', 'defaulted') AND closed_ms >= ?2 AND {UNDELIVERED}
+                 ORDER BY closed_ms DESC, rowid DESC LIMIT {RELAY_LIST_LIMIT}"
             ),
-            [&agent.owner],
+            params![agent.owner, self.now - ANSWER_WINDOW_MS],
         )
         .map_err(db_err)?;
         Ok(RelayListResult { answers: self.full_all(&rows)? })
@@ -896,13 +937,14 @@ impl Ctx<'_> {
             return Err(format!("daily_budget takes 1-{} asks a day", rules::MAX_BUDGET));
         }
         let ntfy_topic_url = s.ntfy_topic_url.map(|u| u.trim().to_string()).filter(|u| !u.is_empty());
-        if let Some(u) = &ntfy_topic_url
-            && (!u.to_ascii_lowercase().starts_with("https://")
-                || u.len() > 500
-                || u.chars().any(|c| c.is_whitespace() || c.is_control()))
-        {
-            return Err("ntfy_topic_url must be an https:// URL without spaces".into());
-        }
+        // The scheme is stored in lower case (`HTTPS://` is accepted), which is what the daemon's push checks.
+        let ntfy_topic_url = match ntfy_topic_url {
+            Some(u) if u.len() <= 500 && !u.chars().any(|c| c.is_whitespace() || c.is_control()) => {
+                Some(rules::https_lowercase_scheme(&u).ok_or("ntfy_topic_url must be an https:// URL without spaces")?)
+            }
+            Some(_) => return Err("ntfy_topic_url must be an https:// URL without spaces".into()),
+            None => None,
+        };
         let s = Settings { ntfy_topic_url, ..s };
         store::set_settings(self.db, &s).map_err(db_err)?;
         self.event(
@@ -920,8 +962,9 @@ impl Service for StoreService {
     fn mcp(&self, client: &ClientInfo, op: McpOp) -> Result<(Value, Vec<Effect>), String> {
         let now = self.now_ms();
         match op {
-            McpOp::Register { owner, client: name, session_ref, cwd, doing } => {
-                self.write_json(now, |c| c.register(client, &self.machine, owner, name, session_ref, cwd, doing))
+            McpOp::Register { owner, client: name, session_ref, cwd, doing, provisional_key } => {
+                let r = Registration { owner, client: name, session_ref, cwd, doing, provisional_key };
+                self.write_json(now, |c| c.register(client, &self.machine, r))
             }
             McpOp::Heartbeat { handle, doing } => self.write_json(now, |c| {
                 c.touch(&handle, client)?;
@@ -961,9 +1004,11 @@ impl Service for StoreService {
             DeskOp::Agents => {
                 self.write_json(now, |c| Ok(AgentsResult { agents: store::agents(c.db).map_err(db_err)? }))
             }
-            DeskOp::Owners => {
-                self.write_json(now, |c| Ok(OwnersResult { owners: store::owners(c.db).map_err(db_err)? }))
-            }
+            DeskOp::Owners => self.write_json(now, |c| {
+                let (owners, more_provisional) =
+                    store::owners_for_desk(c.db, rules::DESK_PROVISIONAL_OWNERS).map_err(db_err)?;
+                Ok(OwnersResult { owners, more_provisional })
+            }),
             DeskOp::SetOwner { owner } => self.write_json(now, |c| c.set_owner(owner)),
             DeskOp::GetSettings => self.write_json(now, |c| c.settings()),
             DeskOp::SetSettings { settings } => self.write_json(now, |c| c.set_settings(settings)),
@@ -982,6 +1027,11 @@ impl Service for StoreService {
                 .map_err(db_err)?;
             if expired > 0 {
                 c.event("agents.expired", "agents", json!({ "count": expired }))?;
+            }
+            let pruned = store::prune_provisional_owners(c.db, now - rules::PROVISIONAL_OWNER_RETENTION_MS)
+                .map_err(db_err)?;
+            if pruned > 0 {
+                c.event("owners.pruned", "owners", json!({ "count": pruned }))?;
             }
             Ok(())
         })

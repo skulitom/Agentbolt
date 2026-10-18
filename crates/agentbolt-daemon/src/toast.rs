@@ -7,6 +7,7 @@
 //! - `<audio silent="true"/>` always (alarm-like sounds agitate Artem).
 //!
 //! Ask titles and bodies are untrusted text: escaped, control characters dropped, the body cut to 200 characters.
+//! Every cut counts characters, never bytes, so non-ASCII text can't split inside a character.
 
 use agentbolt_core::channel::Names;
 
@@ -65,6 +66,15 @@ pub fn answer_url(names: &Names, token: &str) -> String {
     format!("{}://answer?t={}", names.protocol, url_component(token))
 }
 
+/// The buttons' labels as the toast shows them (cut to 40 characters), or None when two of them would read the
+/// same: options may be 120 characters, and two that differ only past the cut can't be told apart, so such a
+/// toast gets no buttons (its body click still opens the Desk).
+pub fn button_labels(buttons: &[(String, String)]) -> Option<Vec<String>> {
+    let labels: Vec<String> = buttons.iter().take(MAX_BUTTONS).map(|(label, _)| plain(label, MAX_LABEL)).collect();
+    let mut seen = std::collections::HashSet::new();
+    labels.iter().all(|l| !l.is_empty() && seen.insert(l.as_str())).then_some(labels)
+}
+
 /// The toast XML for one ask. `buttons` are (label, token) pairs from `Effect::Toast`.
 pub fn xml(names: &Names, title: &str, body: &str, buttons: &[(String, String)]) -> String {
     let mut x = String::new();
@@ -77,12 +87,12 @@ pub fn xml(names: &Names, title: &str, body: &str, buttons: &[(String, String)])
     }
     x.push_str("</binding></visual>");
     x.push_str(r#"<audio silent="true"/>"#);
-    if !buttons.is_empty() {
+    if let Some(labels) = button_labels(buttons).filter(|l| !l.is_empty()) {
         x.push_str("<actions>");
-        for (label, token) in buttons.iter().take(MAX_BUTTONS) {
+        for (label, (_, token)) in labels.iter().zip(buttons) {
             x.push_str(&format!(
                 r#"<action content="{}" activationType="protocol" arguments="{}"/>"#,
-                xml_escape(&plain(label, MAX_LABEL)),
+                xml_escape(label),
                 xml_escape(&answer_url(names, token))
             ));
         }
@@ -167,6 +177,40 @@ mod tests {
         let six: Vec<_> = (0..6).map(|i| (format!("o{i}"), format!("{i}"))).collect();
         assert_eq!(xml(&n, "t", "", &six).matches("<action ").count(), 5, "at most five buttons");
         assert!(!xml(&n, "t", "", &[]).contains("<actions>"), "no buttons: the body click opens the Desk");
+    }
+
+    #[test]
+    fn non_ascii_text_is_cut_by_characters() {
+        let n = names();
+        let title = format!("Résumé {}", "é".repeat(200));
+        let body = "Ünïcödé ".repeat(60);
+        // 39 'é' then a two-byte 'ß' at byte 78-79: a byte cut at 40 would land inside a character.
+        let long = format!("{}ßxyz", "é".repeat(39));
+        let buttons = vec![(long.clone(), "aa.bb".to_string()), ("Ja, bitte 🙂".to_string(), "cc.dd".to_string())];
+        let x = xml(&n, &title, &body, &buttons);
+        let labels = button_labels(&buttons).unwrap();
+        assert_eq!(labels[0].chars().count(), MAX_LABEL);
+        assert!(labels[0].starts_with(&"é".repeat(39)) && labels[0].ends_with('…'), "{}", labels[0]);
+        assert_eq!(labels[1], "Ja, bitte 🙂");
+        assert!(x.contains(&format!("content=\"{}\"", labels[0])));
+        assert_eq!(plain(&title, MAX_TITLE).chars().count(), MAX_TITLE);
+        assert!(plain(&body, MAX_BODY).starts_with("Ünïcödé Ünïcödé"));
+        assert_eq!(plain("1234567éx", 8), "1234567…");
+    }
+
+    #[test]
+    fn labels_that_read_the_same_after_the_cut_get_no_buttons() {
+        let n = names();
+        let stem = "Merge the branch and then deploy to the"; // 39 characters
+        let a = format!("{stem} staging servers first");
+        let b = format!("{stem} production servers right away");
+        let buttons = vec![(a, "aa.bb".to_string()), (b, "cc.dd".to_string()), ("Wait".to_string(), "ee.ff".to_string())];
+        assert_eq!(button_labels(&buttons), None, "two labels cut to the same text");
+        let x = xml(&n, "Deploy?", "", &buttons);
+        assert!(!x.contains("<actions>") && !x.contains("answer?t="), "no buttons at all: {x}");
+        assert!(x.contains(r#"launch="agentbolt-ipctest-toast://open""#), "the body still opens the Desk");
+        let distinct = vec![("Ship".to_string(), "aa.bb".to_string()), ("Wait".to_string(), "cc.dd".to_string())];
+        assert_eq!(button_labels(&distinct), Some(vec!["Ship".to_string(), "Wait".to_string()]));
     }
 
     /// The XML is valid for Windows' own parser and makes a ToastNotification (nothing is shown).

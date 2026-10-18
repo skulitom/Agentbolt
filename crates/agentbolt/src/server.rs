@@ -27,6 +27,9 @@ pub struct DeskServer {
     /// This process's own handles, one per session it has seen (a host may serve several chats).
     handles: Mutex<HashMap<String, String>>,
     instructions: String,
+    /// Made once when the process starts: with no `--owner` and no host session id, every registration from this
+    /// process shares one provisional owner (`session:<key>`), so registering again buys no fresh budget.
+    process_key: String,
 }
 
 impl DeskServer {
@@ -37,6 +40,7 @@ impl DeskServer {
             daemon: Arc::new(Daemon::new(names, Pipe::Mcp, true)),
             handles: Mutex::new(HashMap::new()),
             instructions,
+            process_key: format!("mcp-{}", agentbolt_core::tokens::random_hex(8)),
         }
     }
 }
@@ -49,7 +53,8 @@ pub async fn serve(args: McpArgs, names: Names) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// What the host told us about the caller on this request.
+/// What the host told us about the caller on this request. Never taken from tool arguments: an agent can't pick
+/// its own session (and with it a fresh provisional owner and budget).
 struct Caller {
     session_ref: Option<String>,
     client: String,
@@ -110,15 +115,21 @@ impl DeskServer {
         std::env::current_dir().ok().map(|p| p.display().to_string())
     }
 
-    async fn register(&self, who: &Caller, session: Option<String>, cwd: Option<String>, doing: Option<String>) -> Result<Value, CallError> {
-        let op = McpOp::Register {
+    /// The registration this process sends for a caller: the session only from the host, the process key for
+    /// the provisional owner when there's neither `--owner` nor a host session.
+    fn register_op(&self, who: &Caller, cwd: Option<String>, doing: Option<String>) -> McpOp {
+        McpOp::Register {
             owner: self.args.owner.clone(),
             client: who.client.clone(),
-            session_ref: session.or_else(|| who.session_ref.clone()),
+            session_ref: who.session_ref.clone(),
             cwd: cwd.or_else(Self::cwd),
             doing,
-        };
-        self.daemon.call(&op).await
+            provisional_key: Some(self.process_key.clone()),
+        }
+    }
+
+    async fn register(&self, who: &Caller, cwd: Option<String>, doing: Option<String>) -> Result<Value, CallError> {
+        self.daemon.call(&self.register_op(who, cwd, doing)).await
     }
 
     /// This process's handle for the caller's session, registering once if needed.
@@ -128,7 +139,7 @@ impl DeskServer {
         if !fresh && let Some(h) = handles.get(&key) {
             return Ok(h.clone());
         }
-        let v = self.register(who, None, None, None).await?;
+        let v = self.register(who, None, None).await?;
         let r: RegisterResult = serde_json::from_value(v).map_err(|e| CallError::Other(format!("register: {e}")))?;
         handles.insert(key, r.handle.clone());
         Ok(r.handle)
@@ -170,13 +181,13 @@ impl DeskServer {
                     let v = json!({ "handle": h, "renewed": true, "answers": answers });
                     return Ok(ok(format!("Renewed handle {h}; {n} answer(s) waiting."), v));
                 }
-                let session = tools::str_arg(args, "session")?;
+                // A `session` argument, if an agent sends one, is ignored: the session comes from the host only.
                 let cwd = tools::str_arg(args, "cwd")?;
-                let v = self.register(&who, session.clone(), cwd, doing).await;
+                let v = self.register(&who, cwd, doing).await;
                 if let Ok(v) = &v
                     && let Some(h) = v.get("handle").and_then(Value::as_str)
                 {
-                    let key = session.or_else(|| who.session_ref.clone()).unwrap_or_default();
+                    let key = who.session_ref.clone().unwrap_or_default();
                     self.handles.lock().await.insert(key, h.to_string());
                 }
                 v.map(|v| (tools::register_line(&v), v))
@@ -272,6 +283,35 @@ mod tests {
         assert_eq!(session_ref_from(&empty, Some("claude-1".into())).as_deref(), Some("claude-1"));
         assert_eq!(session_ref_from(&empty, Some(" ".into())), None);
         assert_eq!(session_ref_from(&empty, None), None);
+    }
+
+    fn server(owner: Option<&str>) -> DeskServer {
+        let args = McpArgs { channel: None, owner: owner.map(String::from), client: None, max_wait_ms: 20_000 };
+        DeskServer::new(args, Names::for_channel("mcptest-unit").unwrap())
+    }
+
+    #[test]
+    fn registrations_take_the_session_from_the_host_and_one_key_per_process() {
+        let s = server(None);
+        let who = |session: Option<&str>| Caller { session_ref: session.map(String::from), client: "c".into() };
+        let McpOp::Register { session_ref, provisional_key, owner, .. } = s.register_op(&who(None), None, None) else {
+            panic!("a register op")
+        };
+        assert_eq!((session_ref, owner), (None, None));
+        let key = provisional_key.expect("the process key");
+        assert!(key.starts_with("mcp-") && key.len() == 4 + 16, "{key}");
+        for _ in 0..3 {
+            let McpOp::Register { provisional_key, .. } = s.register_op(&who(None), None, None) else { panic!() };
+            assert_eq!(provisional_key.as_deref(), Some(key.as_str()), "the same key for every registration");
+        }
+        let McpOp::Register { session_ref, .. } = s.register_op(&who(Some("019a-thread")), None, None) else {
+            panic!()
+        };
+        assert_eq!(session_ref.as_deref(), Some("019a-thread"), "the host's session id");
+        let McpOp::Register { provisional_key: other, .. } = server(None).register_op(&who(None), None, None) else {
+            panic!()
+        };
+        assert_ne!(other, Some(key), "another process, another key");
     }
 
     #[test]

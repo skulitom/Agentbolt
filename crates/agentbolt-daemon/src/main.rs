@@ -51,7 +51,9 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         match arg.as_str() {
             "--channel" => out.channel = Some(it.next().ok_or("--channel needs a name")?),
             "--headless" => out.headless = true,
-            other if other.starts_with("--channel=") => out.channel = Some(other["--channel=".len()..].to_string()),
+            other if other.starts_with("--channel=") => {
+                out.channel = other.strip_prefix("--channel=").map(str::to_string);
+            }
             other => return Err(format!("unknown argument {other:?}")),
         }
     }
@@ -72,10 +74,12 @@ fn main() {
 fn run() -> i32 {
     let Ok(args) = parse_args(std::env::args().skip(1)) else { return 2 };
     let Ok(names) = names_for(&args) else { return 2 };
-    if std::fs::create_dir_all(names.data_dir()).is_err() {
+    // No data folder (LOCALAPPDATA unset): nowhere to log or keep the store, so stop rather than use ".".
+    let Ok(data_dir) = names.data_dir() else { return 1 };
+    if std::fs::create_dir_all(&data_dir).is_err() {
         return 1;
     }
-    log::init(names.data_dir().join("agentbolt.log"));
+    log::init(data_dir.join("agentbolt.log"));
 
     #[cfg(windows)]
     let _instance = match winutil::single_instance(&names) {
@@ -97,10 +101,12 @@ fn run() -> i32 {
         if args.headless { "headless" } else { "tray and toasts" }
     );
 
+    remove_old_exes();
+
     let svc = match store::open(&names) {
         Ok(svc) => svc,
         Err(e) => {
-            error!("couldn't open the store at {}: {e}", names.db_path().display());
+            error!("couldn't open the store in {}: {e}", data_dir.display());
             return 1;
         }
     };
@@ -167,6 +173,12 @@ fn run() -> i32 {
         info!("toasts for {}: {}", names.aumid, toast::setting(&names));
         key
     };
+    // Toast buttons only while the handler key is ours: a missing or changed key would hand a button's token to
+    // whatever it names. The body click (open the Desk) stays.
+    #[cfg(windows)]
+    let handler_ok = handler == winutil::HandlerKey::Ours;
+    #[cfg(not(windows))]
+    let handler_ok = false;
 
     #[cfg(windows)]
     let (ui, ui_rx): (Arc<dyn Ui>, Option<std::sync::mpsc::Receiver<tray::UiCmd>>) = if !args.headless {
@@ -181,7 +193,7 @@ fn run() -> i32 {
     spawn_server(&runtime, mcp, Arc::new(McpHandler(shared.clone())), "mcp", &shutdown, &failed);
     spawn_server(&runtime, desk, Arc::new(DeskHandler(shared.clone())), "desk", &shutdown, &failed);
     runtime.spawn(daemon::tick_loop(shared.clone()));
-    runtime.spawn(daemon::effects_loop(shared.clone(), events, ui, paused, !args.headless));
+    runtime.spawn(daemon::effects_loop(shared.clone(), events, ui, paused, !args.headless, handler_ok));
     info!("serving {} and {}", Pipe::Mcp.path(&names).display(), Pipe::Desk.path(&names).display());
 
     #[cfg(windows)]
@@ -209,6 +221,30 @@ fn run() -> i32 {
     drop(shared);
     info!("stopped");
     if failed.load(Ordering::SeqCst) { 1 } else { 0 }
+}
+
+/// Delete the `<exe>.old-*` copies `agentbolt install` renamed aside next to this daemon, best effort: one still
+/// running (an older `agentbolt mcp`) can't be deleted yet and waits for the next start or install.
+fn remove_old_exes() {
+    let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(std::path::Path::to_path_buf)) else {
+        return;
+    };
+    let Ok(entries) = std::fs::read_dir(&dir) else { return };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if is_old_exe(&name) && std::fs::remove_file(entry.path()).is_ok() {
+            info!("removed {name}, left by an earlier install");
+        }
+    }
+}
+
+/// `agentbolt.exe.old-<stamp>`, `agentbolt-daemon.exe.old-<stamp>` or `agentbolt-desk.exe.old-<stamp>`.
+fn is_old_exe(name: &str) -> bool {
+    ["agentbolt.exe", "agentbolt-daemon.exe", "agentbolt-desk.exe"].iter().any(|exe| {
+        name.len() > exe.len() + 5
+            && name.get(..exe.len()).is_some_and(|p| p.eq_ignore_ascii_case(exe))
+            && name.get(exe.len()..exe.len() + 5).is_some_and(|p| p.eq_ignore_ascii_case(".old-"))
+    })
 }
 
 fn wait_for_shutdown(shutdown: &AtomicBool) {
@@ -254,5 +290,15 @@ mod tests {
         let names = names_for(&args(&["--channel", "ipctest-args"]).unwrap()).unwrap();
         assert_eq!(names.channel, "ipctest-args");
         assert!(names_for(&args(&["--channel", "Bad Name"]).unwrap()).is_err());
+    }
+
+    #[test]
+    fn only_renamed_install_leftovers_count_as_old_exes() {
+        for old in ["agentbolt.exe.old-20261018T120000", "Agentbolt-Daemon.EXE.old-1", "agentbolt-desk.exe.old-x"] {
+            assert!(is_old_exe(old), "{old}");
+        }
+        for keep in ["agentbolt.exe", "agentbolt.exe.old-", "agentbolt.db", "agentbolt.log", "other.exe.old-1", "é.exe.old-1"] {
+            assert!(!is_old_exe(keep), "{keep}");
+        }
     }
 }

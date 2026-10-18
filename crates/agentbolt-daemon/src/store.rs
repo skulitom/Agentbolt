@@ -20,7 +20,7 @@ impl DaemonService for StoreService {
 
 /// Open `names.db_path()` (exclusive: a second open fails) and set the budget's local day from the PC's clock.
 pub fn open(names: &Names) -> Result<Arc<dyn DaemonService>, String> {
-    let svc = StoreService::open(&names.db_path())?.with_channel(names.channel.clone());
+    let svc = StoreService::open(&names.db_path()?)?.with_channel(names.channel.clone());
     if let Some(minutes) = local_offset_minutes()
         && let Err(e) = svc.set_utc_offset_minutes(minutes)
     {

@@ -115,6 +115,50 @@ fn source(n: &Names) -> (PathBuf, bool) {
     (tmp, false)
 }
 
+/// Without LOCALAPPDATA or APPDATA, install and uninstall stop with a clear error before touching anything, and
+/// never fall back to the current folder (where `uninstall --purge` would have deleted `.\Programs\...`).
+/// Nothing is registered, so this runs everywhere.
+#[test]
+fn missing_folders_fail_clearly_and_delete_nothing() {
+    let n = Names::new();
+    let cwd = std::env::temp_dir().join(format!("agentbolt-{}-cwd", n.channel));
+    let decoys = [cwd.join("Programs").join(format!("Agentbolt-{}", n.channel)), cwd.join("Agentbolt").join(&n.channel)];
+    for d in &decoys {
+        std::fs::create_dir_all(d).unwrap();
+        std::fs::write(d.join("keep.txt"), "decoy").unwrap();
+    }
+    let from = cwd.join("from");
+    std::fs::create_dir_all(&from).unwrap();
+    for f in ["agentbolt.exe", "agentbolt-daemon.exe", "agentbolt-desk.exe"] {
+        std::fs::write(from.join(f), "stand-in").unwrap();
+    }
+    let from_s = from.display().to_string();
+    let attempts: [(&str, Vec<&str>); 4] = [
+        ("LOCALAPPDATA", vec!["uninstall", "--channel", &n.channel, "--purge"]),
+        ("APPDATA", vec!["uninstall", "--channel", &n.channel, "--purge"]),
+        ("LOCALAPPDATA", vec!["install", "--channel", &n.channel, "--from", &from_s, "--no-start"]),
+        ("APPDATA", vec!["install", "--channel", &n.channel, "--from", &from_s, "--no-start"]),
+    ];
+    for (var, args) in attempts {
+        let o = Command::new(cli())
+            .args(&args)
+            .env_remove("AGENTBOLT_CHANNEL")
+            .env_remove(var)
+            .current_dir(&cwd)
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .unwrap();
+        assert_eq!(o.status.code(), Some(1), "{var} unset, {args:?}: {}", text(&o));
+        assert!(text(&o).contains(&format!("{var} isn't set")), "{var} unset, {args:?}: {}", text(&o));
+        for d in &decoys {
+            assert!(d.join("keep.txt").is_file(), "{} was touched", d.display());
+        }
+    }
+    assert!(!n.install.exists(), "install with APPDATA unset created {}", n.install.display());
+    assert!(!schtasks(&["/Query", "/TN", &n.task]).status.success(), "a task was created");
+    std::fs::remove_dir_all(&cwd).unwrap();
+}
+
 #[test]
 fn install_then_uninstall_on_a_throwaway_channel() {
     if std::env::var("AGENTBOLT_INSTALL_TEST").as_deref() != Ok("1") {
@@ -169,15 +213,59 @@ fn install_then_uninstall_on_a_throwaway_channel() {
     assert_eq!(lines.get(1).map(String::as_str), Some(format!("--channel {}", n.channel).as_str()), "{lines:?}");
     assert!(lines.get(2).is_some_and(|t| t.ends_with("agentbolt-desk.exe")), "{lines:?}");
 
+    let installed_cli = n.install.join("agentbolt.exe");
     if real {
         // install waited for this already; ask again through the installed copy.
-        let s = run(&n.install.join("agentbolt.exe"), &["status", "--channel", &n.channel]);
+        let s = run(&installed_cli, &["status", "--channel", &n.channel]);
         assert!(s.status.success(), "status: {}", text(&s));
         assert!(text(&s).contains(&format!("running on channel {}", n.channel)), "{}", text(&s));
     }
 
+    // An upgrade while an agent session runs `agentbolt mcp` from the install folder (always, on Artem's PC): the
+    // running exe can't be overwritten, so install renames it aside, and the daemon comes back up.
+    let mut session = Command::new(&installed_cli)
+        .args(["mcp", "--channel", &n.channel])
+        .env_remove("AGENTBOLT_CHANNEL")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    assert!(session.try_wait().unwrap().is_none(), "the held `agentbolt mcp` is running");
+    let o = run(&cli(), &args);
+    assert!(o.status.success(), "the reinstall with a session open failed: {}", text(&o));
+    for f in ["agentbolt.exe", "agentbolt-daemon.exe", "agentbolt-desk.exe"] {
+        assert!(n.install.join(f).is_file(), "{f} is missing after the reinstall");
+    }
+    let old: Vec<String> = std::fs::read_dir(&n.install)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|f| f.contains(".old-"))
+        .collect();
+    assert!(old.iter().any(|f| f.starts_with("agentbolt.exe.old-")), "the running exe was renamed aside: {old:?}");
+    if real {
+        let s = run(&installed_cli, &["status", "--channel", &n.channel]);
+        assert!(s.status.success(), "the daemon isn't back after the reinstall: {}", text(&s));
+    }
+
+    // Uninstall with the session still open: the running exe is parked in %TEMP%, the folder still goes.
     let o = run(&cli(), &["uninstall", "--channel", &n.channel, "--purge"]);
+    let _ = session.kill();
+    let _ = session.wait();
     assert!(o.status.success(), "uninstall failed: {}", text(&o));
+    assert!(text(&o).contains("claude mcp remove"), "uninstall prints the client commands: {}", text(&o));
+    let parked: Vec<PathBuf> = std::fs::read_dir(std::env::temp_dir())
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.file_name().is_some_and(|f| f.to_string_lossy().starts_with("agentbolt-uninstalled-")))
+        .collect();
+    for p in &parked {
+        let _ = std::fs::remove_file(p);
+    }
     assert!(!schtasks(&["/Query", "/TN", &n.task]).status.success(), "the task is still there");
     assert!(reg_query(&n.protocol_key, Some("URL Protocol")).is_none(), "the protocol key is still there");
     assert!(reg_query(&n.aumid_key, Some("DisplayName")).is_none(), "the AUMID key is still there");

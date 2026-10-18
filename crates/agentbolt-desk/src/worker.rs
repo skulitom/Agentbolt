@@ -5,7 +5,9 @@ use std::sync::mpsc;
 
 use agentbolt_core::channel::Names;
 use agentbolt_core::model::{Owner, Settings};
-use agentbolt_core::protocol::{AgentsResult, AnswerResult, DeskOp, DigestResult, ListResult, OwnersResult};
+use agentbolt_core::protocol::{
+    AgentsResult, AnswerResult, DeskOp, DigestResult, ListResult, OwnersResult, StatusResult,
+};
 use agentbolt_ipc::{Client, IpcError, Pipe};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -13,7 +15,10 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 #[derive(Debug)]
 pub enum Req {
+    /// The Inbox; marks its asks shown. Only while the window is seen.
     List,
+    /// The counts only; marks nothing shown.
+    Status,
     OpenDigest,
     Answer { ask_id: String, choice: Option<String>, values: Option<Value>, note: Option<String> },
     Agents,
@@ -28,6 +33,7 @@ pub enum Req {
 #[derive(Debug)]
 pub enum Resp {
     List(ListResult),
+    Status(StatusResult),
     Digest(DigestResult),
     Answered { ask_id: String, result: Result<AnswerResult, String> },
     Agents(AgentsResult),
@@ -102,6 +108,7 @@ async fn run(names: Names, mut rx: UnboundedReceiver<Req>, tx: mpsc::Sender<Resp
         };
         let resp = match req {
             Req::List => conn.get(&DeskOp::List).await.map(Resp::List).unwrap_or_else(|e| failed("the Inbox", e)),
+            Req::Status => conn.get(&DeskOp::Status).await.map(Resp::Status).unwrap_or_else(|e| failed("the Inbox", e)),
             Req::OpenDigest => {
                 conn.get(&DeskOp::OpenDigest).await.map(Resp::Digest).unwrap_or_else(|e| failed("the digest", e))
             }

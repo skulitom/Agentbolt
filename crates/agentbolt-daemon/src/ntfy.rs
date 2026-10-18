@@ -78,14 +78,18 @@ pub fn body(counts: &Counts, now: time::OffsetDateTime) -> String {
     out
 }
 
+/// The topic URL to post to: `https://` in any case (the Desk accepts `HTTPS://`), with the scheme lower-cased.
+pub fn topic(topic_url: &str) -> Result<String, String> {
+    agentbolt_core::rules::https_lowercase_scheme(topic_url.trim())
+        .ok_or_else(|| "the ntfy topic URL must start with https://".to_string())
+}
+
 /// POST the body with a `Title: Agentbolt` header. Only `https://` topic URLs are used.
 pub fn post(topic_url: &str, body: &str) -> Result<(), String> {
-    if !topic_url.starts_with("https://") {
-        return Err("the ntfy topic URL must start with https://".into());
-    }
+    let topic_url = topic(topic_url)?;
     let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(15))).build().into();
     agent
-        .post(topic_url)
+        .post(&topic_url)
         .header("Title", "Agentbolt")
         .send(body)
         .map(|_| ())
@@ -142,5 +146,9 @@ mod tests {
     fn only_https_topics_are_posted() {
         assert!(post("http://ntfy.sh/x", "1 decision waiting").is_err());
         assert!(post("file:///c:/x", "1 decision waiting").is_err());
+        // The Desk accepts any case for the scheme; the push must too (no request is made here).
+        assert_eq!(topic("HTTPS://ntfy.sh/Secret-Topic").as_deref(), Ok("https://ntfy.sh/Secret-Topic"));
+        assert_eq!(topic("Https://ntfy.sh/x").as_deref(), Ok("https://ntfy.sh/x"));
+        assert!(topic("1234567é/x").is_err());
     }
 }

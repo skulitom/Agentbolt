@@ -397,10 +397,42 @@ pub(crate) fn owner(conn: &Connection, name: &str) -> rusqlite::Result<Option<Ow
         .optional()
 }
 
-pub(crate) fn owners(conn: &Connection) -> rusqlite::Result<Vec<Owner>> {
-    let mut stmt = conn.prepare("SELECT name, binding, codex_interactive, relay FROM owners ORDER BY name")?;
-    let rows = stmt.query_map([], map_owner)?;
-    rows.collect()
+/// Owners Artem has to keep seeing: bound by config, approved, or given a flag on the Desk.
+const KEPT_OWNER: &str = "(binding <> 'pending' OR codex_interactive = 1 OR relay = 1)";
+
+/// An owner's latest activity: created, an agent seen, or an ask made.
+const OWNER_ACTIVITY: &str = "MAX(o.created_ms,
+         COALESCE((SELECT MAX(a.last_seen_ms) FROM agents a WHERE a.owner = o.name), 0),
+         COALESCE((SELECT MAX(k.created_ms) FROM asks k WHERE k.owner = o.name), 0))";
+
+/// The Desk's owners list: every kept owner by name, then the `recent` most recently active provisional ones,
+/// newest first. Also returns how many provisional owners were left out.
+pub(crate) fn owners_for_desk(conn: &Connection, recent: u32) -> rusqlite::Result<(Vec<Owner>, u32)> {
+    let mut kept = conn.prepare(&format!(
+        "SELECT name, binding, codex_interactive, relay FROM owners WHERE {KEPT_OWNER} ORDER BY name"
+    ))?;
+    let mut owners: Vec<Owner> = kept.query_map([], map_owner)?.collect::<rusqlite::Result<_>>()?;
+    let mut provisional = conn.prepare(&format!(
+        "SELECT o.name, o.binding, o.codex_interactive, o.relay FROM owners o WHERE NOT {KEPT_OWNER}
+         ORDER BY {OWNER_ACTIVITY} DESC, o.name LIMIT ?1"
+    ))?;
+    let shown: Vec<Owner> = provisional.query_map([recent], map_owner)?.collect::<rusqlite::Result<_>>()?;
+    let all = count(conn, &format!("SELECT COUNT(*) FROM owners WHERE NOT {KEPT_OWNER}"), [])?;
+    let more = all.saturating_sub(shown.len() as u32);
+    owners.extend(shown);
+    Ok((owners, more))
+}
+
+/// Delete provisional owners with no asks at all and no activity since `before_ms`. Returns how many went.
+pub(crate) fn prune_provisional_owners(conn: &Connection, before_ms: i64) -> rusqlite::Result<usize> {
+    conn.execute(
+        &format!(
+            "DELETE FROM owners WHERE NOT {KEPT_OWNER} AND created_ms < ?1
+               AND NOT EXISTS (SELECT 1 FROM asks WHERE asks.owner = owners.name)
+               AND NOT EXISTS (SELECT 1 FROM agents WHERE agents.owner = owners.name AND agents.last_seen_ms >= ?1)"
+        ),
+        [before_ms],
+    )
 }
 
 pub(crate) fn upsert_owner(conn: &Connection, o: &Owner, now_ms: i64) -> rusqlite::Result<()> {

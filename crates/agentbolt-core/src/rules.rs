@@ -35,6 +35,16 @@ pub const MAX_DEADLINE_DAYS: i64 = 30;
 pub const MAX_TOAST_BUTTONS: usize = 5;
 /// A P2 ask still gets a toast when it is due within this long.
 pub const URGENT_MS: i64 = 2 * 60 * 60 * 1000;
+/// A shown, reversible ask takes its default no sooner than this long after Artem was first shown it, even when
+/// it was already overdue: opening the Desk after a day away mustn't default everything within a second.
+pub const DEFAULT_GRACE_MS: i64 = 60 * 60 * 1000;
+/// The one fair-share bucket every provisional (unbound, unapproved) owner shares, so a fresh owner per session
+/// can't buy itself another share of the day.
+pub const PROVISIONAL_BUCKET: &str = "provisional";
+/// The Desk lists every bound or approved owner, plus at most this many of the most recent provisional ones.
+pub const DESK_PROVISIONAL_OWNERS: u32 = 50;
+/// Provisional owners with no asks and no activity for this long are pruned from the store.
+pub const PROVISIONAL_OWNER_RETENTION_MS: i64 = 7 * DAY_MS;
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -120,6 +130,21 @@ pub fn check_link(url: &str) -> Result<(), String> {
         return Err(format!("the path {url:?} is refused: '..' isn't allowed"));
     }
     Ok(())
+}
+
+/// Does `s` start with `prefix`, ignoring ASCII case? Safe on any string: it never slices inside a character.
+pub fn starts_with_ignore_ascii_case(s: &str, prefix: &str) -> bool {
+    s.get(..prefix.len()).is_some_and(|p| p.eq_ignore_ascii_case(prefix))
+}
+
+/// An `https://` URL (any case) with its scheme in lower case and something after it; None otherwise.
+pub fn https_lowercase_scheme(url: &str) -> Option<String> {
+    const SCHEME: &str = "https://";
+    if !starts_with_ignore_ascii_case(url, SCHEME) {
+        return None;
+    }
+    let rest = url.get(SCHEME.len()..).filter(|r| !r.is_empty() && !r.starts_with('/'))?;
+    Some(format!("{SCHEME}{rest}"))
 }
 
 // ---- asks ----
@@ -438,6 +463,12 @@ pub fn is_duplicate(existing: &AskInput, new: &AskInput) -> bool {
 /// else max(1, budget / active owners).
 pub fn fair_share(budget: u32, active_owners: u32) -> u32 {
     if active_owners >= 2 { budget.div_ceil(active_owners).max(1) } else { budget }
+}
+
+/// When a shown, reversible ask may take its default: its deadline, but never before `DEFAULT_GRACE_MS` after it
+/// was first shown.
+pub fn default_due_ms(deadline_ms: i64, shown_ms: i64) -> i64 {
+    deadline_ms.max(shown_ms.saturating_add(DEFAULT_GRACE_MS))
 }
 
 /// The local day containing `now_ms`, as [start, end) in Unix milliseconds, for a fixed offset east of UTC.
@@ -807,6 +838,31 @@ mod tests {
         assert_eq!((s1 + 60 * 60_000) % DAY_MS, 0);
         let (s2, _) = day_bounds(NOW, -300);
         assert!(s2 <= NOW && NOW < s2 + DAY_MS);
+    }
+
+    #[test]
+    fn prefix_checks_never_slice_inside_a_character() {
+        assert!(starts_with_ignore_ascii_case("HTTPS://x", "https://"));
+        assert!(!starts_with_ignore_ascii_case("1234567éx", "https://"), "byte 8 is inside 'é'");
+        assert!(!starts_with_ignore_ascii_case("Notes/Résumé.md", "claude://"));
+        assert!(!starts_with_ignore_ascii_case("é", "https://"));
+        assert!(!starts_with_ignore_ascii_case("", "x"));
+        assert_eq!(https_lowercase_scheme("HTTPS://ntfy.sh/Topic").as_deref(), Some("https://ntfy.sh/Topic"));
+        assert_eq!(https_lowercase_scheme("https://ntfy.sh/tópico").as_deref(), Some("https://ntfy.sh/tópico"));
+        for bad in ["http://ntfy.sh/x", "https://", "https:///x", "1234567é/x", "ntfy.sh"] {
+            assert_eq!(https_lowercase_scheme(bad), None, "{bad:?}");
+        }
+        // check_link's own scheme test lower-cases first, so non-ASCII paths pass it as plain paths.
+        assert_eq!(check_link("Notes/Résumé.md"), Ok(()));
+        assert_eq!(check_link("1234567éx"), Ok(()));
+    }
+
+    #[test]
+    fn a_default_waits_for_the_deadline_and_the_grace_after_shown() {
+        assert_eq!(default_due_ms(NOW + DAY_MS, NOW), NOW + DAY_MS, "shown long before the deadline");
+        assert_eq!(default_due_ms(NOW - DAY_MS, NOW), NOW + DEFAULT_GRACE_MS, "shown when already overdue");
+        assert_eq!(default_due_ms(NOW, NOW - 10 * DEFAULT_GRACE_MS), NOW);
+        assert_eq!(default_due_ms(0, i64::MAX), i64::MAX, "no overflow");
     }
 
     #[test]

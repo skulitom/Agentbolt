@@ -6,18 +6,19 @@
 
 use std::path::{Path, PathBuf};
 
-use agentbolt_core::channel::Names;
+use agentbolt_core::channel::{Names, env_dir};
 
 pub const CLI_EXE: &str = "agentbolt.exe";
 pub const DAEMON_EXE: &str = "agentbolt-daemon.exe";
 pub const DESK_EXE: &str = "agentbolt-desk.exe";
 pub const EXES: [&str; 3] = [CLI_EXE, DAEMON_EXE, DESK_EXE];
 
-/// `%LOCALAPPDATA%\Programs\Agentbolt` for main, `...\Agentbolt-<channel>` for a test channel.
-pub fn install_dir(names: &Names) -> PathBuf {
-    let local = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".into());
+/// `%LOCALAPPDATA%\Programs\Agentbolt` for main, `...\Agentbolt-<channel>` for a test channel. An error (never
+/// a relative fallback) when `LOCALAPPDATA` is unset: install copies into this folder and uninstall deletes it.
+pub fn install_dir(names: &Names) -> anyhow::Result<PathBuf> {
+    let local = env_dir("LOCALAPPDATA").map_err(anyhow::Error::msg)?;
     let folder = if names.is_main() { "Agentbolt".to_string() } else { format!("Agentbolt-{}", names.channel) };
-    PathBuf::from(local).join("Programs").join(folder)
+    Ok(local.join("Programs").join(folder))
 }
 
 /// The toast sender's display name.
@@ -37,14 +38,34 @@ pub fn protocol_key(names: &Names) -> String {
 
 /// The Start-menu shortcut that carries the AUMID (unpackaged apps need one for toasts):
 /// `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Agentbolt.lnk`, or `Agentbolt (<channel>).lnk`.
-pub fn shortcut_path(names: &Names) -> PathBuf {
-    let roaming = std::env::var("APPDATA").unwrap_or_else(|_| ".".into());
-    PathBuf::from(roaming)
+pub fn shortcut_path(names: &Names) -> anyhow::Result<PathBuf> {
+    let roaming = env_dir("APPDATA").map_err(anyhow::Error::msg)?;
+    Ok(roaming
         .join("Microsoft")
         .join("Windows")
         .join("Start Menu")
         .join("Programs")
-        .join(format!("{}.lnk", display_name(names)))
+        .join(format!("{}.lnk", display_name(names))))
+}
+
+/// What `install` renames a program in the install folder to before copying the new one: Windows lets a running
+/// exe be renamed but not overwritten, and `agentbolt mcp` runs from there whenever an agent session is open.
+pub fn old_name(exe: &str, stamp: &str) -> String {
+    format!("{exe}.old-{stamp}")
+}
+
+/// A program renamed aside by an earlier install (`<exe>.old-<stamp>`, any case), left for deletion.
+pub fn is_old_copy(file_name: &str) -> bool {
+    EXES.iter().any(|exe| {
+        let tag = format!("{exe}.old-");
+        file_name.len() > tag.len() && file_name.get(..tag.len()).is_some_and(|p| p.eq_ignore_ascii_case(&tag))
+    })
+}
+
+/// A program an earlier `uninstall` moved into `%TEMP%` because it was running: `agentbolt-uninstalled-*.exe`.
+pub fn is_uninstall_leftover(file_name: &str) -> bool {
+    let lower = file_name.to_ascii_lowercase();
+    lower.starts_with("agentbolt-uninstalled-") && lower.ends_with(".exe")
 }
 
 /// The shortcut's arguments: none on main, `--channel <name>` otherwise.
@@ -241,25 +262,115 @@ mod win {
         Ok(path)
     }
 
+    /// A stamp for `<exe>.old-<stamp>` names: seconds since 1970 plus this process's id, so two installs in one
+    /// second don't collide.
+    fn stamp() -> String {
+        let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        format!("{secs}-{}", std::process::id())
+    }
+
+    /// Delete `<exe>.old-*` files an earlier install left, best effort (one still running stays until next time).
+    pub fn remove_old_copies(dir: &Path) {
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for entry in entries.flatten() {
+            if is_old_copy(&entry.file_name().to_string_lossy()) {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+
+    /// One program swapped in: where the old copy went (None when there was none), for putting it back.
+    struct Swapped {
+        dst: std::path::PathBuf,
+        old: Option<std::path::PathBuf>,
+    }
+
+    /// Copy the three programs into `dir`. Each program already there is first renamed aside (Windows allows that
+    /// for a running exe, which an open agent session's `agentbolt mcp` always is) and the new one copied to its
+    /// name. On any failure everything is put back as it was, so the old programs keep working.
+    fn swap_in(from: &Path, dir: &Path) -> anyhow::Result<()> {
+        let stamp = stamp();
+        let mut done: Vec<Swapped> = Vec::new();
+        let result = (|| -> anyhow::Result<()> {
+            for exe in EXES {
+                let (src, dst) = (from.join(exe), dir.join(exe));
+                let old = if dst.exists() {
+                    let old = dir.join(old_name(exe, &stamp));
+                    retry(&format!("renaming {} aside", dst.display()), || std::fs::rename(&dst, &old))?;
+                    Some(old)
+                } else {
+                    None
+                };
+                done.push(Swapped { dst: dst.clone(), old });
+                retry(&format!("copying {} to {}", src.display(), dst.display()), || std::fs::copy(&src, &dst))?;
+            }
+            Ok(())
+        })();
+        if result.is_err() {
+            for s in done.iter().rev() {
+                let _ = std::fs::remove_file(&s.dst);
+                if let Some(old) = &s.old {
+                    let _ = std::fs::rename(old, &s.dst);
+                }
+            }
+        }
+        result
+    }
+
+    /// Wait until no daemon serves this channel's MCP pipe (after `schtasks /End`), up to `wait`.
+    fn wait_until_stopped(names: &Names, wait: Duration) -> bool {
+        let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() else { return false };
+        let deadline = Instant::now() + wait;
+        loop {
+            let gone = rt.block_on(async {
+                matches!(
+                    agentbolt_ipc::Client::connect(names, agentbolt_ipc::Pipe::Mcp).await,
+                    Err(agentbolt_ipc::IpcError::NotRunning(_))
+                )
+            });
+            if gone {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    }
+
     pub fn install(names: &Names, from: &Path, start: bool) -> anyhow::Result<()> {
         for exe in EXES {
             if !from.join(exe).is_file() {
                 bail!("{} has no {exe}; build all three (cargo build --release) or pass --from <folder>", from.display());
             }
         }
-        let dir = install_dir(names);
-        if task_exists(names) {
-            let _ = schtasks(&["/End", "/TN", &names.task]);
-        }
+        // Every path first, so a missing LOCALAPPDATA or APPDATA stops here with nothing changed.
+        let dir = install_dir(names)?;
+        let lnk = shortcut_path(names)?;
         std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+        remove_old_copies(&dir);
         let same = |a: &Path, b: &Path| matches!((a.canonicalize(), b.canonicalize()), (Ok(x), Ok(y)) if x == y);
+        let had_task = task_exists(names);
         if !same(from, &dir) {
-            for exe in EXES {
-                let (src, dst) = (from.join(exe), dir.join(exe));
-                retry(&format!("copying {} (is it still running?)", dst.display()), || std::fs::copy(&src, &dst))?;
+            // The old daemon keeps running while the programs are swapped, so a failed copy leaves it working.
+            if let Err(e) = swap_in(from, &dir) {
+                if had_task {
+                    // IgnoreNew: a no-op while the old daemon still runs; it starts it if anything had stopped it.
+                    let _ = schtasks(&["/Run", "/TN", &names.task]);
+                }
+                return Err(e.context("the old programs were put back"));
+            }
+            println!("Copied the three programs to {}", dir.display());
+        } else {
+            println!("Installing from the install folder {} itself; nothing to copy", dir.display());
+        }
+        if had_task {
+            // Stop the old daemon so the task starts the new one below.
+            let _ = schtasks(&["/End", "/TN", &names.task]);
+            if !wait_until_stopped(names, Duration::from_secs(10)) {
+                println!("The old daemon hasn't stopped yet; carrying on");
             }
         }
-        println!("Copied the three programs to {}", dir.display());
 
         reg::set_string(&aumid_key(names), Some("DisplayName"), &display_name(names))?;
         let proto = protocol_key(names);
@@ -267,7 +378,6 @@ mod win {
         reg::set_string(&proto, Some("URL Protocol"), "")?;
         reg::set_string(&format!("{proto}\\shell\\open\\command"), None, &protocol_command(&dir, &names.channel))?;
         println!("Registered the notification sender {} and the {}:// handler", names.aumid, names.protocol);
-        let lnk = shortcut_path(names);
         shortcut::create(&lnk, &dir.join(DESK_EXE), &shortcut_args(names), &dir, &names.aumid)?;
         println!("Created the Start-menu shortcut {}", lnk.display());
 
@@ -287,7 +397,7 @@ mod win {
     /// `status` as the installed copy sees it. Pipe clients accept only the daemon next to their own exe, so
     /// from another folder (the unzipped release, a build folder) this asks the installed agentbolt.exe.
     fn installed_status(names: &Names, rt: &tokio::runtime::Runtime) -> Result<String, String> {
-        let installed = install_dir(names).join(CLI_EXE);
+        let installed = install_dir(names).map_err(|e| e.to_string())?.join(CLI_EXE);
         let same = |a: &Path, b: &Path| matches!((a.canonicalize(), b.canonicalize()), (Ok(x), Ok(y)) if x == y);
         let me = std::env::current_exe().map_err(|e| e.to_string())?;
         if installed.is_file() && !same(&installed, &me) {
@@ -308,6 +418,7 @@ mod win {
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
         let deadline = Instant::now() + wait;
         let mut last = String::new();
+        let mut last_run = Instant::now();
         while Instant::now() < deadline {
             match installed_status(names, &rt) {
                 Ok(line) => {
@@ -316,12 +427,57 @@ mod win {
                 }
                 Err(e) => last = e,
             }
+            // A daemon started while the old one was still letting go of the store exits; ask again (the task's
+            // IgnoreNew makes this a no-op while one runs).
+            if last_run.elapsed() >= Duration::from_secs(5) {
+                let _ = schtasks(&["/Run", "/TN", &names.task]);
+                last_run = Instant::now();
+            }
             std::thread::sleep(Duration::from_millis(500));
         }
         bail!("the task started, but the daemon didn't answer within {} s: {last}", wait.as_secs())
     }
 
+    /// Delete `%TEMP%\agentbolt-uninstalled-*.exe` files earlier uninstalls parked there, best effort.
+    fn remove_uninstall_leftovers() {
+        let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else { return };
+        for entry in entries.flatten() {
+            if is_uninstall_leftover(&entry.file_name().to_string_lossy()) {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+
+    /// Delete the install folder. Programs still running from it (this one, an open session's `agentbolt mcp`)
+    /// can't be deleted but can be moved, so they go to `%TEMP%\agentbolt-uninstalled-*.exe` for a later
+    /// uninstall to clear.
+    fn remove_install_dir(dir: &Path) -> anyhow::Result<()> {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for (i, entry) in entries.flatten().enumerate() {
+                let path = entry.path();
+                if path.is_file() && std::fs::remove_file(&path).is_err() {
+                    let name = entry.file_name().to_string_lossy().replace(['.', ' '], "_");
+                    let parked = std::env::temp_dir()
+                        .join(format!("agentbolt-uninstalled-{}-{i}-{name}.exe", std::process::id()));
+                    let _ = std::fs::rename(&path, parked);
+                }
+            }
+        }
+        retry(&format!("deleting {} (is Agentbolt still running?)", dir.display()), || std::fs::remove_dir_all(dir))
+    }
+
     pub fn uninstall(names: &Names, purge: bool) -> anyhow::Result<()> {
+        // Every path first: a missing LOCALAPPDATA or APPDATA stops here, before anything is removed, and no
+        // relative folder is ever deleted.
+        let dir = install_dir(names)?;
+        let lnk = shortcut_path(names)?;
+        let data = if purge { Some(names.data_dir().map_err(anyhow::Error::msg)?) } else { None };
+        for p in [&dir, &lnk].into_iter().chain(data.as_ref()) {
+            if !p.is_absolute() {
+                bail!("refusing to remove {}: not an absolute path", p.display());
+            }
+        }
+        remove_uninstall_leftovers();
         if task_exists(names) {
             let _ = schtasks(&["/End", "/TN", &names.task]);
             schtasks(&["/Delete", "/TN", &names.task, "/F"])
@@ -333,31 +489,24 @@ mod win {
                 println!("Removed HKCU\\{key}");
             }
         }
-        let lnk = shortcut_path(names);
         if lnk.exists() {
             std::fs::remove_file(&lnk).with_context(|| format!("deleting {}", lnk.display()))?;
             println!("Removed {}", lnk.display());
         }
-        let dir = install_dir(names);
         if dir.exists() {
-            // A running agentbolt.exe from this folder can be renamed out of the way, not deleted.
-            if let Ok(me) = std::env::current_exe()
-                && me.parent().is_some_and(|p| p.canonicalize().ok() == dir.canonicalize().ok())
-            {
-                let parked = std::env::temp_dir().join(format!("agentbolt-uninstalled-{}.exe", std::process::id()));
-                let _ = std::fs::rename(&me, parked);
-            }
-            retry(&format!("deleting {} (is Agentbolt still running?)", dir.display()), || {
-                std::fs::remove_dir_all(&dir)
-            })?;
+            remove_install_dir(&dir)?;
             println!("Deleted {}", dir.display());
         }
-        if purge {
-            let data = names.data_dir();
-            if data.exists() {
-                retry(&format!("deleting {}", data.display()), || std::fs::remove_dir_all(&data))?;
-                println!("Deleted {}", data.display());
-            }
+        if let Some(data) = data
+            && data.exists()
+        {
+            retry(&format!("deleting {}", data.display()), || std::fs::remove_dir_all(&data))?;
+            println!("Deleted {}", data.display());
+        }
+        // The MCP registrations live in the clients' own config: say how to remove them, never run it here.
+        println!("\nTo remove the MCP server from your clients, run:");
+        for (what, program, args) in client_commands(names, &dir).iter().filter(|(w, _, _)| w.starts_with("Undo")) {
+            println!("  {}  ({})", shell_line(program, args), what.trim_start_matches("Undo in "));
         }
         Ok(())
     }
@@ -426,6 +575,54 @@ mod win {
                 }
                 result.map_err(|e| anyhow::anyhow!("creating the shortcut {}: {}", lnk.display(), e.message()))
             }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        fn read(p: &Path) -> String {
+            std::fs::read_to_string(p).unwrap()
+        }
+
+        #[test]
+        fn a_failed_swap_puts_the_old_programs_back_and_a_good_one_renames_them_aside() {
+            let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos();
+            let root = std::env::temp_dir().join(format!("agentbolt-swap-test-{}-{nanos:x}", std::process::id()));
+            let (from, dir) = (root.join("from"), root.join("dir"));
+            std::fs::create_dir_all(&from).unwrap();
+            std::fs::create_dir_all(&dir).unwrap();
+            for exe in EXES {
+                std::fs::write(dir.join(exe), format!("old {exe}")).unwrap();
+            }
+            // The new build lacks the Desk, so the third copy fails after two programs were swapped.
+            for exe in [CLI_EXE, DAEMON_EXE] {
+                std::fs::write(from.join(exe), format!("new {exe}")).unwrap();
+            }
+            assert!(swap_in(&from, &dir).is_err());
+            let names: Vec<String> =
+                std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+            assert_eq!(names.len(), 3, "nothing renamed aside is left over: {names:?}");
+            for exe in EXES {
+                assert_eq!(read(&dir.join(exe)), format!("old {exe}"), "{exe} was put back");
+            }
+
+            std::fs::write(from.join(DESK_EXE), format!("new {DESK_EXE}")).unwrap();
+            swap_in(&from, &dir).unwrap();
+            for exe in EXES {
+                assert_eq!(read(&dir.join(exe)), format!("new {exe}"));
+            }
+            let old: Vec<String> = std::fs::read_dir(&dir)
+                .unwrap()
+                .flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| is_old_copy(n))
+                .collect();
+            assert_eq!(old.len(), 3, "{old:?}");
+            remove_old_copies(&dir);
+            assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 3, "the next install clears them");
+            std::fs::remove_dir_all(&root).unwrap();
         }
     }
 
@@ -549,13 +746,30 @@ mod tests {
     fn names_per_channel() {
         let main = Names::for_channel("main").unwrap();
         let t = Names::for_channel("t1").unwrap();
-        assert!(install_dir(&main).ends_with("Programs/Agentbolt") || install_dir(&main).ends_with("Programs\\Agentbolt"));
-        assert!(install_dir(&t).to_string_lossy().ends_with("Agentbolt-t1"));
+        let main_dir = install_dir(&main).unwrap();
+        assert!(main_dir.is_absolute());
+        assert!(main_dir.ends_with("Programs/Agentbolt") || main_dir.ends_with("Programs\\Agentbolt"));
+        assert!(install_dir(&t).unwrap().to_string_lossy().ends_with("Agentbolt-t1"));
         assert_eq!(aumid_key(&t), "Software\\Classes\\AppUserModelId\\Skulitom.Agentbolt.t1");
         assert_eq!(protocol_key(&t), "Software\\Classes\\agentbolt-t1");
         assert_eq!(display_name(&main), "Agentbolt");
         let cmd = protocol_command(Path::new("C:\\P\\Agentbolt-t1"), "t1");
         assert!(cmd.starts_with('"') && cmd.contains("agentbolt-desk.exe\" --channel t1 --url \"%1\""), "{cmd}");
+    }
+
+    #[test]
+    fn renamed_and_parked_programs_are_recognised() {
+        let old = old_name(CLI_EXE, "1792400000-42");
+        assert_eq!(old, "agentbolt.exe.old-1792400000-42");
+        assert!(is_old_copy(&old));
+        assert!(is_old_copy("AGENTBOLT-DAEMON.EXE.OLD-1"));
+        for keep in [CLI_EXE, DAEMON_EXE, DESK_EXE, "agentbolt.exe.old-", "agentbolt.db", "x.exe.old-1", "é.old-1"] {
+            assert!(!is_old_copy(keep), "{keep}");
+        }
+        assert!(is_uninstall_leftover("agentbolt-uninstalled-1234.exe"));
+        assert!(is_uninstall_leftover("agentbolt-uninstalled-1234-0-agentbolt_exe.exe"));
+        assert!(!is_uninstall_leftover("agentbolt-task-t1-9.xml"));
+        assert!(!is_uninstall_leftover("agentbolt.exe"));
     }
 
     #[test]

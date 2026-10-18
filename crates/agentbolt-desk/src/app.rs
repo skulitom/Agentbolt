@@ -1,5 +1,6 @@
 //! The Desk window (eframe/egui): Inbox, Digest, Agents and Settings. It follows the system's light or dark
-//! theme, polls the daemon every 1.5 s while it's open, and exits when closed.
+//! theme, polls the daemon every 1.5 s while it's open, and exits when closed. It lists the Inbox (which marks
+//! asks shown) only while the window is focused and not minimized; otherwise it refreshes the counts only.
 //!
 //! Ask text is untrusted: bodies are plain selectable text, never HTML or markdown, and links pass
 //! `view::classify` before anything opens.
@@ -30,6 +31,8 @@ enum Tab {
 struct Draft {
     note: String,
     text: String,
+    /// The reply box got the ask's default already (once per ask; clearing it doesn't refill it).
+    text_filled: bool,
     fields: Option<HashMap<String, FieldInput>>,
 }
 
@@ -57,6 +60,8 @@ pub struct DeskApp {
     worker: Worker,
     tab: Tab,
     inbox: Vec<Ask>,
+    /// Open asks by the last count (a List, or a Status while the window wasn't seen).
+    open_count: Option<u32>,
     digest_count: u32,
     recent: Vec<Ask>,
     digest: Option<Vec<Ask>>,
@@ -66,6 +71,7 @@ pub struct DeskApp {
     sending: HashSet<String>,
     agents: Vec<Agent>,
     owners: Vec<Owner>,
+    more_owners: u32,
     settings: Option<Settings>,
     settings_draft: SettingsDraft,
     notice: Option<Notice>,
@@ -74,6 +80,10 @@ pub struct DeskApp {
     last_list: Option<Instant>,
     agents_inflight: bool,
     last_agents: Option<Instant>,
+    /// Whether the window was seen (focused, not minimized) on the last frame: seeing it again lists at once.
+    was_seen: bool,
+    /// Whether the selected ask's local evidence paths exist, checked once per selection.
+    paths: view::PathCache,
 }
 
 /// Open the window and run until it closes.
@@ -108,6 +118,7 @@ impl DeskApp {
             worker,
             tab: Tab::Inbox,
             inbox: Vec::new(),
+            open_count: None,
             digest_count: 0,
             recent: Vec::new(),
             digest: None,
@@ -117,6 +128,7 @@ impl DeskApp {
             sending: HashSet::new(),
             agents: Vec::new(),
             owners: Vec::new(),
+            more_owners: 0,
             settings: None,
             settings_draft: SettingsDraft::default(),
             notice: None,
@@ -125,6 +137,8 @@ impl DeskApp {
             last_list: None,
             agents_inflight: false,
             last_agents: None,
+            was_seen: false,
+            paths: view::PathCache::default(),
         }
     }
 
@@ -144,12 +158,19 @@ impl DeskApp {
                     self.conn = Conn::Up;
                     view::sort_asks(&mut r.inbox);
                     self.inbox = r.inbox;
+                    self.open_count = Some(self.inbox.len() as u32);
                     self.digest_count = r.digest_count;
                     self.recent = r.recent;
                     let ids: HashSet<&str> = self.inbox.iter().map(|a| a.id.as_str()).collect();
                     if self.selected_inbox.as_deref().is_none_or(|s| !ids.contains(s)) {
                         self.selected_inbox = self.inbox.first().map(|a| a.id.clone());
                     }
+                }
+                Resp::Status(s) => {
+                    self.list_inflight = false;
+                    self.conn = Conn::Up;
+                    self.open_count = Some(s.open);
+                    self.digest_count = s.digest;
                 }
                 Resp::Digest(mut r) => {
                     view::sort_asks(&mut r.digest);
@@ -179,7 +200,10 @@ impl DeskApp {
                     self.agents_inflight = false;
                     self.agents = r.agents;
                 }
-                Resp::Owners(r) => self.owners = r.owners,
+                Resp::Owners(r) => {
+                    self.owners = r.owners;
+                    self.more_owners = r.more_provisional;
+                }
                 Resp::OwnerSaved(r) => {
                     match r {
                         Ok(name) => self.note(format!("Saved owner {name}"), false),
@@ -233,11 +257,22 @@ impl DeskApp {
 
     fn poll(&mut self, ctx: &egui::Context) {
         let minimized = ctx.input(|i| i.viewport().minimized.unwrap_or(false));
-        // Listing the Inbox marks its asks shown, so don't list while he can't see the window.
-        if !minimized && !self.list_inflight && self.last_list.is_none_or(|t| t.elapsed() >= POLL) {
+        let focused = ctx.input(|i| i.viewport().focused.unwrap_or(i.focused));
+        // Listing the Inbox marks its asks shown (their default clocks start), so list only while he can see the
+        // window; otherwise refresh the counts. Coming back to the window lists at once.
+        let kind = view::poll_kind(focused, minimized);
+        let seen = kind == view::Poll::List;
+        if seen && !self.was_seen {
+            self.last_list = None;
+        }
+        self.was_seen = seen;
+        if !self.list_inflight && self.last_list.is_none_or(|t| t.elapsed() >= POLL) {
             self.list_inflight = true;
             self.last_list = Some(Instant::now());
-            self.send(Req::List);
+            self.send(match kind {
+                view::Poll::List => Req::List,
+                view::Poll::Status => Req::Status,
+            });
         }
         if self.tab == Tab::Agents
             && !minimized
@@ -269,7 +304,7 @@ impl DeskApp {
     fn top_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             let tabs = [
-                (Tab::Inbox, format!("Inbox ({})", self.inbox.len())),
+                (Tab::Inbox, format!("Inbox ({})", self.open_count.unwrap_or(self.inbox.len() as u32))),
                 (Tab::Digest, format!("Digest ({})", self.digest.as_ref().map_or(self.digest_count as usize, Vec::len))),
                 (Tab::Agents, "Agents".to_string()),
                 (Tab::Settings, "Settings".to_string()),
@@ -379,8 +414,9 @@ impl DeskApp {
             if !ask.input.evidence.is_empty() {
                 ui.add_space(6.0);
                 ui.strong("Evidence");
+                let exists = self.paths.for_ask(ask, |p| p.exists());
                 for e in &ask.input.evidence {
-                    evidence_row(ui, &e.label, &e.url);
+                    evidence_row(ui, &e.label, &e.url, exists);
                 }
             }
             if let Some(link) = view::session_link(&ask.input.evidence) {
@@ -571,6 +607,12 @@ impl DeskApp {
                 ui.weak("No owners yet.");
                 return;
             }
+            if self.more_owners > 0 {
+                ui.weak(format!(
+                    "Showing the 50 most recent provisional owners; {} older ones are hidden (idle ones go after a week).",
+                    self.more_owners
+                ));
+            }
             let mut changed = None;
             egui::Grid::new("owners").striped(true).num_columns(5).spacing([16.0, 6.0]).show(ui, |ui| {
                 for h in ["Owner", "Bound by", "", "Codex may be woken", "Relay"] {
@@ -614,7 +656,7 @@ fn priority_tag(ui: &mut egui::Ui, p: Priority) {
     ui.label(RichText::new(text).monospace().strong().color(color));
 }
 
-fn evidence_row(ui: &mut egui::Ui, label: &str, url: &str) {
+fn evidence_row(ui: &mut egui::Ui, label: &str, url: &str, exists: &HashMap<std::path::PathBuf, bool>) {
     ui.horizontal_wrapped(|ui| match view::classify(url) {
         Link::Web(u) | Link::Session(u) => {
             if ui.link(label).on_hover_text(&u).clicked()
@@ -626,7 +668,7 @@ fn evidence_row(ui: &mut egui::Ui, label: &str, url: &str) {
         Link::Path(p) => {
             ui.label(format!("{label}:"));
             ui.add(egui::Label::new(RichText::new(p.display().to_string()).monospace()).selectable(true));
-            let exists = p.exists();
+            let exists = exists.get(&p).copied().unwrap_or(false);
             if ui
                 .add_enabled(exists, egui::Button::new("Show in Explorer").small())
                 .on_disabled_hover_text("Not found on this PC")
@@ -669,11 +711,7 @@ fn answer_controls(ui: &mut egui::Ui, ask: &Ask, draft: &mut Draft) -> Option<Re
         }
         AskKind::Inform => ui.button("Got it").clicked().then(|| answer(None, None)),
         AskKind::Text => {
-            if draft.text.is_empty()
-                && let Some(d) = ask.input.default.as_str()
-            {
-                draft.text = d.to_string();
-            }
+            view::fill_reply_once(&mut draft.text, &mut draft.text_filled, ask.input.default.as_str());
             ui.label("Your reply");
             ui.add(egui::TextEdit::multiline(&mut draft.text).desired_rows(4).desired_width(f32::INFINITY));
             if let Some(d) = ask.input.default.as_str() {

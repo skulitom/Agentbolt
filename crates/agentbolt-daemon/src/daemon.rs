@@ -224,14 +224,22 @@ pub async fn tick_loop(shared: Arc<Shared>) {
     }
 }
 
+/// The buttons a toast may carry: none unless the channel's `agentbolt://` handler key points to the Desk next to
+/// the daemon (a missing or changed key would send a button's token to whatever program it names).
+pub fn toast_buttons(buttons: Vec<(String, String)>, handler_ok: bool) -> Vec<(String, String)> {
+    if handler_ok { buttons } else { Vec::new() }
+}
+
 /// Act on effects: the tray count, the ntfy push (at most one a minute), toasts, Codex delivery.
-/// `toasts` = false in headless mode: toast effects are logged and dropped.
+/// `toasts` = false in headless mode: toast effects are logged and dropped. `handler_ok` = false when the
+/// handler key is missing or points elsewhere: toasts are shown without buttons.
 pub async fn effects_loop(
     shared: Arc<Shared>,
     mut rx: mpsc::UnboundedReceiver<Event>,
     ui: Arc<dyn Ui>,
     mut paused: bool,
     toasts: bool,
+    handler_ok: bool,
 ) {
     let mut push = ntfy::PushState::default();
     let mut every = tokio::time::interval(Duration::from_secs(1));
@@ -251,6 +259,10 @@ pub async fn effects_loop(
                         } else if paused {
                             info!("toast for ask {ask_id} skipped: notifications are paused");
                         } else {
+                            if !handler_ok && !buttons.is_empty() {
+                                info!("toast for ask {ask_id}: no buttons, the {}:// handler isn't ours", shared.names.protocol);
+                            }
+                            let buttons = toast_buttons(buttons, handler_ok);
                             let names = shared.names.clone();
                             tokio::task::spawn_blocking(move || show_toast(&names, &ask_id, &title, &body, &buttons));
                         }
@@ -394,6 +406,13 @@ mod tests {
     }
 
     #[test]
+    fn toasts_lose_their_buttons_when_the_handler_key_is_not_ours() {
+        let buttons = vec![("Ship".to_string(), "aa.bb".to_string()), ("Wait".to_string(), "cc.dd".to_string())];
+        assert_eq!(toast_buttons(buttons.clone(), true), buttons);
+        assert!(toast_buttons(buttons, false).is_empty());
+    }
+
+    #[test]
     fn answers_ready_reads_both_shapes() {
         assert!(answers_ready(&json!({ "answers": [{ "id": "a" }], "waiting": ["b"] })));
         assert!(!answers_ready(&json!({ "answers": [], "waiting": ["b"] })));
@@ -419,7 +438,7 @@ mod tests {
         fake.set_waiting(&["a1"]);
         let (names, shared, rx) = start(fake.clone()).await;
         let seen = Arc::new(Seen::default());
-        tokio::spawn(effects_loop(shared.clone(), rx, seen.clone(), false, false));
+        tokio::spawn(effects_loop(shared.clone(), rx, seen.clone(), false, false, true));
 
         // An ask (the fake emits InboxChanged), then the Desk turns toasts off.
         let mut mcp = Client::connect_to(&names, Pipe::Mcp, &me()).await.unwrap();
