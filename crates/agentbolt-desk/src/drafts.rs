@@ -211,6 +211,8 @@ mod tests {
                 fields: Some(HashMap::from([
                     ("quantity".into(), FieldInput::Text("7".into())),
                     ("checked".into(), FieldInput::Bool(true)),
+                    ("unanswered".into(), FieldInput::OptionalBool(None)),
+                    ("declined".into(), FieldInput::OptionalBool(Some(false))),
                 ])),
             },
         );

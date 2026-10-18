@@ -508,3 +508,9 @@ windows. Because this changes the Desk binary, the final archive needs its own r
 
 `NATIVE-SCENARIO-AUDIT.md` maps the old verification scenarios to current evidence and remaining GUI checks.
 The added twelve answer/cancel races pass on Windows and Linux, including durable reopen and repeat reads.
+
+The native audit exposed a form regression: an untouched optional boolean was serialized as false.
+The Desk now represents it as an optional value and offers Not answered / Yes / No. Tests check omission,
+explicit false and true, defaults, required-field validation, legacy Bool draft compatibility and persistence
+of unanswered/explicit-false drafts. All 19 Desk unit tests and all-target Desk clippy pass. A live GUI
+check remains necessary before this row can be closed.

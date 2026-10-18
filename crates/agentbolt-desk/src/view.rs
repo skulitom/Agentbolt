@@ -207,6 +207,8 @@ pub fn parse_url(url: &str, protocol: &str) -> Result<UrlAction, String> {
 pub enum FieldInput {
     Text(String),
     Bool(bool),
+    /// Unlike an unchecked checkbox, an unanswered optional field carries no value.
+    OptionalBool(Option<bool>),
 }
 
 /// Inputs prefilled from the ask's default (an object of field values).
@@ -216,6 +218,7 @@ pub fn prefill(fields: &[Field], default: &Value) -> HashMap<String, FieldInput>
         .map(|f| {
             let d = default.get(&f.id);
             let input = match f.field_type.as_str() {
+                "boolean" if !f.required => FieldInput::OptionalBool(d.and_then(Value::as_bool)),
                 "boolean" => FieldInput::Bool(d.and_then(Value::as_bool).unwrap_or(false)),
                 _ => FieldInput::Text(match d {
                     Some(Value::String(s)) => s.clone(),
@@ -237,7 +240,8 @@ pub fn form_values(
     for f in fields {
         let v = match (f.field_type.as_str(), inputs.get(&f.id)) {
             ("boolean", Some(FieldInput::Bool(b))) => Some(Value::Bool(*b)),
-            ("boolean", _) => Some(Value::Bool(false)),
+            ("boolean", Some(FieldInput::OptionalBool(b))) => b.map(Value::Bool),
+            ("boolean", _) => None,
             ("number", Some(FieldInput::Text(t))) if !t.trim().is_empty() => {
                 let t = t.trim();
                 let n = match t.parse::<i64>() {
@@ -650,10 +654,10 @@ mod tests {
         .unwrap();
         let mut inputs = prefill(&fields, &json!({"n": 3, "c": "blue"}));
         assert_eq!(inputs["n"], FieldInput::Text("3".into()));
-        assert_eq!(inputs["ok"], FieldInput::Bool(false));
+        assert_eq!(inputs["ok"], FieldInput::OptionalBool(None));
         assert_eq!(
             form_values(&fields, &inputs).unwrap(),
-            json!({"n": 3, "ok": false, "c": "blue"})
+            json!({"n": 3, "c": "blue"})
         );
         inputs.insert("n".into(), FieldInput::Text("three".into()));
         assert!(
@@ -666,6 +670,47 @@ mod tests {
             form_values(&fields, &inputs)
                 .unwrap_err()
                 .contains("required")
+        );
+    }
+
+    #[test]
+    fn optional_boolean_distinguishes_no_answer_from_both_explicit_answers() {
+        let fields: Vec<Field> = serde_json::from_value(json!([
+            {"id": "optional", "label": "Optional", "type": "boolean"},
+            {"id": "required", "label": "Required", "type": "boolean", "required": true}
+        ]))
+        .unwrap();
+        let mut inputs = prefill(&fields, &json!({"required": false}));
+        assert_eq!(
+            form_values(&fields, &inputs).unwrap(),
+            json!({"required": false})
+        );
+        for value in [false, true] {
+            inputs.insert("optional".into(), FieldInput::OptionalBool(Some(value)));
+            assert_eq!(
+                form_values(&fields, &inputs).unwrap(),
+                json!({"required": false, "optional": value})
+            );
+            let defaults = prefill(&fields, &json!({"required": true, "optional": value}));
+            assert_eq!(defaults["optional"], FieldInput::OptionalBool(Some(value)));
+        }
+        inputs.insert("optional".into(), FieldInput::OptionalBool(None));
+        assert_eq!(
+            form_values(&fields, &inputs).unwrap(),
+            json!({"required": false})
+        );
+        // Older saved drafts keep their explicit checkbox value; do not reinterpret it.
+        let legacy: FieldInput = serde_json::from_value(json!({"Bool": false})).unwrap();
+        inputs.insert("optional".into(), legacy);
+        assert_eq!(
+            form_values(&fields, &inputs).unwrap(),
+            json!({"required": false, "optional": false})
+        );
+        inputs.remove("required");
+        assert!(
+            form_values(&fields, &inputs)
+                .unwrap_err()
+                .contains("Required is required")
         );
     }
 }

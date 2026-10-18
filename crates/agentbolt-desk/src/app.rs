@@ -1084,6 +1084,19 @@ fn form_controls(ui: &mut egui::Ui, ask: &Ask, draft: &mut Draft) -> Result<Valu
                     (_, FieldInput::Bool(b)) => {
                         ui.checkbox(b, "");
                     }
+                    (_, FieldInput::OptionalBool(value)) => {
+                        egui::ComboBox::from_id_salt(("optional-bool", &ask.id, &f.id))
+                            .selected_text(match value {
+                                None => "Not answered",
+                                Some(true) => "Yes",
+                                Some(false) => "No",
+                            })
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(value, None, "Not answered");
+                                ui.selectable_value(value, Some(true), "Yes");
+                                ui.selectable_value(value, Some(false), "No");
+                            });
+                    }
                 }
                 ui.end_row();
             }
