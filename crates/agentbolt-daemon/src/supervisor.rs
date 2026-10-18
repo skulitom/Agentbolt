@@ -11,7 +11,7 @@ pub fn run(names: &Names, headless: bool) -> i32 {
         Ok(Some(instance)) => instance,
         Ok(None) => return 0,
         Err(e) => {
-            error!("supervisor mutex: {e}");
+            error!("supervisor instance lock: {e}");
             return 1;
         }
     };

@@ -175,7 +175,7 @@ fn run() -> i32 {
     let (mcp, desk) = match bound {
         Ok(servers) => servers,
         Err(IpcError::AlreadyServed(pipe)) => {
-            // On Windows the mutex already turned a second daemon away, so this is a squatter: fail, and the task's
+            // On Windows the instance lock already turned a second daemon away: fail, and the task's
             // retries show in its history. Elsewhere the socket is the single-instance guard: exit quietly.
             if cfg!(windows) {
                 error!("{pipe} is already served by another process (a squatter?); stopping");
@@ -249,6 +249,20 @@ fn run() -> i32 {
         &shutdown,
         &failed,
     );
+    #[cfg(windows)]
+    match runtime.block_on(async { Server::bind_legacy_mcp(&names) }) {
+        Ok(legacy) => {
+            // An old MCP process can reconnect after its installed executable is replaced. A legacy
+            // address collision (including another account) never stops the current daemon.
+            let handler = Arc::new(McpHandler(shared.clone()));
+            runtime.spawn(async move {
+                if let Err(e) = legacy.serve(handler).await {
+                    warning!("legacy MCP listener stopped; reopen old client sessions: {e}");
+                }
+            });
+        }
+        Err(e) => warning!("legacy MCP address unavailable; reopen old client sessions: {e}"),
+    }
     runtime.spawn(daemon::tick_loop(shared.clone()));
     runtime.spawn(daemon::effects_loop(
         shared.clone(),

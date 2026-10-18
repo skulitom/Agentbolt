@@ -1,35 +1,19 @@
-//! Windows-only start-up pieces: the `Global\` single-instance mutex and the `agentbolt://` handler-key check.
+//! Windows-only start-up pieces: a per-user instance lock and the `agentbolt://` handler-key check.
 
 use std::path::Path;
 
 use agentbolt_core::channel::Names;
-use windows::Win32::Foundation::{
-    ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, ERROR_SUCCESS, GetLastError, HANDLE,
-};
+use windows::Win32::Foundation::ERROR_SUCCESS;
 use windows::Win32::System::Registry::{
     HKEY_CURRENT_USER, RRF_RT_REG_EXPAND_SZ, RRF_RT_REG_SZ, RegGetValueW,
 };
-use windows::Win32::System::Threading::CreateMutexW;
 use windows::core::HSTRING;
 
-/// The held mutex. Never closed: it goes with the process.
-pub struct Instance(#[allow(dead_code)] HANDLE);
+pub use agentbolt_ipc::windows_util::InstanceLock as Instance;
 
 /// Ok(Some) = we are the only daemon of this channel; Ok(None) = another one holds it (in any session).
 pub fn single_instance(names: &Names) -> Result<Option<Instance>, String> {
-    let name = HSTRING::from(format!(r"Global\{}", names.mutex));
-    match unsafe { CreateMutexW(None, true, &name) } {
-        Ok(handle) => {
-            if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
-                Ok(None)
-            } else {
-                Ok(Some(Instance(handle)))
-            }
-        }
-        // A mutex of that name made under another security context.
-        Err(e) if e.code() == ERROR_ACCESS_DENIED.to_hresult() => Ok(None),
-        Err(e) => Err(format!("single-instance mutex: {e}")),
-    }
+    Instance::acquire(names, &names.mutex).map_err(|e| format!("single-instance lock: {e}"))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -148,11 +132,22 @@ mod tests {
     }
 
     #[test]
-    fn a_second_holder_of_the_mutex_is_turned_away() {
+    fn a_second_holder_of_the_instance_lock_is_turned_away() {
         let names = crate::testutil::channel();
+        // Even the exact old global mutex name can be occupied without denying this user's startup.
+        let legacy = unsafe {
+            windows::Win32::System::Threading::CreateMutexW(
+                None,
+                false,
+                &HSTRING::from(format!(r"Global\{}", names.mutex)),
+            )
+        }
+        .unwrap();
         let first = single_instance(&names).unwrap();
         assert!(first.is_some());
-        // CreateMutexW on a name this process already holds reports ERROR_ALREADY_EXISTS, as for another process.
         assert!(single_instance(&names).unwrap().is_none());
+        unsafe {
+            windows::Win32::Foundation::CloseHandle(legacy).unwrap();
+        }
     }
 }

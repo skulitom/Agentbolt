@@ -44,7 +44,7 @@ mod imp {
 
     /// `explorer /select,"<path>"`: shows the file in its folder, never runs it.
     pub fn show_in_explorer(path: &Path) -> Result<(), String> {
-        Command::new("explorer.exe")
+        Command::new(agentbolt_ipc::windows_util::explorer().map_err(|e| e.to_string())?)
             .raw_arg(format!("/select,\"{}\"", path.display()))
             .spawn()
             .map(|_| ())
@@ -52,7 +52,7 @@ mod imp {
     }
 
     pub fn run_task(task: &str) -> Result<(), String> {
-        let out = Command::new("schtasks.exe")
+        let out = Command::new(agentbolt_ipc::windows_util::schtasks().map_err(|e| e.to_string())?)
             .args(["/Run", "/TN", task])
             .creation_flags(CREATE_NO_WINDOW)
             .output()
@@ -76,19 +76,20 @@ mod imp {
         }
     }
 
-    /// One Desk window per channel: a second launch brings the first window forward and exits.
-    /// The mutex handle is never closed, so it lasts as long as the process.
-    pub fn first_window(mutex: &str, title: &str, activate: bool) -> bool {
-        use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError};
-        use windows::Win32::System::Threading::CreateMutexW;
+    /// One Desk per user, channel and Windows session. The caller holds the lock for the window's life.
+    pub fn first_window(
+        names: &agentbolt_core::channel::Names,
+        title: &str,
+        activate: bool,
+    ) -> Result<Option<agentbolt_ipc::windows_util::InstanceLock>, String> {
         use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
-        let name = HSTRING::from(format!("Local\\{mutex}"));
-        let Ok(handle) = (unsafe { CreateMutexW(None, false, &name) }) else {
-            return true;
-        };
-        if unsafe { GetLastError() } != ERROR_ALREADY_EXISTS {
-            let _ = handle; // a raw HANDLE: never closed here, so the mutex lives as long as the window
-            return true;
+        let lock = agentbolt_ipc::windows_util::InstanceLock::acquire(
+            names,
+            &format!("desk-{}", crate::drafts::session_id()),
+        )
+        .map_err(|e| format!("Desk instance lock: {e}"))?;
+        if lock.is_some() {
+            return Ok(lock);
         }
         if activate {
             let start = std::time::Instant::now();
@@ -101,7 +102,7 @@ mod imp {
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
         }
-        false
+        Ok(None)
     }
 }
 
@@ -134,8 +135,12 @@ mod imp {
         eprintln!("{title}: {text}");
     }
 
-    pub fn first_window(_mutex: &str, _title: &str, _activate: bool) -> bool {
-        true
+    pub fn first_window(
+        _names: &agentbolt_core::channel::Names,
+        _title: &str,
+        _activate: bool,
+    ) -> Result<Option<()>, String> {
+        Ok(Some(()))
     }
 }
 
@@ -200,11 +205,13 @@ pub fn open_chat(
         std::env::var(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).unwrap_or_default();
     let args = crate::chat::terminal_args(target, cwd, &home)?;
     #[cfg(windows)]
-    return std::process::Command::new("wt.exe")
-        .args(args)
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| format!("Couldn't start Windows Terminal: {e}"));
+    return std::process::Command::new(
+        agentbolt_core::channel::env_dir("LOCALAPPDATA")?.join("Microsoft/WindowsApps/wt.exe"),
+    )
+    .args(args)
+    .spawn()
+    .map(|_| ())
+    .map_err(|e| format!("Couldn't start Windows Terminal: {e}"));
     #[cfg(not(windows))]
     {
         let _ = args;

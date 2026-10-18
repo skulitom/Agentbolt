@@ -89,9 +89,11 @@ pub fn run(names: Names, warm: bool) -> anyhow::Result<()> {
     } else {
         format!("Agentbolt ({})", names.channel)
     };
-    if !crate::os::first_window(&format!("{}-desk", names.mutex), &title, !warm) {
+    let Some(_instance) =
+        crate::os::first_window(&names, &title, !warm).map_err(anyhow::Error::msg)?
+    else {
         return Ok(());
-    }
+    };
     crate::os::trace_window_shown(&title);
     let data = names.data_dir().map_err(anyhow::Error::msg)?;
     let options = eframe::NativeOptions {

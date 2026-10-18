@@ -3,6 +3,7 @@
 
 use std::ffi::c_void;
 use std::io;
+use std::io::{Read, Write};
 use std::os::windows::io::AsRawHandle;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -35,8 +36,43 @@ pub(crate) const IMAGE_CHECKS: bool = true;
 
 pub(crate) type ClientStream = NamedPipeClient;
 
-pub(crate) fn pipe_path(_names: &Names, name: &str) -> PathBuf {
-    PathBuf::from(format!(r"\\.\pipe\{name}"))
+pub(crate) fn pipe_path(names: &Names, name: &str) -> PathBuf {
+    discovered_path(names, name).unwrap_or_else(|_| PathBuf::from("<not running>"))
+}
+
+fn discovery_file(names: &Names, name: &str) -> Result<PathBuf, IpcError> {
+    if name.is_empty() || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+        return Err(IpcError::Protocol("invalid endpoint name".into()));
+    }
+    Ok(names
+        .data_dir()
+        .map_err(io::Error::other)?
+        .join(format!("{name}.endpoint")))
+}
+
+fn address(nonce: &str) -> io::Result<PathBuf> {
+    Ok(PathBuf::from(format!(
+        r"\\.\pipe\agentbolt-{}-{nonce}",
+        current_user_sid()?
+    )))
+}
+
+fn discovered_path(names: &Names, name: &str) -> Result<PathBuf, IpcError> {
+    let file = std::fs::File::open(discovery_file(names, name)?).map_err(|e| {
+        if e.kind() == io::ErrorKind::NotFound {
+            IpcError::NotRunning(names.channel.clone())
+        } else {
+            IpcError::Io(e)
+        }
+    })?;
+    let mut nonce = String::new();
+    file.take(33).read_to_string(&mut nonce)?;
+    // A reader can arrive while the listener is publishing its address. Never fall back to the old,
+    // predictable global pipe name, and never accept a path supplied in a file.
+    if nonce.len() != 32 || !nonce.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(IpcError::NotRunning(names.channel.clone()));
+    }
+    Ok(address(&nonce)?)
 }
 
 // ---- the security descriptor ---------------------------------------------------------------------------------
@@ -67,7 +103,7 @@ impl UserOnlyDescriptor {
         Ok(Self(sd))
     }
 
-    fn attributes(&self) -> SECURITY_ATTRIBUTES {
+    pub(crate) fn attributes(&self) -> SECURITY_ATTRIBUTES {
         SECURITY_ATTRIBUTES {
             nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
             lpSecurityDescriptor: self.0.0,
@@ -139,11 +175,44 @@ pub(crate) struct Listener {
     descriptor: UserOnlyDescriptor,
     /// The instance waiting for the next client.
     next: NamedPipeServer,
+    _discovery: Option<Discovery>,
+}
+
+struct Discovery {
+    file: Option<std::fs::File>,
+    directory: PathBuf,
+}
+impl Drop for Discovery {
+    fn drop(&mut self) {
+        drop(self.file.take());
+        let _ = std::fs::remove_dir(&self.directory);
+    }
 }
 
 impl Listener {
     pub(crate) fn bind(names: &Names, name: &str) -> Result<Self, IpcError> {
-        let path = pipe_path(names, name);
+        let record = discovery_file(names, name)?;
+        let directory = record.parent().unwrap().to_path_buf();
+        std::fs::create_dir_all(&directory)?;
+        let file = crate::windows_util::private_file(
+            &record,
+            windows::Win32::Storage::FileSystem::FILE_SHARE_READ,
+        )
+        .map_err(|e| {
+            if e.raw_os_error()
+                == Some(windows::Win32::Foundation::ERROR_SHARING_VIOLATION.0 as i32)
+            {
+                IpcError::AlreadyServed(name.to_string())
+            } else {
+                IpcError::Io(e)
+            }
+        })?;
+        let mut discovery = Discovery {
+            file: Some(file),
+            directory,
+        };
+        let nonce = hex::encode(rand::random::<[u8; 16]>());
+        let path = address(&nonce)?;
         let descriptor = UserOnlyDescriptor::new()?;
         let next = create_instance(&path, &descriptor, true).map_err(|e| {
             if e.raw_os_error() == Some(ERROR_ACCESS_DENIED.0 as i32) {
@@ -153,10 +222,29 @@ impl Listener {
                 IpcError::Io(e)
             }
         })?;
+        let file = discovery.file.as_mut().unwrap();
+        file.set_len(0)?;
+        file.write_all(nonce.as_bytes())?;
+        file.sync_all()?;
         Ok(Self {
             path,
             descriptor,
             next,
+            _discovery: Some(discovery),
+        })
+    }
+
+    /// Best-effort bridge for already-running 0.1 MCP front ends. This predictable address is never
+    /// required for startup and is never used by a new client. It cannot serve Desk operations.
+    pub(crate) fn bind_legacy_mcp(names: &Names) -> Result<Self, IpcError> {
+        let path = PathBuf::from(format!(r"\\.\pipe\{}", names.mcp_pipe));
+        let descriptor = UserOnlyDescriptor::new()?;
+        let next = create_instance(&path, &descriptor, true)?;
+        Ok(Self {
+            path,
+            descriptor,
+            next,
+            _discovery: None,
         })
     }
 
@@ -208,7 +296,7 @@ pub(crate) async fn connect(
     names: &Names,
     name: &str,
 ) -> Result<(NamedPipeClient, Option<u32>), IpcError> {
-    let path = pipe_path(names, name);
+    let path = discovered_path(names, name)?;
     let deadline = Instant::now() + Duration::from_secs(5);
     let stream = loop {
         // SECURITY_IDENTIFICATION (tokio's default): a server may identify us but never impersonate us.
@@ -263,15 +351,26 @@ pub(crate) fn process_image(pid: u32) -> Option<PathBuf> {
 /// The DACL of a pipe handle as SDDL (tests prove it is user-only).
 #[cfg(test)]
 pub(crate) fn dacl_sddl(handle: std::os::windows::io::RawHandle) -> io::Result<String> {
+    security_sddl(
+        handle,
+        windows::Win32::Security::Authorization::SE_KERNEL_OBJECT,
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn security_sddl(
+    handle: std::os::windows::io::RawHandle,
+    kind: windows::Win32::Security::Authorization::SE_OBJECT_TYPE,
+) -> io::Result<String> {
     use windows::Win32::Security::Authorization::{
-        ConvertSecurityDescriptorToStringSecurityDescriptorW, GetSecurityInfo, SE_KERNEL_OBJECT,
+        ConvertSecurityDescriptorToStringSecurityDescriptorW, GetSecurityInfo,
     };
     use windows::Win32::Security::DACL_SECURITY_INFORMATION;
     unsafe {
         let mut sd = PSECURITY_DESCRIPTOR::default();
         let status = GetSecurityInfo(
             HANDLE(handle),
-            SE_KERNEL_OBJECT,
+            kind,
             DACL_SECURITY_INFORMATION,
             None,
             None,

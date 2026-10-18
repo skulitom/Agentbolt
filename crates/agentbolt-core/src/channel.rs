@@ -16,11 +16,11 @@ pub struct Names {
     pub protocol: String,
     /// Task Scheduler task name.
     pub task: String,
-    /// Named pipe for `agentbolt mcp` clients (Windows: `\\.\pipe\<name>`).
+    /// Endpoint discovery key for `agentbolt mcp` clients (Windows resolves a private random pipe).
     pub mcp_pipe: String,
     /// Named pipe for the Desk window and the protocol handler.
     pub desk_pipe: String,
-    /// Single-instance mutex (`Global\` prefix added on Windows).
+    /// Instance coordination key (a private profile lock file on Windows).
     pub mutex: String,
 }
 

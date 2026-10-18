@@ -18,6 +18,10 @@ unverified. Notification registration is rechecked per toast and flagged on the 
 passes after a foreground-permission fix (0.276% of one core; 10–14 ms window, 23–61 ms Inbox afterward).
 See [the verification log](docs/PRODUCTION-READINESS.md) for commands, baseline and remaining evidence.
 The release is not yet ready; the rest of this checklist remains open unless explicitly recorded there.
+The independent security review found two medium Windows issues; fixes now use absolute OS utility paths,
+private instance locks and protected discovery of fresh pipe addresses. Regression and compatibility tests
+pass. Per-user scheduler task names/safe legacy migration and a full mixed-version installer/MCP exchange
+remain to do alongside open-Desk upgrade coordination.
 
 ## From Artem's first use (2026-10-18; PLAN.md v4, "Status, and Artem's feedback")
 1. **The Desk opens fast.** His words: "It took a while for the window to load."

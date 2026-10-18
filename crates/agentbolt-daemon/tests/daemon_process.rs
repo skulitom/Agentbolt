@@ -3,8 +3,8 @@
 //! The daemon is copied into a temp folder together with a copy of this test binary named `agentbolt-desk.exe`,
 //! so the Desk pipe's image check can be passed by a "Desk" that is really this test (run as a child, see
 //! `fake_desk_child`) and failed by this test process itself. The daemon runs `--headless` (no tray, no toasts)
-//! with `LOCALAPPDATA` pointed into the temp folder, so nothing touches a real install, and it is killed and the
-//! folder removed at the end. Windows-only: it exercises named pipes, the mutex and image paths.
+//! on a fresh channel in the same user profile as its clients. It is killed and both its channel data and
+//! temporary binary folder are removed at the end. Windows-only: exercises pipes, instance locks and images.
 #![cfg(windows)]
 
 use std::path::{Path, PathBuf};
@@ -68,7 +68,6 @@ impl Setup {
     fn spawn_daemon(&self) -> Child {
         Command::new(self.daemon_exe())
             .args(["--channel", &self.names.channel, "--headless"])
-            .env("LOCALAPPDATA", self.dir.join("data"))
             .env_remove("AGENTBOLT_CHANNEL")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -78,12 +77,7 @@ impl Setup {
     }
 
     fn log(&self) -> String {
-        let path = self
-            .dir
-            .join("data")
-            .join("Agentbolt")
-            .join(&self.names.channel)
-            .join("agentbolt.log");
+        let path = self.names.data_dir().unwrap().join("agentbolt.log");
         std::fs::read_to_string(path).unwrap_or_default()
     }
 
@@ -111,6 +105,7 @@ impl Drop for Setup {
             let _ = child.kill();
             let _ = child.wait();
         }
+        let _ = std::fs::remove_dir_all(self.names.data_dir().unwrap());
         for _ in 0..20 {
             if std::fs::remove_dir_all(&self.dir).is_ok() || !self.dir.exists() {
                 return;
@@ -151,6 +146,47 @@ fn choose_ask() -> AskInput {
     }
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn legacy_mcp_reconnects_after_restart_and_cannot_answer() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let mut setup = Setup::new();
+    for _ in 0..2 {
+        setup.daemons.push(setup.spawn_daemon());
+        drop(setup.connect_when_up().await);
+        let stream = tokio::net::windows::named_pipe::ClientOptions::new()
+            .open(format!(r"\\.\pipe\{}", setup.names.mcp_pipe))
+            .unwrap();
+        let mut client = BufReader::new(stream);
+        client
+            .get_mut()
+            .write_all(b"{\"id\":1,\"op\":\"status\"}\n")
+            .await
+            .unwrap();
+        let mut line = String::new();
+        client.read_line(&mut line).await.unwrap();
+        let reply: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(reply["result"]["channel"], setup.names.channel);
+        client
+            .get_mut()
+            .write_all(
+                b"{\"id\":2,\"op\":\"answer\",\"args\":{\"ask_id\":\"x\",\"choice\":\"yes\"}}\n",
+            )
+            .await
+            .unwrap();
+        line.clear();
+        client.read_line(&mut line).await.unwrap();
+        let reply: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(
+            reply["ok"], false,
+            "legacy MCP must not offer Desk operations"
+        );
+        drop(client);
+        let child = setup.daemons.last_mut().unwrap();
+        child.kill().unwrap();
+        child.wait().unwrap();
+    }
+}
+
 /// With LOCALAPPDATA unset the daemon has no data folder: it stops (exit 1, the task's retries show it) and never
 /// falls back to a store and log under the current folder.
 #[test]
@@ -181,6 +217,12 @@ fn without_localappdata_the_daemon_stops_and_writes_nothing() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_daemon_serves_refuses_and_waits() {
     let mut setup = Setup::new();
+    // An existing process (possibly another account) can occupy the historical global pipe, but
+    // must not keep the new daemon from starting or serving current clients.
+    let _legacy_squatter = tokio::net::windows::named_pipe::ServerOptions::new()
+        .first_pipe_instance(true)
+        .create(format!(r"\\.\pipe\{}", setup.names.mcp_pipe))
+        .unwrap();
     let first = setup.spawn_daemon();
     setup.daemons.push(first);
     let mut mcp = setup.connect_when_up().await;
@@ -189,7 +231,7 @@ async fn the_daemon_serves_refuses_and_waits() {
     let status = mcp.call(&McpOp::Status).await.expect("status");
     assert_eq!(status["channel"], json!(setup.names.channel), "{status}");
 
-    // A second daemon on the channel exits 0 at once (the Global\ mutex), and the first keeps serving.
+    // A second daemon on the channel exits 0 at once (the profile lock), and the first keeps serving.
     let mut second = setup.spawn_daemon();
     assert_eq!(
         wait_exit(&mut second, Duration::from_secs(15)),

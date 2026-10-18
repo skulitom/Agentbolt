@@ -420,6 +420,65 @@ async fn the_pipe_dacl_grants_only_the_current_user() {
     }
 }
 
+#[cfg(windows)]
+#[tokio::test]
+async fn predictable_or_previous_pipe_names_cannot_prevent_a_new_listener() {
+    use tokio::net::windows::named_pipe::ServerOptions;
+    let ch = TestChannel::new();
+    let legacy = format!(r"\\.\pipe\{}", ch.names.mcp_pipe);
+    let _legacy_squatter = ServerOptions::new()
+        .first_pipe_instance(true)
+        .create(&legacy)
+        .unwrap();
+    let first = Server::bind(&ch.names, Pipe::Mcp).unwrap();
+    let previous = Pipe::Mcp.path(&ch.names);
+    assert_ne!(previous, PathBuf::from(legacy));
+    drop(first);
+    let _stale_squatter = ServerOptions::new()
+        .first_pipe_instance(true)
+        .create(&previous)
+        .unwrap();
+    let replacement = Server::bind(&ch.names, Pipe::Mcp).unwrap();
+    assert_ne!(previous, Pipe::Mcp.path(&ch.names));
+    drop(replacement);
+    assert!(
+        !ch.names.data_dir().unwrap().exists(),
+        "discovery is removed when the listener closes"
+    );
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn discovery_is_user_only_bounded_and_not_replaceable_while_serving() {
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::Security::Authorization::SE_FILE_OBJECT;
+    let ch = TestChannel::new();
+    let server = Server::bind(&ch.names, Pipe::Mcp).unwrap();
+    let path = ch
+        .names
+        .data_dir()
+        .unwrap()
+        .join(format!("{}.endpoint", ch.names.mcp_pipe));
+    let file = std::fs::File::open(&path).unwrap();
+    let sddl = win::security_sddl(file.as_raw_handle(), SE_FILE_OBJECT).unwrap();
+    assert!(sddl.starts_with("D:P"), "{sddl}");
+    assert_eq!(sddl.matches('(').count(), 1, "{sddl}");
+    let trustee = sddl.rsplit(";;;").next().unwrap().trim_end_matches(')');
+    assert_eq!(trustee_sid(trustee), win::current_user_sid().unwrap());
+    assert!(std::fs::write(&path, b"replacement").is_err());
+    assert!(std::fs::remove_file(&path).is_err());
+    drop(file);
+    drop(server);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    for invalid in [r"\\remote\pipe\evil", "C:\\evil", &"a".repeat(33)] {
+        std::fs::write(&path, invalid).unwrap();
+        assert!(matches!(
+            Client::connect(&ch.names, Pipe::Mcp).await,
+            Err(IpcError::NotRunning(_))
+        ));
+    }
+}
+
 #[test]
 fn sibling_paths_cover_the_cargo_layout() {
     let paths = sibling_paths(DAEMON_EXE);

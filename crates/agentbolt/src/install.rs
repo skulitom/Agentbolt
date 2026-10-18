@@ -257,7 +257,7 @@ mod win {
 
     /// Run schtasks.exe; Ok(stdout) on success, Err(its message) otherwise.
     pub fn schtasks(args: &[&str]) -> Result<String, String> {
-        let out = Command::new("schtasks.exe")
+        let out = Command::new(agentbolt_ipc::windows_util::schtasks().map_err(|e| e.to_string())?)
             .args(args)
             .creation_flags(CREATE_NO_WINDOW)
             .output()

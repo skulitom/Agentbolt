@@ -7,7 +7,8 @@
 //! `protocol::McpOp` or `protocol::DeskOp`), the server answers one line, a `protocol::Response` with the same id.
 //!
 //! Windows (PLAN.md, "The local channel is locked to this user"):
-//! - `\\.\pipe\<names.mcp_pipe>` and `\\.\pipe\<names.desk_pipe>`, created with an explicit security descriptor
+//! - Fresh random pipe addresses for each listener, discovered through user-only files in the channel's
+//!   profile folder. Both files and pipes are created with an explicit security descriptor
 //!   whose DACL grants access to the current user's SID only, `PIPE_REJECT_REMOTE_CLIENTS`, and
 //!   `FILE_FLAG_FIRST_PIPE_INSTANCE` on the first instance, so a second daemon or a squatter fails to bind.
 //! - [`Client::connect`] refuses unless the process serving the pipe is `agentbolt-daemon.exe` next to the
@@ -34,6 +35,8 @@ pub use agentbolt_core::service::ClientInfo;
 mod unix;
 #[cfg(windows)]
 mod win;
+#[cfg(windows)]
+pub mod windows_util;
 
 #[cfg(unix)]
 use unix as sys;
@@ -67,7 +70,7 @@ impl Pipe {
         }
     }
 
-    /// Where the pipe lives: `\\.\pipe\<name>` on Windows, `<data dir>/<name>.sock` elsewhere.
+    /// The discovered pipe address, or `<not running>` on Windows; the socket path elsewhere.
     pub fn path(&self, names: &Names) -> PathBuf {
         sys::pipe_path(names, self.name(names))
     }
@@ -307,6 +310,16 @@ pub struct Server {
 }
 
 impl Server {
+    /// Optional compatibility listener for MCP processes opened before the 0.2 upgrade. The daemon
+    /// must continue if this old global name is occupied. New clients never discover or use it.
+    #[cfg(windows)]
+    pub fn bind_legacy_mcp(names: &Names) -> Result<Server, IpcError> {
+        Ok(Server {
+            listener: win::Listener::bind_legacy_mcp(names)?,
+            client_check: PeerCheck::AnyLocalUser,
+        })
+    }
+
     /// Bind with the default client check: anyone of this user on the MCP pipe, only `agentbolt-desk.exe` next
     /// to this executable on the Desk pipe. Must be called inside a Tokio runtime.
     pub fn bind(names: &Names, pipe: Pipe) -> Result<Server, IpcError> {

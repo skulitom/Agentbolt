@@ -226,3 +226,33 @@ An hourly thread heartbeat checks it quietly and will record the result and remo
 after at least 72 hours, no earlier than **2026-10-21 19:54 UTC**. This measures the pinned scheduler build;
 it does not replace final release-candidate validation. A restart or reboot invalidates uninterrupted
 uptime evidence and must be reported, never silently reset.
+
+## Independent security review and Windows isolation
+
+A fresh reviewer inspected pipes, peer identity, tokens, dispatch, installer replacement and supervision at
+`65369ad`. Thirty targeted checks passed, with no token-forgery or MCP answer-writing finding. Two medium
+findings were confirmed: bare `schtasks.exe` could resolve beside the downloaded executable, and globally
+predictable mutex/pipe names allowed another Windows account to prevent startup.
+
+System commands now use the actual Windows system-directory API (`schtasks`, Explorer); terminal resume
+uses the explicit per-user Windows Apps alias. Daemon, supervisor and per-session Desk coordination use
+exclusive, user-only profile files, with access-denied reported as a fault. Pipe addresses include the user
+SID and a fresh 128-bit nonce on every listener start. A protected, write-locked, bounded discovery file
+publishes the nonce; clients still verify the serving executable and the Desk pipe still verifies its client.
+No current client falls back to the historical predictable address. Delete-on-close removes coordination
+files without a close/delete race. The core crate remains free of Windows dependencies.
+
+A best-effort MCP-only legacy listener lets already-open 0.1 front ends reconnect. If another account or
+process occupies that old name, current service still starts and logs a compatibility warning; old sessions
+must then be reopened. The legacy listener uses the same user-only DACL and MCP dispatcher, with no answer
+operations. Real-daemon tests prove both restart/reconnect on the old wire protocol and current startup
+with the legacy address deliberately occupied.
+
+Windows workspace tests and all-target clippy pass. The IPC suite includes 17 tests, including old-address
+squatting, fresh addresses after restart, discovery DACL/read bounds and refusal of replacement while live.
+Linux core/MCP tests and clippy pass. These fixes have not yet been independently re-reviewed. Scheduler
+task names still need per-user qualification and safe migration of the earlier task; open-Desk upgrade
+coordination and a full mixed-version installer/MCP exchange remain open.
+
+References: [Rust command resolution](https://doc.rust-lang.org/std/process/struct.Command.html#platform-specific-behavior)
+and [Microsoft's single-instance mutex guidance](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-createmutexw).
