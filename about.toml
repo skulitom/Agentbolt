@@ -9,6 +9,10 @@ ignore-dev-dependencies = true
 
 workarounds = ["chrono"]
 
+[xtask.clarify]
+license = "MIT"
+files = [{ path = "../../LICENSE", license = "MIT", checksum = "be73b8fbfbdbbc6ccb0cab35131529dd89e055965641f74af6cc775c49aa15fb" }]
+
 [agentbolt.clarify]
 license = "MIT"
 files = [{ path = "../../LICENSE", license = "MIT", checksum = "be73b8fbfbdbbc6ccb0cab35131529dd89e055965641f74af6cc775c49aa15fb" }]

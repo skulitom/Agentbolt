@@ -12,7 +12,7 @@ disabled Send on invalid input and atomic delivery of all answers.
 Owner-name proposals now require explicit Desk approval and passed a live reject/approve MCP/GUI test;
 renaming preserves asks, answers, caps and preferences, with cross-owner claims refused.
 The installed supervisor recovers from a killed daemon in 2 seconds; install, MCP-open upgrade and uninstall
-passed on a throwaway channel. Open-Desk upgrade and the 72-hour soak remain pending.
+passed on a throwaway channel. Open-Desk upgrade now passes; the 72-hour soak remains pending.
 Mute, unmute, Not needed, its count and draft retention passed live GUI checks; live-client navigation remains
 unverified. Notification registration is rechecked per toast and flagged on the Desk. The full ten-minute CPU/reopen probe now
 passes after a foreground-permission fix (0.276% of one core; 10–14 ms window, 23–61 ms Inbox afterward).
@@ -106,7 +106,9 @@ covered by live regression fixtures. The follow-up review found no remaining act
 ## Release work
 - **Deferred by Artem (Desk answer, 2026-10-18 20:33 UTC):** code signing may wait until after 0.2.
   Label the 0.2 candidate unsigned; do not claim signed-build validation.
-- A release workflow: build on tag, zip, SHA256SUMS, attestations, and `THIRD_PARTY_NOTICES.md` from cargo-about.
+- **Prepared — release tooling:** version 0.2.0, Installed Apps registration, a locked-build ZIP packager,
+  checksums, cargo-about notices and a tag/manual workflow that creates a draft only. Local package/schema
+  verification is underway; hosted execution and attestations are unverified. Nothing has been tagged or published.
 - Distribution: winget and Scoop manifests, an MCP Registry entry (the MCP front-end starts on Linux, so Glama can
   score it), and a Claude Code plugin with an eval (an agent asked "check with me before you publish" uses
   `desk_ask`).

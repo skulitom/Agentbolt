@@ -44,6 +44,22 @@ pub fn protocol_key(names: &Names) -> String {
     format!("Software\\Classes\\{}", names.protocol)
 }
 
+/// The per-user Installed Apps entry. Test channels have separate entries, like their other registrations.
+pub fn uninstall_key(names: &Names) -> String {
+    format!(
+        "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{}",
+        names.aumid
+    )
+}
+
+/// Windows launches this directly, without a shell. Uninstall keeps the user's questions and answers.
+pub fn uninstall_command(install: &Path, channel: &str) -> String {
+    format!(
+        "\"{}\" uninstall --channel {channel}",
+        install.join(CLI_EXE).display()
+    )
+}
+
 /// The Start-menu shortcut that carries the AUMID (unpackaged apps need one for toasts):
 /// `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Agentbolt.lnk`, or `Agentbolt (<channel>).lnk`.
 pub fn shortcut_path(names: &Names) -> anyhow::Result<PathBuf> {
@@ -562,6 +578,9 @@ mod win {
         // Once the new daemon may have migrated or written the database, do not roll its files back
         // underneath it. Report start failure while leaving the complete new installation repairable.
         drop(startup);
+        // Only advertise the new version after rollback is no longer possible. Still finish the Desk
+        // handoff if registration fails; rerunning install repairs this per-user entry.
+        let registration = register_installed_app(names, &dir);
         if start {
             let started =
                 start_and_wait_in_session(names, Duration::from_secs(20), upgrade.daemon_session());
@@ -570,6 +589,27 @@ mod win {
             reopened?;
         } else {
             upgrade.finish(false)?;
+        }
+        registration?;
+        Ok(())
+    }
+
+    fn register_installed_app(names: &Names, dir: &Path) -> anyhow::Result<()> {
+        let key = uninstall_key(names);
+        let command = uninstall_command(dir, &names.channel);
+        for (name, value) in [
+            ("DisplayName", display_name(names)),
+            ("DisplayVersion", env!("CARGO_PKG_VERSION").into()),
+            ("Publisher", "Artem Skulimovskiy".into()),
+            ("InstallLocation", dir.display().to_string()),
+            (
+                "URLInfoAbout",
+                "https://github.com/skulitom/Agentbolt".into(),
+            ),
+            ("UninstallString", command.clone()),
+            ("QuietUninstallString", command),
+        ] {
+            reg::set_string(&key, Some(name), &value)?;
         }
         Ok(())
     }
@@ -706,7 +746,7 @@ mod win {
         }
         upgrade.wait_for_daemons()?;
         upgrade.finish(false)?;
-        for key in [protocol_key(names), aumid_key(names)] {
+        for key in [protocol_key(names), aumid_key(names), uninstall_key(names)] {
             if reg::delete_tree(&key)? {
                 println!("Removed HKCU\\{key}");
             }

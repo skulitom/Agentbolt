@@ -379,3 +379,33 @@ the final candidate needs a fresh uninterrupted run. The obsolete hourly monitor
 Automatic approval review rejected the cleanup command for this stopped fixture with **“blocked by policy”**.
 Its installation, registrations, data and original logs remain in place; no alternate deletion was attempted.
 The two earlier blocked cleanup folders (`codex02-gui-1018` and `warm-95688`) also remain unresolved.
+
+## 0.2.0 release preparation (2026-10-18 21:09 UTC)
+
+The workspace version is now 0.2.0. Installation writes a per-user, per-channel Installed Apps entry after
+the rollback boundary, with quoted uninstall commands that retain user data. Uninstall removes that entry.
+The release installer fixture passed in Anode session 4 in **8.80 s**, channel `insttest-ad003a9707f4`:
+version/commands were checked in the registry, a visible warm Desk retained its draft across reinstall,
+the held-open MCP client exchanged an ask and a new Desk answer, and uninstall/purge removed the entry,
+task, shortcut, install folder and data. No main-channel change was made.
+
+Windows workspace tests, all-target clippy and the release build pass. Linux core/IPC/MCP and packager tests
+and clippy pass. The license policy passes, with the same three unused allow-list warnings; cargo-about
+0.9.2 generated the Windows notices successfully. These checks used Rust 1.98.1, now pinned in the release
+workflow. GUI suites remain explicitly separate from the headless workspace run.
+
+The new `xtask package` builds all selected executables using Cargo with locked dependencies and an explicit
+x64 target, reads their actual paths from Cargo, and checks that the checkout stayed clean at the same revision.
+It writes stable-order ZIPs with notices, license and per-binary hashes, and derives winget/Scoop manifests
+from the ZIP's real checksum. The MCP Registry entry uses the documented custom-installation guide format.
+The packager refuses an existing output directory. Unit tests cover ZIP round trips, executable modes,
+repeatability, path traversal refusal and matching manifest checksums.
+
+An independent security pass found one P2 release-integrity issue in the first packager: it could label stale
+prebuilt programs with current HEAD. The mandatory locked build and explicit target fix that. Follow-up review
+found no unresolved security issue in the installer entry, release workflow or packaging changes.
+
+Local archive/schema validation, package-manager execution and Linux archive generation are still pending
+at this checkpoint. The hosted workflow and attestations have not run; no tag, release or distribution
+submission has been created. Signing remains explicitly deferred by Artem. Readiness still requires the
+live host/toast checks, final idle probe and a new uninterrupted 72-hour run.

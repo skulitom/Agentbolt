@@ -6,10 +6,11 @@ members = [
     "crates/agentbolt-daemon",
     "crates/agentbolt-desk",
     "crates/agentbolt",
+    "crates/xtask",
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/skulitom/Agentbolt"

@@ -1,0 +1,123 @@
+name: Release candidate
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            target: windows-x64
+            triple: x86_64-pc-windows-msvc
+          - os: ubuntu-24.04
+            target: linux-x64
+            triple: x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.os }}
+    env:
+      AGENTBOLT_CHANNEL: release-check
+      CARGO_TERM_COLOR: always
+      RELEASE_TAG: ${{ github.ref_name }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          rustup default 1.98.1
+      - name: Validate tag against the workspace version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: cargo run --locked -p xtask -- check-tag "$env:RELEASE_TAG"
+      - name: Formatting
+        run: cargo fmt --all -- --check
+      - name: Windows checks
+        if: runner.os == 'Windows'
+        run: |
+          cargo test --workspace --locked
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Linux checks
+        if: runner.os == 'Linux'
+        run: |
+          cargo test -p agentbolt-core -p agentbolt-ipc -p agentbolt -p xtask --locked
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo clippy -p agentbolt-core -p agentbolt-ipc -p agentbolt -p xtask --all-targets --locked -- -D warnings
+      - name: License tools
+        run: |
+          cargo install cargo-deny --version 0.20.2 --locked
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo install cargo-about --version 0.9.2 --locked --features cli
+      - name: License policy and notices
+        run: |
+          cargo deny check licenses
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo about generate --locked --fail --target ${{ matrix.triple }} about.hbs --output-file target/THIRD_PARTY_NOTICES.md
+      - name: Package and derive manifests from the real archive
+        run: cargo run --locked -p xtask -- package ${{ matrix.target }} target/THIRD_PARTY_NOTICES.md target/dist
+      - name: Validate distribution schemas
+        if: runner.os == 'Windows'
+        run: |
+          Invoke-WebRequest 'https://aka.ms/winget-manifest.singleton.1.12.0.schema.json' -OutFile target/winget.schema.json
+          Invoke-WebRequest 'https://raw.githubusercontent.com/ScoopInstaller/Scoop/master/schema.json' -OutFile target/scoop.schema.json
+          Invoke-WebRequest 'https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json' -OutFile target/mcp.schema.json
+          foreach ($pair in @(@('winget/Skulitom.Agentbolt.yaml', 'winget'), @('scoop/agentbolt.json', 'scoop'), @('server.json', 'mcp'))) {
+            if (!(Get-Content "target/dist/$($pair[0])" -Raw | Test-Json -SchemaFile "target/$($pair[1]).schema.json")) {
+              throw "Invalid $($pair[1]) manifest"
+            }
+          }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: candidate-${{ matrix.target }}
+          path: target/dist/
+          if-no-files-found: error
+          retention-days: 30
+
+  draft:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: candidate-*
+          path: candidates
+      - name: Collect assets and checksum everything being released
+        run: |
+          mkdir release-assets
+          cp candidates/candidate-windows-x64/*.zip release-assets/
+          cp candidates/candidate-linux-x64/*.zip release-assets/
+          cp candidates/candidate-windows-x64/winget/Skulitom.Agentbolt.yaml release-assets/
+          cp candidates/candidate-windows-x64/scoop/agentbolt.json release-assets/agentbolt.scoop.json
+          cp candidates/candidate-windows-x64/server.json release-assets/
+          cd release-assets
+          sha256sum ./*.zip ./*.yaml ./*.json > SHA256SUMS
+      - name: Attest release assets
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: release-assets/*
+      - name: Create a draft for human review (never publish automatically)
+        run: |
+          gh release create "$RELEASE_TAG" release-assets/* --draft --verify-tag \
+            --title "Agentbolt $RELEASE_TAG" --notes-file docs/RELEASE-0.2.0.md

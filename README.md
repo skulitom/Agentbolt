@@ -10,7 +10,7 @@ in one click, and the answer reaches the agent that asked, even if its session h
 Local, no account, no API key. MIT licensed. Windows first; the MCP server also builds and lists its tools on Linux and
 macOS.
 
-> Status: **0.1, the Desk.** The agent board (agents claiming work from each other so none duplicate it) comes after
+> Status: **0.2.0 candidate, verification in progress.** See [NEXT.md](NEXT.md). The agent board comes after
 > the Desk has proved itself.
 
 ## How it works
@@ -44,6 +44,9 @@ agent ──stdio──► agentbolt mcp ──user-only pipe──► agentbolt
   ID gets a new provisional identity when it restarts.
 
 ## Install
+Extract the Windows release ZIP, keep its three programs together, and run `agentbolt.exe install`.
+For subsequent commands and MCP setup, use the installed copy in `%LOCALAPPDATA%\Programs\Agentbolt`.
+
 ```powershell
 agentbolt install          # copies the three programs, registers the tray at sign-in, starts it
 agentbolt clients          # prints the commands that connect Claude Code and Codex
@@ -59,6 +62,8 @@ after replacement; restart older client sessions after upgrading so they also us
 The sign-in task is per Windows account and channel. Installation migrates an earlier task only after
 verifying its account, executable, arguments and working folder; unrelated tasks are left untouched.
 The 0.2 candidate is unsigned; code signing is deferred to a later release.
+Windows Installed Apps lists its version and can uninstall it while retaining questions and answers.
+See [release preparation](docs/RELEASING.md) for archives, checksums, notices and distribution manifests.
 
 ## What it does and doesn't promise
 - Only the Desk window and its link handler can answer: no MCP tool can. The pipes accept only this Windows user, the

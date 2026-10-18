@@ -242,6 +242,7 @@ struct Names {
     task: String,
     protocol_key: String,
     aumid_key: String,
+    uninstall_key: String,
     install: PathBuf,
     data: PathBuf,
     shortcut: PathBuf,
@@ -263,6 +264,9 @@ impl Names {
             .unwrap(),
             protocol_key: format!("Software\\Classes\\agentbolt-{channel}"),
             aumid_key: format!("Software\\Classes\\AppUserModelId\\Skulitom.Agentbolt.{channel}"),
+            uninstall_key: agentbolt::install::uninstall_key(
+                &agentbolt_core::channel::Names::for_channel(&channel).unwrap(),
+            ),
             install: local.join("Programs").join(format!("Agentbolt-{channel}")),
             data: local.join("Agentbolt").join(&channel),
             shortcut: PathBuf::from(std::env::var("APPDATA").unwrap())
@@ -289,7 +293,7 @@ impl Drop for Cleanup<'_> {
         let legacy = format!("Agentbolt ({})", n.channel);
         let _ = schtasks(&["/End", "/TN", &legacy]);
         let _ = schtasks(&["/Delete", "/TN", &legacy, "/F"]);
-        for key in [&n.protocol_key, &n.aumid_key] {
+        for key in [&n.protocol_key, &n.aumid_key, &n.uninstall_key] {
             let _ = Command::new("reg.exe")
                 .args(["delete", &format!("HKCU\\{key}"), "/f"])
                 .creation_flags(CREATE_NO_WINDOW)
@@ -460,6 +464,21 @@ fn install_then_uninstall_on_a_throwaway_channel() {
     assert!(xml.contains(&format!("--channel {}", n.channel)));
 
     // The registrations and the programs.
+    assert_eq!(
+        agentbolt::install::reg::get_string(&n.uninstall_key, Some("DisplayVersion")).as_deref(),
+        Some(env!("CARGO_PKG_VERSION"))
+    );
+    let uninstall = format!(
+        "\"{}\" uninstall --channel {}",
+        n.install.join("agentbolt.exe").display(),
+        n.channel
+    );
+    for name in ["UninstallString", "QuietUninstallString"] {
+        assert_eq!(
+            agentbolt::install::reg::get_string(&n.uninstall_key, Some(name)),
+            Some(uninstall.clone())
+        );
+    }
     let cmd = reg_query(&format!("{}\\shell\\open\\command", n.protocol_key), None)
         .expect("the protocol handler");
     assert!(
@@ -816,6 +835,10 @@ fn install_then_uninstall_on_a_throwaway_channel() {
         "the AUMID key is still there"
     );
     assert!(!n.install.exists(), "the install folder is still there");
+    assert!(
+        reg_query(&n.uninstall_key, Some("DisplayName")).is_none(),
+        "the Installed Apps entry is still there"
+    );
     assert!(!n.data.exists(), "the data folder is still there");
     assert!(!n.shortcut.exists(), "the shortcut is still there");
     if !real {

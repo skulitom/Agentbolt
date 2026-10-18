@@ -9,6 +9,7 @@ const EXACT: &[&str] = &[
     ".gitignore",
     "LICENSE",
     ".github/workflows/ci.yml",
+    ".github/workflows/release.yml",
     "about.hbs",
 ];
 
@@ -39,6 +40,7 @@ fn the_classifier_refuses_stray_files() {
         "docs/PRIOR-ART.md",
         "LICENSE",
         "x.json",
+        ".github/workflows/release.yml",
     ] {
         assert!(admitted(ok), "{ok} should be admitted");
     }
@@ -51,7 +53,7 @@ fn the_classifier_refuses_stray_files() {
         "LICENSE.txt",
         "src/main.RS",
         "Makefile",
-        ".github/workflows/release.yml",
+        ".github/workflows/stray.yml",
         "x.rs.bak",
     ] {
         assert!(!admitted(bad), "{bad} should be refused");
