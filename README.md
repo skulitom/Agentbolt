@@ -37,7 +37,8 @@ agent ──stdio──► agentbolt mcp ──user-only pipe──► agentbolt
 - **Noise control:** one silent toast popup per owner per ten minutes; additional eligible questions update
   the same notification with “N more waiting”. P2 questions notify when due within two hours. Mark a question
   **Not needed** to tell the agent it was unnecessary, or **Mute this agent** to keep its questions silently at
-  the bottom until unmuted. The Desk counts unnecessary questions per owner.
+  the bottom for one hour, four hours, one day, or until unmuted. Timed mutes survive a restart and expire
+  automatically. The Desk counts unnecessary questions per owner.
   Muted questions also stay out of phone notification counts.
 - **Owner names:** agents can propose `requested_owner` through `desk_register`. Review it in Settings;
   approval renames that session's owner while preserving its questions, answers and preferences. A proposal

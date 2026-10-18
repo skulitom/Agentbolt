@@ -233,6 +233,10 @@ pub enum DeskOp {
         owner: String,
         muted: bool,
     },
+    MuteFor {
+        owner: String,
+        seconds: u32,
+    },
     Agents,
     Owners,
     SetOwner {

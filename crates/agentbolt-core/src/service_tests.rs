@@ -468,6 +468,7 @@ impl T {
             codex_interactive,
             relay,
             muted: false,
+            muted_until: None,
             not_needed_count: 0,
         };
         self.desk(DeskOp::SetOwner { owner }).unwrap();

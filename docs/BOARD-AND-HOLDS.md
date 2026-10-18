@@ -3,6 +3,8 @@
 `desk_register` accepts `roles` and a GitHub `repo` (`owner/repository`). Its response includes matching
 handoffs, claims and work-hold status. Owner identity still comes from host configuration or Desk approval;
 declaring a role grants no authority. Public `agent_…` IDs can be used for routing; they are not bearer handles.
+Updating a profile preserves fields you omit. Use `roles: []` to clear roles and `clear_repo: true` to
+remove a repository; supplying a repository and `clear_repo` together is refused.
 
 | Tool | Use |
 |---|---|

@@ -760,10 +760,7 @@ impl DeskApp {
                 && let Err(e) = os::open_chat(&target, ask.asking_cwd.as_deref()) {
                 self.note(e, true);
             }
-            let mute_label = if ask.muted { "Unmute this agent" } else { "Mute this agent" };
-            if ui.button(mute_label).on_hover_text("Applies to this owner's sessions until unmuted. Questions stay in the Inbox, silently, at the bottom.").clicked() {
-                self.send(Req::SetMuted { owner: ask.owner.clone(), muted: !ask.muted });
-            }
+            if let Some(req)=mute_control(ui,&ask.owner,ask.muted) { self.send(req); }
             ui.separator();
             if !matches!(ask.status, AskStatus::Open | AskStatus::Digest) {
                 if let Some(answer) = &ask.answer {
@@ -1064,14 +1061,8 @@ impl DeskApp {
                             ) {
                                 open = Some((target, a.cwd.clone()));
                             }
-                            if ui
-                                .button(if a.muted { "Unmute" } else { "Mute this agent" })
-                                .clicked()
-                            {
-                                mute = Some(Req::SetMuted {
-                                    owner: a.owner.clone(),
-                                    muted: !a.muted,
-                                });
+                            if let Some(req) = mute_control(ui, &a.owner, a.muted) {
+                                mute = Some(req);
                             }
                             ui.end_row();
                         }
@@ -1442,10 +1433,10 @@ impl DeskApp {
                     if ui.checkbox(&mut relay, "").on_hover_text("May list and deliver other owners' answers").changed() {
                         changed = Some(Owner { relay, ..o.clone() });
                     }
-                    let mut muted = o.muted;
-                    if ui.checkbox(&mut muted, "").on_hover_text("Silent questions at the bottom, until unmuted").changed() {
-                        changed = Some(Owner { muted, ..o.clone() });
-                    }
+                    ui.vertical(|ui|{
+                        if let Some(req)=mute_control(ui,&o.name,o.muted) { resolve=Some(req); }
+                        if let Some(until)=&o.muted_until { ui.weak(format!("Until {until}")); }
+                    });
                     ui.label(o.not_needed_count.to_string());
                     ui.end_row();
                 }
@@ -1467,6 +1458,49 @@ fn priority_tag(ui: &mut egui::Ui, p: Priority) {
         Priority::P2 => ("P2", ui.visuals().weak_text_color()),
     };
     ui.label(RichText::new(text).monospace().strong().color(color));
+}
+
+fn mute_control(ui: &mut egui::Ui, owner: &str, muted: bool) -> Option<Req> {
+    let mut request = None;
+    ui.horizontal(|ui| {
+        if muted && ui.button("Unmute").clicked() {
+            request = Some(Req::SetMuted {
+                owner: owner.into(),
+                muted: false,
+            });
+        }
+        ui.menu_button(
+            if muted {
+                "Change mute"
+            } else {
+                "Mute this agent"
+            },
+            |ui| {
+                for (label, seconds) in [
+                    ("For 1 hour", 3600),
+                    ("For 4 hours", 14400),
+                    ("For 1 day", 86400),
+                ] {
+                    if ui.button(label).clicked() {
+                        request = Some(Req::MuteFor {
+                            owner: owner.into(),
+                            seconds,
+                        });
+                        ui.close();
+                    }
+                }
+                if ui.button("Until I unmute").clicked() {
+                    request = Some(Req::SetMuted {
+                        owner: owner.into(),
+                        muted: true,
+                    });
+                    ui.close();
+                }
+                ui.weak("Questions remain in the Inbox, silently, at the bottom.");
+            },
+        );
+    });
+    request
 }
 
 fn chat_button(

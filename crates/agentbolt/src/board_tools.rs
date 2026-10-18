@@ -89,13 +89,27 @@ pub fn parse(name: &str, args: &JsonObject) -> Result<BoardOp, String> {
 }
 
 pub fn profile(args: &JsonObject) -> Result<Option<BoardOp>, String> {
-    if !args.contains_key("roles") && !args.contains_key("repo") {
+    if !args.contains_key("roles") && !args.contains_key("repo") && !args.contains_key("clear_repo")
+    {
         return Ok(None);
     }
-    let roles = serde_json::from_value(args.get("roles").cloned().unwrap_or_else(|| json!([])))
+    let roles = args
+        .get("roles")
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
         .map_err(|_| "roles must be a list of strings")?;
     let repo = crate::tools::str_arg(args, "repo")?;
-    Ok(Some(BoardOp::Profile { roles, repo }))
+    let clear_repo = args
+        .get("clear_repo")
+        .map(|v| v.as_bool().ok_or("clear_repo must be a boolean"))
+        .transpose()?
+        .unwrap_or(false);
+    Ok(Some(BoardOp::Profile {
+        roles,
+        repo,
+        clear_repo,
+    }))
 }
 
 pub fn holds_tool() -> Tool {

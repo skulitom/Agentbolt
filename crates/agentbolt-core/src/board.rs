@@ -62,8 +62,10 @@ pub struct RequestInput {
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum BoardOp {
     Profile {
-        roles: Vec<String>,
+        roles: Option<Vec<String>>,
         repo: Option<String>,
+        #[serde(default)]
+        clear_repo: bool,
     },
     Who,
     Post {
@@ -481,7 +483,16 @@ pub fn context(db: &Connection, now: i64, agent: &Agent) -> Result<Value, String
 pub fn run(db: &Connection, now: i64, agent: &Agent, op: BoardOp) -> Result<Value, String> {
     expire(db, now)?;
     match op {
-        BoardOp::Profile { roles, repo } => {
+        BoardOp::Profile {
+            roles,
+            repo,
+            clear_repo,
+        } => {
+            if clear_repo && repo.is_some() {
+                return Err("provide repo or clear_repo, not both".into());
+            }
+            let previous = profile(db, &agent.handle)?;
+            let roles = roles.unwrap_or_else(|| previous.0.clone());
             if roles.len() > 12 {
                 return Err("at most 12 roles".into());
             }
@@ -491,7 +502,16 @@ pub fn run(db: &Connection, now: i64, agent: &Agent, op: BoardOp) -> Result<Valu
                 .collect::<Result<Vec<_>, _>>()?;
             roles.sort();
             roles.dedup();
-            let repo = repo.map(|r| repository(&r)).transpose()?;
+            let repo = if clear_repo {
+                None
+            } else {
+                repo.map(|r| repository(&r))
+                    .transpose()?
+                    .or_else(|| previous.1.clone())
+            };
+            if (roles.clone(), repo.clone()) == previous {
+                return context(db, now, agent);
+            }
             db.execute("INSERT INTO board_profiles(handle,roles_json,repo) VALUES (?1,?2,?3) ON CONFLICT(handle) DO UPDATE SET roles_json=excluded.roles_json,repo=excluded.repo",params![agent.handle,json!(roles).to_string(),repo]).map_err(db_err)?;
             event(
                 db,

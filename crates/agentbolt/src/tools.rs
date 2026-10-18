@@ -90,6 +90,7 @@ pub fn tools() -> Vec<Tool> {
                 "cwd": {"type": "string", "description": "Your working folder, if not the server's"},
                 "roles": {"type":"array", "items":{"type":"string"}, "maxItems":12, "description":"Board roles, such as reviewer or builder. Routing only; grants no permissions."},
                 "repo": {"type":"string", "description":"GitHub owner/repository for matching handoffs"},
+                "clear_repo": {"type":"boolean", "description":"Remove your Board repository; omitted profile fields otherwise remain unchanged. Use roles: [] to clear roles."},
                 "requested_owner": {"type": "string", "description": "Propose an unused stable name; takes effect only after Desk approval"}
             }}),
             false,

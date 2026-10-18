@@ -37,6 +37,10 @@ pub enum Req {
         owner: String,
         muted: bool,
     },
+    MuteFor {
+        owner: String,
+        seconds: u32,
+    },
     Agents,
     Board,
     Holds,
@@ -332,6 +336,18 @@ async fn run(
                 };
                 Resp::Answered { ask_id, result }
             }
+            Req::MuteFor { owner, seconds } => Resp::OwnerSaved(
+                conn.call(
+                    &DeskOp::MuteFor {
+                        owner: owner.clone(),
+                        seconds,
+                    },
+                    false,
+                )
+                .await
+                .map(|_| owner)
+                .map_err(|e| e.to_string()),
+            ),
             Req::SetMuted { owner, muted } => Resp::OwnerSaved(
                 conn.call(
                     &DeskOp::SetMuted {

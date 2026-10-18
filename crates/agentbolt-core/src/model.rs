@@ -189,9 +189,11 @@ pub struct Owner {
     /// The relay owner may call `desk_relay` (configured on the Desk; Compass: "compass-reception").
     #[serde(default)]
     pub relay: bool,
-    /// Persistent across this owner's sessions, until the Desk unmutes it.
+    /// Persistent across this owner's sessions, until its deadline or a Desk unmute.
     #[serde(default)]
     pub muted: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub muted_until: Option<String>,
     /// Derived from durable answers; never accepted as a writable counter.
     #[serde(default)]
     pub not_needed_count: u32,

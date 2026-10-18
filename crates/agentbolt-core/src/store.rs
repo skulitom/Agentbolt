@@ -197,6 +197,7 @@ CREATE TABLE phone_receipts (
     acknowledged_ms INTEGER
 );
 "#,
+    "ALTER TABLE owners ADD COLUMN muted_until_ms INTEGER; CREATE INDEX owners_mute_expiry ON owners(muted_until_ms) WHERE muted_until_ms IS NOT NULL;",
 ];
 
 pub(crate) fn db_err(e: rusqlite::Error) -> String {
@@ -547,13 +548,14 @@ fn map_owner(r: &Row<'_>) -> rusqlite::Result<Owner> {
         muted: r.get(4)?,
         not_needed_count: r.get(5)?,
         requested_owner: r.get(6)?,
+        muted_until: r.get::<_, Option<i64>>(7)?.map(fmt_ms),
     })
 }
 
 pub(crate) fn owner(conn: &Connection, name: &str) -> rusqlite::Result<Option<Owner>> {
     conn.query_row(
         "SELECT name, binding, codex_interactive, relay, muted,
-         (SELECT COUNT(*) FROM answers a JOIN asks k ON k.id = a.ask_id WHERE k.owner = owners.name AND a.via = 'not_needed'), requested_owner
+         (SELECT COUNT(*) FROM answers a JOIN asks k ON k.id = a.ask_id WHERE k.owner = owners.name AND a.via = 'not_needed'), requested_owner, muted_until_ms
          FROM owners WHERE name = ?1",
         [name],
         map_owner,
@@ -578,7 +580,7 @@ pub(crate) fn owners_for_desk(
 ) -> rusqlite::Result<(Vec<Owner>, u32)> {
     let mut kept = conn.prepare(&format!(
         "SELECT name, binding, codex_interactive, relay, muted,
-         (SELECT COUNT(*) FROM answers a JOIN asks k ON k.id = a.ask_id WHERE k.owner = owners.name AND a.via = 'not_needed'), requested_owner
+         (SELECT COUNT(*) FROM answers a JOIN asks k ON k.id = a.ask_id WHERE k.owner = owners.name AND a.via = 'not_needed'), requested_owner, muted_until_ms
          FROM owners WHERE {KEPT_OWNER} ORDER BY name"
     ))?;
     let mut owners: Vec<Owner> = kept
@@ -586,7 +588,7 @@ pub(crate) fn owners_for_desk(
         .collect::<rusqlite::Result<_>>()?;
     let mut provisional = conn.prepare(&format!(
         "SELECT o.name, o.binding, o.codex_interactive, o.relay, o.muted,
-         (SELECT COUNT(*) FROM answers a JOIN asks k ON k.id = a.ask_id WHERE k.owner = o.name AND a.via = 'not_needed'), o.requested_owner
+         (SELECT COUNT(*) FROM answers a JOIN asks k ON k.id = a.ask_id WHERE k.owner = o.name AND a.via = 'not_needed'), o.requested_owner, o.muted_until_ms
          FROM owners o WHERE NOT {KEPT_OWNER}
          ORDER BY {OWNER_ACTIVITY} DESC, o.name LIMIT ?1"
     ))?;
@@ -621,11 +623,17 @@ pub(crate) fn prune_provisional_owners(
 }
 
 pub(crate) fn upsert_owner(conn: &Connection, o: &Owner, now_ms: i64) -> rusqlite::Result<()> {
+    let until = o
+        .muted_until
+        .as_deref()
+        .map(|s| OffsetDateTime::parse(s, &Rfc3339).map(to_ms))
+        .transpose()
+        .map_err(|_| rusqlite::Error::InvalidParameterName("muted_until".into()))?;
     conn.execute(
-        "INSERT INTO owners (name, binding, codex_interactive, relay, created_ms, muted) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+        "INSERT INTO owners (name, binding, codex_interactive, relay, created_ms, muted, muted_until_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
          ON CONFLICT(name) DO UPDATE SET binding = excluded.binding, codex_interactive = excluded.codex_interactive,
-                                         relay = excluded.relay, muted = excluded.muted",
-        params![o.name, o.binding, o.codex_interactive, o.relay, now_ms, o.muted],
+                                         relay = excluded.relay, muted = excluded.muted, muted_until_ms=excluded.muted_until_ms",
+        params![o.name, o.binding, o.codex_interactive, o.relay, now_ms, o.muted,until],
     )?;
     Ok(())
 }

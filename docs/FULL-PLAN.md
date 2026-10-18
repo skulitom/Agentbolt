@@ -65,9 +65,13 @@ The next expanded pass adds these features (compilation only):
   checks holds at PR open/merge. Both fail visibly on incomplete work. [Integration](WORKFLOW-INTEGRATION.md).
   These are implemented commands; live Compass charters, notes and schedules have not been changed.
 
+- The feature audit also added one-hour/four-hour/day/indefinite mute choices. Deadlines persist and expire
+  in the daemon, including after restart. Board profile updates now preserve omitted roles/repository;
+  explicit empty roles and `clear_repo` remove those fields without disturbing the other one.
+
 Remaining implementation audit: compare every full-plan requirement with current code; finish any missing
-features, including timed mute, complete Desk Board/history navigation, pagination/large-result behavior,
-partial profile updates, relay filtering/pagination, and the expanded plugin catalog. Keep source and
+features, including complete Desk Board/history navigation, pagination/large-result behavior,
+relay filtering/pagination, and the expanded plugin catalog. Keep source and
 distribution descriptions in sync. Continue feature work before test suites, licensing, packaging,
 idle/soak or live-client checks. No configured phone/SSH/Beads/Compass workflow has been exercised yet.
 

@@ -917,6 +917,7 @@ impl Ctx<'_> {
                     codex_interactive: false,
                     relay: false,
                     muted: false,
+                    muted_until: None,
                     not_needed_count: 0,
                 };
                 store::upsert_owner(self.db, &o, self.now).map_err(db_err)?;
@@ -1309,7 +1310,22 @@ impl Ctx<'_> {
         Ok(json!({"processed":true}))
     }
 
-    fn set_owner(&self, owner: Owner) -> Result<Owner, String> {
+    fn set_owner(&self, mut owner: Owner) -> Result<Owner, String> {
+        if !owner.muted {
+            owner.muted_until = None;
+        }
+        if let Some(until) = &owner.muted_until {
+            let until =
+                OffsetDateTime::parse(until, &time::format_description::well_known::Rfc3339)
+                    .map(store::to_ms)
+                    .map_err(|_| "mute deadline must be RFC 3339")?;
+            if until <= self.now || until > self.now + 30 * DAY_MS {
+                return Err(
+                    "mute deadline must be in the next 30 days; refresh the Desk if it expired"
+                        .into(),
+                );
+            }
+        }
         let name = owner.name.trim().to_string();
         if store::approved_owner(self.db, &name)
             .map_err(db_err)?
@@ -1335,7 +1351,7 @@ impl Ctx<'_> {
         self.event(
             "owner.set",
             &o.name,
-            json!({ "binding": o.binding, "codex_interactive": o.codex_interactive, "relay": o.relay, "muted":o.muted }),
+            json!({ "binding": o.binding, "codex_interactive": o.codex_interactive, "relay": o.relay, "muted":o.muted,"muted_until":o.muted_until }),
         )?;
         store::owner(self.db, &o.name)
             .map_err(db_err)?
@@ -1641,7 +1657,19 @@ impl Service for StoreService {
                     .map_err(db_err)?
                     .ok_or("Unknown owner")?;
                 o.muted = muted;
+                o.muted_until = None;
                 c.set_owner(o)
+            }),
+            DeskOp::MuteFor { owner, seconds } => self.write_json(now, |c| {
+                if !(60..=30 * 24 * 60 * 60).contains(&seconds) {
+                    return Err("mute duration must be between one minute and 30 days".into());
+                }
+                let mut owner = store::owner(c.db, &owner)
+                    .map_err(db_err)?
+                    .ok_or("Unknown owner")?;
+                owner.muted = true;
+                owner.muted_until = Some(fmt_ms(now + i64::from(seconds) * 1000));
+                c.set_owner(owner)
             }),
             DeskOp::AnswerToken { token } => {
                 self.write_json(now, |c| c.answer_token(&token, "toast"))
@@ -1675,6 +1703,23 @@ impl Service for StoreService {
         let now = store::to_ms(now);
         self.write(now, |c| {
             crate::board::expire(c.db, now)?;
+            let expired_mutes: Vec<String> = {
+                let mut s =
+                    c.db.prepare("SELECT name FROM owners WHERE muted_until_ms<=?1")
+                        .map_err(db_err)?;
+                s.query_map([now], |r| r.get(0))
+                    .map_err(db_err)?
+                    .collect::<Result<_, _>>()
+                    .map_err(db_err)?
+            };
+            for owner in expired_mutes {
+                c.db.execute(
+                    "UPDATE owners SET muted=0,muted_until_ms=NULL WHERE name=?1",
+                    [&owner],
+                )
+                .map_err(db_err)?;
+                c.event("owner.mute_expired", &owner, json!({}))?;
+            }
             c.apply_defaults()?;
             c.due_toasts()?;
             let expired =
