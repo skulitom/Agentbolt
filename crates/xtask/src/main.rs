@@ -105,7 +105,7 @@ fn main() -> Result<()> {
         // JSON is a subset of YAML; winget accepts this and the generator needs no YAML serializer.
         artifacts.insert(
             "winget/Skulitom.Agentbolt.yaml".into(),
-            pretty(&winget_manifest(&url, &digest))?,
+            [b"# yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.12.0.schema.json\n".as_slice(), &pretty(&winget_manifest(&url, &digest))?].concat(),
         );
     }
     artifacts.insert("SHA256SUMS".into(), checksums(&artifacts).into_bytes());

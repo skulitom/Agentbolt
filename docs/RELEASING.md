@@ -21,6 +21,11 @@ and reads their paths from Cargo. It refuses dirty sources, source changes durin
 versions and existing output folders. Stable ZIP timestamps and ordering make identical inputs produce identical ZIPs.
 It does not install, tag, push, sign or publish anything.
 
+To run the real installer fixture against an extracted Windows ZIP, set `AGENTBOLT_INSTALL_TEST=1`,
+`AGENTBOLT_INSTALL_TEST_EXE` to its absolute `agentbolt.exe` path and `AGENTBOLT_TEST_DAEMON_SESSION` to the
+isolated desktop's session number. Run the `installer` integration test inside that desktop. It creates
+its own fresh channel and verifies installation, upgrade, an open MCP exchange and cleanup.
+
 For Linux, generate notices with `--target x86_64-unknown-linux-gnu`, then use
 `package linux-x64` with the same remaining arguments. Linux binaries retain executable permission in the ZIP.
 Notices cover the workspace's selected target, including the packaging tools, rather than understating licenses.

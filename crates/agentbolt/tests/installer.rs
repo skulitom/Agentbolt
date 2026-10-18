@@ -119,6 +119,17 @@ impl Mcp {
 }
 
 fn cli() -> PathBuf {
+    // Exercise an extracted release's actual installer as well as Cargo's normal test binary.
+    if std::env::var("AGENTBOLT_INSTALL_TEST").as_deref() == Ok("1")
+        && let Some(exe) = std::env::var_os("AGENTBOLT_INSTALL_TEST_EXE")
+    {
+        let exe = PathBuf::from(exe);
+        assert!(
+            exe.is_absolute() && exe.is_file(),
+            "test installer must be an existing absolute path"
+        );
+        return exe;
+    }
     PathBuf::from(env!("CARGO_BIN_EXE_agentbolt"))
 }
 

@@ -75,7 +75,8 @@ jobs:
           Invoke-WebRequest 'https://raw.githubusercontent.com/ScoopInstaller/Scoop/master/schema.json' -OutFile target/scoop.schema.json
           Invoke-WebRequest 'https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json' -OutFile target/mcp.schema.json
           foreach ($pair in @(@('winget/Skulitom.Agentbolt.yaml', 'winget'), @('scoop/agentbolt.json', 'scoop'), @('server.json', 'mcp'))) {
-            if (!(Get-Content "target/dist/$($pair[0])" -Raw | Test-Json -SchemaFile "target/$($pair[1]).schema.json")) {
+            $json = (Get-Content "target/dist/$($pair[0])" -Raw) -replace '(?m)^#.*\r?\n', ''
+            if (!($json | Test-Json -SchemaFile "target/$($pair[1]).schema.json")) {
               throw "Invalid $($pair[1]) manifest"
             }
           }
