@@ -1612,9 +1612,22 @@ fn handles_survive_disconnects_and_expire_after_a_week_of_silence() {
 fn codex_interactive_owners_get_their_answers_queued() {
     let t = T::new();
     t.set_owner("codex-nestbolt", "approved", true, false);
-    let h = t
-        .register_full(Some("codex-nestbolt"), Some("thread-019"), None)
-        .handle;
+    let thread_id = "01a1503a-5165-7e62-a9ba-88c35a72cfce";
+    let register = |client: &str, session: &str| -> String {
+        let r: RegisterResult = de(t
+            .mcp(McpOp::Register {
+                owner: Some("codex-nestbolt".into()),
+                client: client.into(),
+                session_ref: Some(session.into()),
+                cwd: None,
+                doing: None,
+                provisional_key: None,
+            })
+            .unwrap()
+            .0);
+        r.handle
+    };
+    let h = register("Codex", thread_id);
     let asked = t.ask(&h, t.input("Use the faster solver?"));
     let (_, fx) = t.answer(&asked.id, "Yes").unwrap();
     let queued: Vec<_> = fx
@@ -1631,9 +1644,24 @@ fn codex_interactive_owners_get_their_answers_queued() {
     assert_eq!(queued.len(), 1);
     assert_eq!(
         (queued[0].0.as_str(), queued[0].1.as_str()),
-        (asked.id.as_str(), "thread-019")
+        (asked.id.as_str(), thread_id)
     );
     assert!(queued[0].2.contains("\"Yes\"") && queued[0].2.contains("Artem answered"));
+    assert!(t.svc.codex_delivery_allowed(&asked.id, thread_id));
+    assert!(!t.svc.codex_delivery_allowed(&asked.id, "ffffffffffffffff"));
+    t.set_owner("codex-nestbolt", "approved", false, false);
+    assert!(
+        !t.svc.codex_delivery_allowed(&asked.id, thread_id),
+        "revoking permission affects an already queued job"
+    );
+    t.set_owner("codex-nestbolt", "approved", true, false);
+    for (client, session) in [("claude-code", thread_id), ("codex", "--not-a-thread")] {
+        let h = register(client, session);
+        let ask = t.ask(&h, t.input(&format!("Wrong destination {client}")));
+        let (_, fx) = t.answer(&ask.id, "No").unwrap();
+        assert!(!fx.iter().any(|e| matches!(e, Effect::CodexQueue { .. })));
+        assert!(!t.svc.codex_delivery_allowed(&ask.id, session));
+    }
 
     // A default is queued too, saying it carries no authority.
     let later = t.ask(&h, t.due_in(t.input("Second"), Duration::hours(1)));

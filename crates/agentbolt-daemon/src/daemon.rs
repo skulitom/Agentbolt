@@ -22,6 +22,9 @@ pub const POLL: Duration = Duration::from_millis(250);
 
 /// What the daemon needs beyond the `Service` trait.
 pub trait DaemonService: Service {
+    fn codex_delivery_allowed(&self, _ask_id: &str, _thread: &str) -> bool {
+        false
+    }
     fn record_delivery(
         &self,
         ask_id: &str,
@@ -266,6 +269,11 @@ pub async fn effects_loop(
     handler_ok: bool,
 ) {
     let mut push = ntfy::PushState::default();
+    let delivery = crate::delivery::Pool::new(shared.clone())
+        .map_err(|e| {
+            error!("couldn't start Codex delivery workers: {e}");
+        })
+        .ok();
     let mut every = tokio::time::interval(Duration::from_secs(1));
     every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
@@ -293,8 +301,11 @@ pub async fn effects_loop(
                         }
                     }
                     Event::Effect(Effect::CodexQueue { ask_id, thread, text }) => {
-                        let shared = shared.clone();
-                        tokio::task::spawn_blocking(move || deliver_to_codex(&shared, &ask_id, &thread, &text));
+                        let job = crate::delivery::Job { ask_id, thread, text };
+                        let submitted = match &delivery { Some(pool) => pool.submit(job), None => Err(job) };
+                        if let Err(job) = submitted {
+                            crate::delivery::failed(&shared, &job, "Codex delivery queue unavailable or full; retrieve this durable answer with desk_answers");
+                        }
                     }
                     Event::Settings(settings) => {
                         paused = settings.toasts_off;
@@ -355,6 +366,15 @@ fn show_toast(
 }
 
 pub fn deliver_to_codex(shared: &Shared, ask_id: &str, thread: &str, text: &str) {
+    if !shared.svc.codex_delivery_allowed(ask_id, thread) {
+        let _ = shared.svc.record_delivery(
+            ask_id,
+            thread,
+            false,
+            Some("Codex wake permission is off or the original host thread is unverified"),
+        );
+        return;
+    }
     deliver_with(shared, codex::find(), ask_id, thread, text);
 }
 

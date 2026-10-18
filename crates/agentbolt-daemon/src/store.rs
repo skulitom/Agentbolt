@@ -8,6 +8,9 @@ use agentbolt_core::channel::Names;
 use crate::daemon::DaemonService;
 
 impl DaemonService for StoreService {
+    fn codex_delivery_allowed(&self, ask_id: &str, thread: &str) -> bool {
+        StoreService::codex_delivery_allowed(self, ask_id, thread)
+    }
     fn record_delivery(
         &self,
         ask_id: &str,

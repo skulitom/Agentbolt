@@ -12,6 +12,7 @@
 
 mod codex;
 mod daemon;
+mod delivery;
 // The tray icon and toast XML are drawn and built everywhere (and tested on Linux CI), but shown only on Windows.
 #[cfg_attr(not(windows), allow(dead_code))]
 mod icon;

@@ -104,3 +104,15 @@ without another MCP call. Tests cover the exact cooldown boundary, separate owne
 no repeated tick alerts and the existing notification's buttons answering only its displayed ask.
 Windows workspace tests and all-target lint pass. Live toast rendering/activation and the new GUI controls
 remain unverified.
+
+## Delivery isolation
+
+Codex queue work now has two dedicated workers and a bounded 32-job waiting queue, independent of the
+daemon's request/store workers. Saturation records an unsuccessful delivery; the durable answer remains
+available through `desk_answers`. A blocked-worker test verifies the concurrency limit, queue bound and
+continued availability of request workers.
+
+Delivery also requires a validated Codex host thread, rather than any session belonging to an owner with
+Codex wake enabled. Permission is checked again immediately before execution, so revoking it on the Desk
+also affects waiting deliveries. Regression tests cover revocation, wrong client type and malformed ids.
+Actual active/idle/finished-thread delivery and sandbox-policy preservation remain unverified.

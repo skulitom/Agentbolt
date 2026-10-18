@@ -168,6 +168,18 @@ impl StoreService {
             .map(|_| ())
     }
 
+    /// Recheck immediately before queued delivery: an owner may have revoked wake permission while waiting.
+    pub fn codex_delivery_allowed(&self, ask_id: &str, thread: &str) -> bool {
+        let conn = self.lock();
+        let Ok(Some(row)) = store::ask_row(&conn, ask_id) else {
+            return false;
+        };
+        is_answered(row.status)
+            && row.asking_session.as_deref() == Some(thread)
+            && is_codex_chat(&row)
+            && store::owner(&conn, &row.owner).is_ok_and(|o| o.is_some_and(|o| o.codex_interactive))
+    }
+
     /// Mint fresh toast buttons (label, token) for an open or digest ask that may have them (reversible,
     /// choose/approve, up to 5 options); None otherwise. `Effect::Toast` already carries buttons for new asks;
     /// this is for showing a toast again.
@@ -350,6 +362,16 @@ fn is_pending(s: AskStatus) -> bool {
 
 fn is_answered(s: AskStatus) -> bool {
     matches!(s, AskStatus::Answered | AskStatus::Defaulted)
+}
+
+fn is_codex_chat(row: &AskRow) -> bool {
+    matches!(
+        crate::navigation::ChatTarget::from_host(
+            row.asking_client.as_deref().unwrap_or_default(),
+            row.asking_session.as_deref()
+        ),
+        Some(crate::navigation::ChatTarget::Codex(_))
+    )
 }
 
 fn opt_line(s: Option<String>, max: usize, what: &str) -> Result<Option<String>, String> {
@@ -660,6 +682,7 @@ impl Ctx<'_> {
         let owner = store::owner(self.db, &row.owner).map_err(db_err)?;
         if let (Some(o), Some(thread)) = (owner, &row.asking_session)
             && o.codex_interactive
+            && is_codex_chat(row)
         {
             self.effects.push(Effect::CodexQueue {
                 ask_id: row.id.clone(),
