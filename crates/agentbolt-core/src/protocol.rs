@@ -49,6 +49,11 @@ pub enum McpOp {
         handle: String,
         doing: Option<String>,
     },
+    /// Propose a name, without binding it, sharing answers, or granting any owner privileges.
+    RequestOwner {
+        handle: String,
+        requested_owner: String,
+    },
     Ask {
         handle: String,
         ask: AskInput,
@@ -85,6 +90,8 @@ pub struct RegisterResult {
     pub handle: String,
     pub owner: String,
     pub provisional: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_owner: Option<String>,
     /// Answered asks of this owner not yet delivered.
     pub answers: Vec<Ask>,
     /// This owner's asks still open or in the digest.
@@ -180,6 +187,12 @@ pub enum DeskOp {
     Owners,
     SetOwner {
         owner: Owner,
+    },
+    /// Resolve exactly the proposal displayed by the Desk; stale proposals are refused.
+    ResolveOwner {
+        owner: String,
+        requested_owner: String,
+        approve: bool,
     },
     GetSettings,
     SetSettings {

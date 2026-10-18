@@ -73,7 +73,8 @@ pub fn tools() -> Vec<Tool> {
             json!({"type": "object", "properties": {
                 "handle": {"type": "string", "description": HANDLE},
                 "doing": {"type": "string", "description": "One line: what you're working on"},
-                "cwd": {"type": "string", "description": "Your working folder, if not the server's"}
+                "cwd": {"type": "string", "description": "Your working folder, if not the server's"},
+                "requested_owner": {"type": "string", "description": "Propose an unused stable name; takes effect only after Desk approval"}
             }}),
             false,
         ),
@@ -399,8 +400,15 @@ pub fn register_line(v: &Value) -> String {
     } else {
         ""
     };
+    let proposal = v
+        .get("requested_owner")
+        .and_then(Value::as_str)
+        .map(|name| {
+            format!(" Proposed name '{name}' awaits Desk approval; your owner has not changed.")
+        })
+        .unwrap_or_default();
     format!(
-        "Registered as owner {owner}{provisional}, handle {handle}: {} waiting, {} open.",
+        "Registered as owner {owner}{provisional}, handle {handle}: {} waiting, {} open.{proposal}",
         plural(answers, "answer", "answers"),
         plural(open, "ask", "asks")
     )

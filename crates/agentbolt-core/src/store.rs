@@ -124,6 +124,13 @@ CREATE INDEX asks_toast_pending ON asks(status, toast_notified, deadline_ms);
 UPDATE owners SET last_toast_ms = (SELECT MAX(t.created_ms) FROM toasts t JOIN asks a ON a.id = t.ask_id WHERE a.owner = owners.name);
 UPDATE asks SET toast_notified = 1 WHERE id IN (SELECT ask_id FROM toasts);
 "#,
+    r#"
+ALTER TABLE owners ADD COLUMN requested_owner TEXT;
+CREATE TABLE owner_bindings (
+    provisional TEXT PRIMARY KEY,
+    owner TEXT NOT NULL REFERENCES owners(name)
+) WITHOUT ROWID;
+"#,
 ];
 
 pub(crate) fn db_err(e: rusqlite::Error) -> String {
@@ -465,13 +472,14 @@ fn map_owner(r: &Row<'_>) -> rusqlite::Result<Owner> {
         relay: r.get(3)?,
         muted: r.get(4)?,
         not_needed_count: r.get(5)?,
+        requested_owner: r.get(6)?,
     })
 }
 
 pub(crate) fn owner(conn: &Connection, name: &str) -> rusqlite::Result<Option<Owner>> {
     conn.query_row(
         "SELECT name, binding, codex_interactive, relay, muted,
-         (SELECT COUNT(*) FROM answers a JOIN asks k ON k.id = a.ask_id WHERE k.owner = owners.name AND a.via = 'not_needed')
+         (SELECT COUNT(*) FROM answers a JOIN asks k ON k.id = a.ask_id WHERE k.owner = owners.name AND a.via = 'not_needed'), requested_owner
          FROM owners WHERE name = ?1",
         [name],
         map_owner,
@@ -496,7 +504,7 @@ pub(crate) fn owners_for_desk(
 ) -> rusqlite::Result<(Vec<Owner>, u32)> {
     let mut kept = conn.prepare(&format!(
         "SELECT name, binding, codex_interactive, relay, muted,
-         (SELECT COUNT(*) FROM answers a JOIN asks k ON k.id = a.ask_id WHERE k.owner = owners.name AND a.via = 'not_needed')
+         (SELECT COUNT(*) FROM answers a JOIN asks k ON k.id = a.ask_id WHERE k.owner = owners.name AND a.via = 'not_needed'), requested_owner
          FROM owners WHERE {KEPT_OWNER} ORDER BY name"
     ))?;
     let mut owners: Vec<Owner> = kept
@@ -504,7 +512,7 @@ pub(crate) fn owners_for_desk(
         .collect::<rusqlite::Result<_>>()?;
     let mut provisional = conn.prepare(&format!(
         "SELECT o.name, o.binding, o.codex_interactive, o.relay, o.muted,
-         (SELECT COUNT(*) FROM answers a JOIN asks k ON k.id = a.ask_id WHERE k.owner = o.name AND a.via = 'not_needed')
+         (SELECT COUNT(*) FROM answers a JOIN asks k ON k.id = a.ask_id WHERE k.owner = o.name AND a.via = 'not_needed'), o.requested_owner
          FROM owners o WHERE NOT {KEPT_OWNER}
          ORDER BY {OWNER_ACTIVITY} DESC, o.name LIMIT ?1"
     ))?;
@@ -546,11 +554,23 @@ pub(crate) fn upsert_owner(conn: &Connection, o: &Owner, now_ms: i64) -> rusqlit
     Ok(())
 }
 
+pub(crate) fn approved_owner(
+    conn: &Connection,
+    provisional: &str,
+) -> rusqlite::Result<Option<String>> {
+    conn.query_row(
+        "SELECT owner FROM owner_bindings WHERE provisional = ?1",
+        [provisional],
+        |r| r.get(0),
+    )
+    .optional()
+}
+
 // ---- agents ----
 
 const AGENT_SELECT: &str =
     "SELECT a.handle, a.owner, COALESCE(o.binding, 'pending'), a.client, a.session_ref, a.cwd,
-                                   a.machine, a.doing, a.registered_ms, a.last_seen_ms, COALESCE(o.muted, 0)
+                                   a.machine, a.doing, a.registered_ms, a.last_seen_ms, COALESCE(o.muted, 0), o.requested_owner
                             FROM agents a LEFT JOIN owners o ON o.name = a.owner";
 
 fn map_agent(r: &Row<'_>) -> rusqlite::Result<Agent> {
@@ -560,6 +580,7 @@ fn map_agent(r: &Row<'_>) -> rusqlite::Result<Agent> {
         owner: r.get(1)?,
         provisional: binding == "pending",
         muted: r.get(10)?,
+        requested_owner: r.get(11)?,
         client: r.get(3)?,
         session_ref: r.get(4)?,
         cwd: r.get(5)?,

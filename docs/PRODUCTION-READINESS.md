@@ -172,3 +172,25 @@ installer tests passed in 7.94 seconds. This does not yet cover an open Desk dur
 soak. Workspace tests and all-target lint also pass.
 
 `cargo-deny 0.20.2 check licenses` passes (three harmless unused-license-allowance warnings).
+
+## Owner-name proposals
+
+`desk_register` accepts `requested_owner`. The daemon keeps the session provisional until the Desk approves
+the exact current proposal. The Desk lists it in Settings and Agents and shows a pending-name count on the
+Settings tab. Reject clears the proposal. Approval atomically renames the owner, its agents and its asks,
+preserving answers, dedupe, caps, mute and toast cooldown. A durable binding lets the same host session
+re-register under its approved name after a daemon restart or handle expiry.
+
+Proposals cannot rename a configured/approved owner or join an existing one; intentionally sharing an
+existing owner requires the host's `--owner` configuration. Another session cannot claim an approved name.
+Stale approvals and collisions fail without changing anything, and approval has no MCP-pipe operation.
+No relay or wake permission is added. Without a host session id, approval applies to that MCP process's
+identity; a new process needs configuration or its own approval.
+
+Four store regression tests cover authority, isolation, stale/conflicting proposals, preserved state and
+restart/expiry. Windows workspace tests (72 core tests) and all-target clippy pass. Linux core/MCP tests
+and clippy pass. The release `owner_name_review_through_mcp_and_the_real_desk` fixture passed in Anode:
+reject the first proposal, approve the second, then verify re-registration, the retained ask and dedupe.
+Every MCP result in this test had matching complete text and structured branches. Its processes and data
+were removed. This exercises the real MCP executable with a test client; live Claude/Codex host checks
+remain pending.

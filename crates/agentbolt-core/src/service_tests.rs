@@ -21,6 +21,191 @@ use crate::{rules, store};
 
 const START: OffsetDateTime = datetime!(2026-10-19 09:00 UTC);
 
+fn propose(t: &T, handle: &str, name: &str) -> Result<Owner, String> {
+    t.mcp(McpOp::RequestOwner {
+        handle: handle.into(),
+        requested_owner: name.into(),
+    })
+    .map(|r| de(r.0))
+}
+
+fn resolve(owner: &str, requested: &str, approve: bool) -> DeskOp {
+    DeskOp::ResolveOwner {
+        owner: owner.into(),
+        requested_owner: requested.into(),
+        approve,
+    }
+}
+
+#[test]
+fn owner_proposals_grant_no_authority_and_only_the_desk_can_approve() {
+    let t = T::new();
+    let reg = t.register_full(None, Some("proposal-session"), None);
+    let proposed = propose(&t, &reg.handle, "my-project").unwrap();
+    assert_eq!(proposed.name, reg.owner);
+    assert_eq!(proposed.binding, "pending");
+    assert!(!proposed.codex_interactive && !proposed.relay);
+    assert_eq!(proposed.requested_owner.as_deref(), Some("my-project"));
+    assert!(
+        t.mcp(McpOp::RelayList {
+            handle: reg.handle.clone()
+        })
+        .is_err()
+    );
+    let mut urgent = t.input("Proposing does not buy P0");
+    urgent.priority = Priority::P0;
+    urgent.p0_reason = Some("Urgent test".into());
+    let ask = t.ask(&reg.handle, urgent);
+    assert_eq!(t.list().inbox[0].input.priority, Priority::P1);
+    let approval = resolve(&reg.owner, "my-project", true);
+    assert!(serde_json::from_value::<McpOp>(serde_json::to_value(&approval).unwrap()).is_err());
+    let approved: Owner = de(t.desk(approval).unwrap().0);
+    assert_eq!(approved.name, "my-project");
+    assert_eq!(approved.binding, "approved");
+    assert!(approved.requested_owner.is_none());
+    assert!(!approved.codex_interactive && !approved.relay);
+    t.answer(&ask.id, "No").unwrap();
+    assert_eq!(
+        t.answers(&reg.handle, &[&ask.id]).answers[0].owner,
+        "my-project"
+    );
+    assert_eq!(propose(&t, &reg.handle, "my-project").unwrap(), approved);
+    assert!(propose(&t, &reg.handle, "another-project").is_err());
+    let other = t.register_full(None, Some("different-session"), None);
+    assert!(
+        propose(&t, &other.handle, "my-project")
+            .unwrap_err()
+            .contains("already in use")
+    );
+    assert_eq!(t.answers(&other.handle, &[&ask.id]).unknown, [ask.id]);
+    assert!(t.status().chain_ok);
+}
+
+#[test]
+fn stale_conflicting_and_invalid_owner_proposals_are_refused_without_mutation() {
+    let t = T::new();
+    let a = t.register_full(None, Some("proposal-a"), None);
+    let b = t.register_full(None, Some("proposal-b"), None);
+    for name in ["", "session:forged", "has spaces", "bad\nname"] {
+        assert!(propose(&t, &a.handle, name).is_err());
+    }
+    assert_eq!(propose(&t, "unknown", "name").unwrap_err(), UNKNOWN_HANDLE);
+    propose(&t, &a.handle, "first-name").unwrap();
+    propose(&t, &a.handle, "second-name").unwrap();
+    assert!(t.desk(resolve(&a.owner, "first-name", true)).is_err());
+    assert!(t.desk(resolve(&a.owner, "first-name", false)).is_err());
+    let mut stale: Owner = de(t.desk(DeskOp::Owners).unwrap().0["owners"][0].clone());
+    stale.name = a.owner.clone();
+    stale.binding = "approved".into();
+    assert!(t.desk(DeskOp::SetOwner { owner: stale }).is_err());
+    let rejected: Owner = de(t.desk(resolve(&a.owner, "second-name", false)).unwrap().0);
+    assert_eq!(rejected.binding, "pending");
+    assert!(rejected.requested_owner.is_none());
+    assert!(t.desk(resolve(&a.owner, "second-name", true)).is_err());
+    propose(&t, &a.handle, "shared-name").unwrap();
+    propose(&t, &b.handle, "shared-name").unwrap();
+    t.desk(resolve(&a.owner, "shared-name", true)).unwrap();
+    assert!(
+        t.desk(resolve(&b.owner, "shared-name", true))
+            .unwrap_err()
+            .contains("already in use")
+    );
+    let again = t.register_full(None, Some("proposal-b"), None);
+    assert!(again.provisional);
+    assert_eq!(again.requested_owner.as_deref(), Some("shared-name"));
+    let config = t.register("configured-owner");
+    assert!(propose(&t, &config, "other-name").is_err());
+    assert!(t.status().chain_ok);
+}
+
+#[test]
+fn approved_names_preserve_caps_dedupe_mute_and_toast_cooldown() {
+    let t = T::new();
+    let reg = t.register_full(None, Some("preserve-owner-state"), None);
+    let first = t.ask(&reg.handle, urgent(&t, "First"));
+    t.ask(&reg.handle, t.input("Second"));
+    t.ask(&reg.handle, t.input("Third"));
+    t.desk(DeskOp::SetMuted {
+        owner: reg.owner.clone(),
+        muted: true,
+    })
+    .unwrap();
+    let before = t
+        .svc
+        .conn_for_tests()
+        .query_row(
+            "SELECT last_toast_ms FROM owners WHERE name = ?1",
+            [&reg.owner],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap();
+    let stale = propose(&t, &reg.handle, "preserved").unwrap();
+    let approved: Owner = de(t.desk(resolve(&reg.owner, "preserved", true)).unwrap().0);
+    assert!(approved.muted);
+    assert!(t.desk(DeskOp::SetOwner { owner: stale }).is_err());
+    let after = t
+        .svc
+        .conn_for_tests()
+        .query_row(
+            "SELECT last_toast_ms FROM owners WHERE name = 'preserved'",
+            [],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap();
+    assert_eq!(before, after);
+    assert_eq!(t.ask(&reg.handle, urgent(&t, "First")).id, first.id);
+    assert_eq!(t.ask(&reg.handle, t.input("Fourth")).placed, "cap");
+    let reopened = t.register_full(None, Some("preserve-owner-state"), None);
+    assert_eq!(reopened.owner, "preserved");
+    assert!(!reopened.provisional);
+    assert_eq!(reopened.open_asks.len(), 3);
+    assert!(
+        reopened
+            .open_asks
+            .iter()
+            .all(|a| a.muted && a.owner == "preserved")
+    );
+    t.desk(DeskOp::NotNeeded {
+        ask_id: first.id,
+        note: None,
+    })
+    .unwrap();
+    let owners: OwnersResult = de(t.desk(DeskOp::Owners).unwrap().0);
+    assert_eq!(owners.owners.len(), 1);
+    assert_eq!(owners.owners[0].not_needed_count, 1);
+}
+
+#[test]
+fn owner_approval_and_answers_survive_daemon_restart_and_handle_expiry() {
+    let dir =
+        std::env::temp_dir().join(format!("agentbolt-owner-{}", crate::tokens::random_hex(6)));
+    let db = dir.join("desk.sqlite");
+    let id;
+    {
+        let t = T::with(StoreService::open(&db).unwrap());
+        let reg = t.register_full(None, Some("durable-owner-session"), None);
+        id = t.ask(&reg.handle, t.input("Before owner approval")).id;
+        t.answer(&id, "No").unwrap();
+        propose(&t, &reg.handle, "durable-owner").unwrap();
+        t.desk(resolve(&reg.owner, "durable-owner", true)).unwrap();
+    }
+    {
+        let t = T::with(StoreService::open(&db).unwrap());
+        t.advance(Duration::days(8));
+        t.tick();
+        let reg = t.register_full(None, Some("durable-owner-session"), None);
+        assert_eq!(reg.owner, "durable-owner");
+        assert!(!reg.provisional);
+        assert_eq!(reg.answers[0].id, id);
+        assert_eq!(
+            reg.answers[0].answer.as_ref().unwrap().choice.as_deref(),
+            Some("No")
+        );
+        assert!(t.status().chain_ok);
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[test]
 fn a_batch_is_desk_only_atomic_and_rejects_stale_or_duplicate_items() {
     use crate::protocol::{BatchAnswerResult, DeskAnswer};
@@ -278,6 +463,7 @@ impl T {
     fn set_owner(&self, name: &str, binding: &str, codex_interactive: bool, relay: bool) {
         let owner = Owner {
             name: name.into(),
+            requested_owner: None,
             binding: binding.into(),
             codex_interactive,
             relay,
@@ -1600,6 +1786,10 @@ fn every_handle_op_needs_a_known_handle() {
         McpOp::Heartbeat {
             handle: "hnope".into(),
             doing: None,
+        },
+        McpOp::RequestOwner {
+            handle: "hnope".into(),
+            requested_owner: "name".into(),
         },
         McpOp::Ask {
             handle: "hnope".into(),

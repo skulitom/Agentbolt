@@ -37,6 +37,11 @@ agent ──stdio──► agentbolt mcp ──user-only pipe──► agentbolt
   the same notification with “N more waiting”. P2 questions notify when due within two hours. Mark a question
   **Not needed** to tell the agent it was unnecessary, or **Mute this agent** to keep its questions silently at
   the bottom until unmuted. The Desk counts unnecessary questions per owner.
+- **Owner names:** agents can propose `requested_owner` through `desk_register`. Review it in Settings;
+  approval renames that session's owner while preserving its questions, answers and preferences. A proposal
+  cannot claim a name already in use or grant relay/wake permissions. To share an existing owner across
+  sessions, configure `agentbolt mcp --owner NAME` in the host. An unconfigured process without a host session
+  ID gets a new provisional identity when it restarts.
 
 ## Install
 ```powershell

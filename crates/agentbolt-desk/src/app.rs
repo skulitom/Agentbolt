@@ -80,6 +80,8 @@ pub struct DeskApp {
     last_list: Option<Instant>,
     agents_inflight: bool,
     last_agents: Option<Instant>,
+    owners_inflight: bool,
+    last_owners: Option<Instant>,
     /// Whether the window was seen (focused, not minimized) on the last frame: seeing it again lists at once.
     was_seen: bool,
     /// Whether the selected ask's local evidence paths exist, checked once per selection.
@@ -146,6 +148,8 @@ impl DeskApp {
             last_list: None,
             agents_inflight: false,
             last_agents: None,
+            owners_inflight: false,
+            last_owners: None,
             was_seen: false,
             paths: view::PathCache::default(),
         }
@@ -238,6 +242,7 @@ impl DeskApp {
                     self.agents = r.agents;
                 }
                 Resp::Owners(r) => {
+                    self.owners_inflight = false;
                     self.owners = r.owners;
                     self.more_owners = r.more_provisional;
                 }
@@ -246,7 +251,7 @@ impl DeskApp {
                         Ok(name) => self.note(format!("Saved owner {name}"), false),
                         Err(e) => self.note(format!("Couldn't save the owner: {e}"), true),
                     }
-                    self.send(Req::Owners);
+                    self.last_owners = None;
                     self.last_agents = None;
                     self.last_list = None;
                 }
@@ -276,6 +281,7 @@ impl DeskApp {
                     match what {
                         "the Inbox" => self.list_inflight = false,
                         "the agents" => self.agents_inflight = false,
+                        "the owners" => self.owners_inflight = false,
                         _ => {}
                     }
                     if not_running || what == "the Inbox" {
@@ -316,13 +322,23 @@ impl DeskApp {
             });
         }
         if self.tab == Tab::Agents
-            && !minimized
+            && seen
             && !self.agents_inflight
             && self.last_agents.is_none_or(|t| t.elapsed() >= POLL)
         {
             self.agents_inflight = true;
             self.last_agents = Some(Instant::now());
             self.send(Req::Agents);
+        }
+        if seen
+            && !self.owners_inflight
+            && self
+                .last_owners
+                .is_none_or(|t| t.elapsed() >= Duration::from_secs(5))
+        {
+            self.owners_inflight = true;
+            self.last_owners = Some(Instant::now());
+            self.send(Req::Owners);
         }
         ctx.request_repaint_after(POLL);
     }
@@ -335,7 +351,7 @@ impl DeskApp {
         match tab {
             Tab::Settings => {
                 self.send(Req::GetSettings);
-                self.send(Req::Owners);
+                self.last_owners = None;
             }
             Tab::Agents => self.last_agents = None,
             _ => {}
@@ -353,7 +369,18 @@ impl DeskApp {
                     ),
                 ),
                 (Tab::Agents, "Agents".to_string()),
-                (Tab::Settings, "Settings".to_string()),
+                (Tab::Settings, {
+                    let pending = self
+                        .owners
+                        .iter()
+                        .filter(|o| o.requested_owner.is_some())
+                        .count();
+                    if pending == 0 {
+                        "Settings".into()
+                    } else {
+                        format!("Settings ({pending} names to review)")
+                    }
+                }),
             ];
             for (tab, label) in tabs {
                 if ui
@@ -776,7 +803,12 @@ impl DeskApp {
                             } else {
                                 a.owner.clone()
                             };
-                            ui.label(owner);
+                            ui.vertical(|ui| {
+                                ui.label(owner);
+                                if let Some(proposed) = &a.requested_owner {
+                                    ui.weak(format!("Proposes: {proposed} (review in Settings)"));
+                                }
+                            });
                             ui.label(&a.client);
                             let doing = a.doing.as_deref().unwrap_or("");
                             let short: String = doing.chars().take(60).collect();
@@ -866,6 +898,7 @@ impl DeskApp {
                 ));
             }
             let mut changed = None;
+            let mut resolve = None;
             egui::Grid::new("owners").striped(true).num_columns(7).spacing([16.0, 6.0]).show(ui, |ui| {
                 for h in ["Owner", "Bound by", "", "Codex may be woken", "Relay", "Muted", "Not needed"] {
                     ui.strong(h);
@@ -874,7 +907,19 @@ impl DeskApp {
                 for o in &self.owners {
                     ui.label(&o.name);
                     ui.label(&o.binding);
-                    if o.binding == "pending" {
+                    if let Some(proposed) = &o.requested_owner {
+                        ui.vertical(|ui| {
+                            ui.label(format!("Proposed name: {proposed}"));
+                            ui.horizontal(|ui| {
+                                if ui.button("Approve name").on_hover_text("Keep this session's asks and settings under this name. No access to another owner's answers.").clicked() {
+                                    resolve = Some(Req::ResolveOwner { owner: o.name.clone(), requested_owner: proposed.clone(), approve: true });
+                                }
+                                if ui.button("Reject name").clicked() {
+                                    resolve = Some(Req::ResolveOwner { owner: o.name.clone(), requested_owner: proposed.clone(), approve: false });
+                                }
+                            });
+                        });
+                    } else if o.binding == "pending" {
                         if ui.button("Approve").clicked() {
                             changed = Some(Owner { binding: "approved".into(), ..o.clone() });
                         }
@@ -899,6 +944,9 @@ impl DeskApp {
             });
             if let Some(o) = changed {
                 self.send(Req::SetOwner(o));
+            }
+            if let Some(req) = resolve {
+                self.send(req);
             }
         });
     }

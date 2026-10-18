@@ -234,15 +234,31 @@ impl DeskServer {
         let out = match name {
             tools::REGISTER => {
                 let doing = tools::str_arg(args, "doing")?;
+                let requested = tools::str_arg(args, "requested_owner")?;
+                if let Some(name) = &requested {
+                    agentbolt_core::rules::check_owner_name(name.trim())?;
+                }
                 if let Some(h) = handle {
                     // Renew the handle, and report what's waiting.
-                    self.daemon
+                    let mut agent = self
+                        .daemon
                         .call(&McpOp::Heartbeat {
                             handle: h.clone(),
                             doing,
                         })
                         .await
                         .map_err(|e| e.to_string())?;
+                    if let Some(requested_owner) = requested {
+                        let owner = self
+                            .daemon
+                            .call(&McpOp::RequestOwner {
+                                handle: h.clone(),
+                                requested_owner,
+                            })
+                            .await
+                            .map_err(|e| e.to_string())?;
+                        agent["requested_owner"] = owner["requested_owner"].clone();
+                    }
                     let answers = self
                         .daemon
                         .call(&McpOp::Answers {
@@ -253,17 +269,39 @@ impl DeskServer {
                         .await
                         .map_err(|e| e.to_string())?;
                     let n = tools::asks_in(&answers).len();
-                    let v = json!({ "handle": h, "renewed": true, "answers": answers });
-                    return Ok(ok(format!("Renewed handle {h}; {n} answer(s) waiting."), v));
+                    let v = json!({ "handle": h, "renewed": true, "answers": answers,
+                        "owner": agent["owner"], "provisional": agent["provisional"], "requested_owner": agent["requested_owner"] });
+                    let pending = agent["requested_owner"].as_str().map(|name| format!(" Proposed name '{name}' awaits Desk approval; your owner has not changed.")).unwrap_or_default();
+                    return Ok(ok(
+                        format!("Renewed handle {h}; {n} answer(s) waiting.{pending}"),
+                        v,
+                    ));
                 }
                 // A `session` argument, if an agent sends one, is ignored: the session comes from the host only.
                 let cwd = tools::str_arg(args, "cwd")?;
-                let v = self.register(&who, cwd, doing).await;
+                let mut v = self.register(&who, cwd, doing).await;
                 if let Ok(v) = &v
                     && let Some(h) = v.get("handle").and_then(Value::as_str)
                 {
                     let key = who.session_ref.clone().unwrap_or_default();
                     self.handles.lock().await.insert(key, h.to_string());
+                }
+                if let Some(requested_owner) = requested
+                    && let Ok(value) = &mut v
+                    && let Some(handle) = value
+                        .get("handle")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                {
+                    let owner = self
+                        .daemon
+                        .call(&McpOp::RequestOwner {
+                            handle,
+                            requested_owner,
+                        })
+                        .await
+                        .map_err(|e| e.to_string())?;
+                    value["requested_owner"] = owner["requested_owner"].clone();
                 }
                 v.map(|v| (tools::register_line(&v), v))
             }
