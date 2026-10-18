@@ -1,7 +1,48 @@
 # Next: from 0.1 to production
 
-The design and milestones are in Compass's `work/2026-10-18-agentbolt/PLAN.md` (v3). 0.1 is M0 plus most of M1. This
-list is what's left before a public release.
+The design and milestones are in Compass's `work/2026-10-18-agentbolt/PLAN.md` (v4). 0.1 is M0 plus most of M1. This
+list is what's left before a public release. Do the first section first.
+
+## From Artem's first use (2026-10-18; PLAN.md v4, "Status, and Artem's feedback")
+1. **The Desk opens fast.** His words: "It took a while for the window to load."
+   - Instrument process start, window shown, first frame and the first `List` answer.
+   - Targets on this PC, cold: the window within 300 ms of the click, and the Inbox filled within 1 s.
+   - Measure the suspects before changing anything: glow/OpenGL start-up, accesskit, the font atlas, and anything
+     that runs before the first frame.
+   - If a cold start can't meet the target, keep one warm Desk process that the daemon starts at sign-in, and the tray
+     shows and hides it. Test it against egui #5229 and #8459. A hidden warm Desk must still list the Inbox (which
+     marks asks shown) only while its window is visible and focused, or it would start default clocks unseen.
+2. **Open chat: jump to the agent that asked.** His words: "a way to navigate to the correct chat (for the agent that
+   sent the request either to the specific Claude code chat (in the desktop application) or codex chat)". Add an
+   **Open chat** button to every ask and every Agents row.
+   - **Claude desktop sessions:** the MCP server builds the link itself, `claude://claude.ai/epitaxy/local_<uuid>`,
+     from the host's `CLAUDE_CODE_HOST_SESSION_ID` (`local_<uuid>`), and doesn't trust a link an agent passes.
+     - First check that MCP server processes inherit that variable.
+     - `get_session("self").link` gives the same link, but the app leaves it out when the organisation turns app
+       links off.
+     - A desktop session is recognised by the presence of the host id, not by `CLAUDE_CODE_SESSION_ID`: that
+       variable is set in desktop sessions too, with a different UUID.
+   - **Claude Code CLI** (no host id): "Resume in a terminal" runs `claude --resume <CLAUDE_CODE_SESSION_ID>`.
+   - **Codex:** first verify that Codex really sends `_meta.threadId`; main reads it, but nobody has checked. Then use
+     the app's deep link, if it has one (research it), or else `codex resume <thread id>`.
+   - **Terminal launch rules (security):**
+     - The command is built only from ids the Desk validates (UUID or hex), never from agent text.
+     - The working folder may be the agent's `cwd` only if it is an existing absolute local folder containing no `;`,
+       quotes or control characters. Otherwise use the user's home folder.
+     - Pass everything as separate arguments (`wt.exe -d <folder> -- claude --resume <id>`), never as a shell
+       string: `wt.exe` treats `;` as a command separator.
+   - **Links** keep the existing link filter's character checks for `claude://`, and for `codex://` if added.
+3. **Remove the daily budget, the digest and the fair share.** His words: "not sure about the inbox budget per day,
+   that doesn't seem like a reasonable metric to measure."
+   - Every ask goes straight to the Inbox, sorted by priority, then deadline.
+   - Keep the owner cap (3 open asks), dedupe, defaults and deadlines.
+   - Toasts: at most one per owner per 10 minutes, the rest folded into "N more waiting". P2 asks toast only when
+     due within 2 hours, as today (rules.rs).
+   - Add a **"Not needed"** answer for any ask (the agent learns it shouldn't have asked; the Desk counts it per
+     owner) and **"Mute this agent"** (its asks land silently at the bottom).
+   - Remove the Digest tab and the `daily_budget` setting.
+   - P0 stays as a priority with nothing to skip, and a provisional owner's P0 is still stored as P1.
+   - Update the tests, the tool descriptions and the README's "Noise control" paragraph to match.
 
 ## M1 checks not yet run
 1. **Clients:** Claude Desktop and Codex list the tools, then ask and answer live; only Claude Code has run live. Test
