@@ -14,7 +14,7 @@ use time::OffsetDateTime;
 use crate::model::{Agent, Answer, AnswerVia, Ask, AskInput, AskStatus, Owner, Priority, Settings};
 use crate::protocol::{
     AgentsResult, AnswerResult, AnswersResult, AskResult, DeskOp, DigestResult, ListResult, McpOp,
-    OwnersResult, RegisterResult, RelayListResult, StatusResult,
+    OwnersResult, RegisterResult, StatusResult,
 };
 use crate::service::{ClientInfo, Effect, Service};
 use crate::store::{self, AskRow, db_err, fmt_ms, status_str};
@@ -532,17 +532,28 @@ impl Ctx<'_> {
         .map_err(db_err)
     }
 
-    fn undelivered_of(&self, owner: &str) -> Result<Vec<Ask>, String> {
-        let rows = store::ask_rows(
-            self.db,
-            &format!(
-                "owner = ?1 AND status IN ('answered', 'defaulted') AND closed_ms >= ?2 AND {UNDELIVERED_TO_ASKER}
-                 ORDER BY closed_ms DESC, rowid DESC LIMIT {ANSWER_LIST_LIMIT}"
-            ),
-            params![owner, self.now - ANSWER_WINDOW_MS],
-        )
-        .map_err(db_err)?;
-        self.full_all(&rows)
+    fn undelivered_of(&self, owner: &str, before: Option<&str>) -> Result<AnswersResult, String> {
+        let boundary = match before {
+            Some(id) => Some(self.db.query_row("SELECT closed_ms,id FROM asks WHERE id=?1 AND owner=?2 AND status IN ('answered','defaulted')",params![id,owner],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?))).optional().map_err(db_err)?.ok_or("answer cursor is unavailable for this owner; refresh")?),
+            None => None,
+        };
+        let mut rows = store::ask_rows(self.db, &format!(
+            "owner=?1 AND status IN ('answered','defaulted') AND closed_ms>=?2 AND {UNDELIVERED_TO_ASKER}
+             AND (?3 IS NULL OR (closed_ms,id)<(?3,?4)) ORDER BY closed_ms DESC,id DESC LIMIT {}", ANSWER_LIST_LIMIT+1),
+            params![owner,self.now-ANSWER_WINDOW_MS,boundary.as_ref().map(|b|b.0),boundary.as_ref().map(|b|b.1.as_str())]
+        ).map_err(db_err)?;
+        let mut more = rows.len() > ANSWER_LIST_LIMIT as usize;
+        rows.truncate(ANSWER_LIST_LIMIT as usize);
+        let answers = self.full_page(&rows, 2 << 20)?;
+        more |= answers.len() < rows.len();
+        rows.truncate(answers.len());
+        Ok(AnswersResult {
+            answers,
+            next: rows.last().map(|r| r.id.clone()),
+            more,
+            waiting: self.pending_of(owner)?.into_iter().map(|a| a.id).collect(),
+            ..AnswersResult::default()
+        })
     }
 
     // ---- toasts ----
@@ -885,6 +896,7 @@ impl Ctx<'_> {
             &owner_name,
             json!({ "client": client_name, "session_ref": session_ref, "cwd": cwd, "machine":machine, "provisional": agent.provisional }),
         )?;
+        let answers = self.undelivered_of(&owner_name, None)?;
         Ok(RegisterResult {
             handle,
             owner: owner_name.clone(),
@@ -892,7 +904,9 @@ impl Ctx<'_> {
             requested_owner: store::owner(self.db, &owner_name)
                 .map_err(db_err)?
                 .and_then(|o| o.requested_owner),
-            answers: self.undelivered_of(&owner_name)?,
+            answers: answers.answers,
+            answers_next: answers.next,
+            more_answers: answers.more,
             open_asks: self.full_all(&self.pending_of(&owner_name)?)?,
         })
     }
@@ -1019,14 +1033,12 @@ impl Ctx<'_> {
         let agent = self.touch(handle, client)?;
         let mut r = AnswersResult::default();
         if ids.is_empty() {
-            r.answers = self.undelivered_of(&agent.owner)?;
-            r.waiting = self
-                .pending_of(&agent.owner)?
-                .into_iter()
-                .map(|a| a.id)
-                .collect();
-            return Ok(r);
+            return self.undelivered_of(&agent.owner, None);
         }
+        if ids.len() > MAX_IDS {
+            return Err("read at most 100 ask IDs at a time".into());
+        }
+        let mut bytes = 0;
         let mut seen = HashSet::new();
         for id in ids
             .iter()
@@ -1039,7 +1051,14 @@ impl Ctx<'_> {
             }
             match self.row(id)? {
                 Some(row) if row.owner == agent.owner => match row.status {
-                    AskStatus::Answered | AskStatus::Defaulted => r.answers.push(self.full(&row)?),
+                    AskStatus::Answered | AskStatus::Defaulted => {
+                        let ask = self.full(&row)?;
+                        bytes += serde_json::to_vec(&ask).map_err(|e| e.to_string())?.len();
+                        if bytes > 4 << 20 {
+                            return Err("These answers are too large for one response; read fewer IDs at a time".into());
+                        }
+                        r.answers.push(ask);
+                    }
                     AskStatus::Open | AskStatus::Digest => r.waiting.push(row.id),
                     AskStatus::Cancelled => r.cancelled.push(row.id),
                 },
@@ -1084,21 +1103,61 @@ impl Ctx<'_> {
         Ok(agent)
     }
 
-    fn relay_list(&self, client: &ClientInfo, handle: &str) -> Result<RelayListResult, String> {
+    fn relay_page(
+        &self,
+        client: &ClientInfo,
+        handle: &str,
+        owners: Vec<String>,
+        before: Option<String>,
+    ) -> Result<Value, String> {
         let agent = self.relay_agent(client, handle)?;
+        if owners.len() > 100 {
+            return Err("at most 100 relay recipient owners".into());
+        }
+        for owner in &owners {
+            rules::check_owner_name(owner)?;
+        }
+        let boundary=match before {
+            Some(id)=>Some(self.db.query_row("SELECT closed_ms,id FROM asks WHERE id=?1 AND status IN ('answered','defaulted')",[id],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?))).optional().map_err(db_err)?.ok_or("relay cursor is unavailable; refresh the list")?),
+            None=>None,
+        };
         // The same 14-day window as an owner's own list, newest first, so old answers can't crowd out new ones.
-        let rows = store::ask_rows(
+        let filter = format!(
+            "owner <> ?1 AND status IN ('answered', 'defaulted') AND closed_ms >= ?2 AND {UNDELIVERED_ANYWHERE} AND (?3='[]' OR owner IN (SELECT value FROM json_each(?3)))"
+        );
+        let total = store::count(
             self.db,
-            &format!(
-                "owner <> ?1 AND status IN ('answered', 'defaulted') AND closed_ms >= ?2 AND {UNDELIVERED_ANYWHERE}
-                 ORDER BY closed_ms DESC, rowid DESC LIMIT {RELAY_LIST_LIMIT}"
-            ),
-            params![agent.owner, self.now - ANSWER_WINDOW_MS],
+            &format!("SELECT COUNT(*) FROM asks WHERE {filter}"),
+            params![
+                agent.owner,
+                self.now - ANSWER_WINDOW_MS,
+                json!(owners).to_string()
+            ],
         )
         .map_err(db_err)?;
-        Ok(RelayListResult {
-            answers: self.full_all(&rows)?,
-        })
+        let mut rows = store::ask_rows(
+            self.db,
+            &format!(
+                "{filter} AND (?4 IS NULL OR (closed_ms,id)<(?4,?5)) ORDER BY closed_ms DESC,id DESC LIMIT {}", RELAY_LIST_LIMIT+1
+            ),
+            params![agent.owner, self.now - ANSWER_WINDOW_MS,json!(owners).to_string(),boundary.as_ref().map(|b|b.0),boundary.as_ref().map(|b|b.1.as_str())],
+        )
+        .map_err(db_err)?;
+        let mut more = rows.len() > RELAY_LIST_LIMIT as usize;
+        rows.truncate(RELAY_LIST_LIMIT as usize);
+        // Handoff text repeats the answer in message and notes form, and MCP mirrors the full result.
+        let answers = self.full_page(&rows, 1 << 20)?;
+        more |= answers.len() < rows.len();
+        rows.truncate(answers.len());
+        let next = rows.last().map(|r| r.id.clone());
+        let handoffs:Vec<_>=answers.iter().filter_map(|ask|ask.answer.as_ref().map(|answer|{
+            let message=rules::codex_text(&ask.id,&ask.input.title,answer);
+            let notes_line=format!("(via desk, ask {}) owner={} {}",ask.id,json!(ask.owner),json!(message));
+            json!({"ask_id":ask.id,"owner":ask.owner,"session_ref":ask.asking_session,"client":ask.asking_client,"machine":ask.asking_machine,"message":message,"notes_line":notes_line})
+        })).collect();
+        Ok(
+            json!({"answers":answers,"handoffs":handoffs,"next":next,"more":more,"total":total,"instruction":"Use next as before while more is true; recipient-owner filtering happens before paging. Relay only through routes your own instructions authorize. Mark delivery only after it succeeds. Notes delivery does not confirm live-session receipt or remove an owner's checkpoint reads."}),
+        )
     }
 
     // ---- Desk operations ----
@@ -1119,6 +1178,94 @@ impl Ctx<'_> {
             row.shown_ms = Some(self.now);
         }
         Ok(())
+    }
+
+    fn history(
+        &self,
+        query: crate::protocol::HistoryQuery,
+    ) -> Result<crate::protocol::HistoryResult, String> {
+        let search = query.search.trim();
+        if search.len() > 800 || search.chars().any(char::is_control) {
+            return Err("history search needs at most 800 bytes without control characters".into());
+        }
+        let boundary=match query.before {
+            Some(id)=>Some(self.db.query_row("SELECT closed_ms,id FROM asks WHERE id=?1 AND status IN ('answered','defaulted','cancelled')",[id],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?))).optional().map_err(db_err)?.ok_or("history page no longer exists; refresh")?),
+            None=>None,
+        };
+        let filter = "status IN ('answered','defaulted','cancelled') AND (?1='' OR instr(lower(owner||' '||id||' '||json_extract(input_json,'$.title')||' '||json_extract(input_json,'$.body')),lower(?1))>0)";
+        let total = store::count(
+            self.db,
+            &format!("SELECT COUNT(*) FROM asks WHERE {filter}"),
+            [search],
+        )
+        .map_err(db_err)?;
+        let mut rows=store::ask_rows(self.db,&format!("{filter} AND (?2 IS NULL OR (closed_ms,id)<(?2,?3)) ORDER BY closed_ms DESC,id DESC LIMIT 51"),params![search,boundary.as_ref().map(|b|b.0),boundary.as_ref().map(|b|b.1.as_str())]).map_err(db_err)?;
+        let mut more = rows.len() > 50;
+        rows.truncate(50);
+        let asks = self.full_page(&rows, 4 << 20)?;
+        more |= asks.len() < rows.len();
+        rows.truncate(asks.len());
+        let next = rows.last().map(|r| r.id.clone());
+        Ok(crate::protocol::HistoryResult {
+            asks,
+            total,
+            next,
+            more,
+        })
+    }
+
+    fn inbox_page(
+        &self,
+        after: Option<crate::protocol::InboxCursor>,
+    ) -> Result<crate::protocol::InboxResult, String> {
+        let total = store::count(self.db, "SELECT COUNT(*) FROM asks WHERE status='open'", [])
+            .map_err(db_err)?;
+        let mut rows = store::ask_rows(self.db,
+            "status='open' AND (?1 IS NULL OR (muted,priority,deadline_ms,created_ms,id)>(?2,?3,?4,?5,?1)) ORDER BY muted,priority,deadline_ms,created_ms,id LIMIT 51",
+            params![after.as_ref().map(|a| &a.id), after.as_ref().map(|a| a.muted), after.as_ref().map(|a| &a.priority), after.as_ref().map(|a| a.deadline_ms), after.as_ref().map(|a| a.created_ms)]
+        ).map_err(db_err)?;
+        let mut more = rows.len() > 50;
+        rows.truncate(50);
+        let inbox = self.full_page(&rows, 4 << 20)?;
+        more |= inbox.len() < rows.len();
+        rows.truncate(inbox.len());
+        // Only the returned page has been presented to the user.
+        self.mark_shown(&mut rows)?;
+        let next = rows.last().map(|a| crate::protocol::InboxCursor {
+            muted: a.muted,
+            priority: format!("{:?}", a.input.priority),
+            deadline_ms: a.deadline_ms,
+            created_ms: a.created_ms,
+            id: a.id.clone(),
+        });
+        let recent_rows = store::ask_rows(self.db, "status IN ('answered','defaulted','cancelled') ORDER BY closed_ms DESC,id DESC LIMIT 20", []).map_err(db_err)?;
+        Ok(crate::protocol::InboxResult {
+            inbox: self.full_all(&rows)?,
+            recent: self.full_page(&recent_rows, 2 << 20)?,
+            total,
+            next,
+            more,
+            notification_warning: None,
+        })
+    }
+
+    /// Keep full question content while fitting the pipe's response bound. The caller carries the cursor.
+    fn full_page(&self, rows: &[AskRow], budget: usize) -> Result<Vec<Ask>, String> {
+        let mut page = Vec::new();
+        let mut bytes = 0;
+        for row in rows {
+            let ask = self.full(row)?;
+            let size = serde_json::to_vec(&ask).map_err(|e| e.to_string())?.len();
+            if !page.is_empty() && bytes + size > budget {
+                break;
+            }
+            if size > 8 << 20 {
+                return Err("One question is too large to display".into());
+            }
+            bytes += size;
+            page.push(ask);
+        }
+        Ok(page)
     }
 
     fn list(&self) -> Result<ListResult, String> {
@@ -1496,13 +1643,41 @@ impl Service for StoreService {
     fn mcp(&self, client: &ClientInfo, op: McpOp) -> Result<(Value, Vec<Effect>), String> {
         let now = self.now_ms();
         match op {
-            McpOp::RegisterRemote{machine,registration:r}=>{
-                if machine.is_empty()||machine.len()>64||!machine.bytes().all(|b|b.is_ascii_alphanumeric()||b"._-".contains(&b)){return Err("machine needs 1–64 letters, digits, dots, underscores or hyphens".into());}
-                let machine=format!("remote:{machine}");
-                self.write_json(now,|c|{
-                    let registered=c.register(client,&machine,Registration{owner:r.owner,client:r.client,session_ref:r.session_ref,cwd:r.cwd,doing:r.doing,provisional_key:r.provisional_key})?;
-                    let agent=store::agent(c.db,&registered.handle).map_err(db_err)?.ok_or(UNKNOWN_HANDLE)?;
-                    let mut value=to_json(&registered)?;value["board"]=crate::board::context(c.db,now,&agent)?;value["machine"]=json!(machine);Ok(value)
+            McpOp::RegisterRemote {
+                machine,
+                registration: r,
+            } => {
+                if machine.is_empty()
+                    || machine.len() > 64
+                    || !machine
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+                {
+                    return Err(
+                        "machine needs 1–64 letters, digits, dots, underscores or hyphens".into(),
+                    );
+                }
+                let machine = format!("remote:{machine}");
+                self.write_json(now, |c| {
+                    let registered = c.register(
+                        client,
+                        &machine,
+                        Registration {
+                            owner: r.owner,
+                            client: r.client,
+                            session_ref: r.session_ref,
+                            cwd: r.cwd,
+                            doing: r.doing,
+                            provisional_key: r.provisional_key,
+                        },
+                    )?;
+                    let agent = store::agent(c.db, &registered.handle)
+                        .map_err(db_err)?
+                        .ok_or(UNKNOWN_HANDLE)?;
+                    let mut value = to_json(&registered)?;
+                    value["board"] = crate::board::context(c.db, now, &agent)?;
+                    value["machine"] = json!(machine);
+                    Ok(value)
                 })
             }
             McpOp::Board { handle, action } => self.write_json(now, |c| {
@@ -1567,19 +1742,21 @@ impl Service for StoreService {
                 ids,
                 wait_ms: _,
             } => self.write_json(now, |c| c.answers(client, &handle, &ids)),
+            McpOp::AnswersPage { handle, before, .. } => self.write_json(now, |c| {
+                let agent = c.touch(&handle, client)?;
+                c.undelivered_of(&agent.owner, before.as_deref())
+            }),
             McpOp::Cancel { handle, id } => {
                 self.write_json(now, |c| c.cancel(client, &handle, &id))
             }
-            McpOp::RelayList { handle } => self.write_json(now, |c| {
-                let result=c.relay_list(client,&handle)?;
-                let handoffs:Vec<_>=result.answers.iter().filter_map(|ask|ask.answer.as_ref().map(|answer|{
-                    let message=rules::codex_text(&ask.id,&ask.input.title,answer);
-                    // JSON quoting keeps every Notes entry on one physical line, including multiline replies.
-                    let notes_line=format!("(via desk, ask {}) owner={} {}",ask.id,json!(ask.owner),json!(message));
-                    json!({"ask_id":ask.id,"owner":ask.owner,"session_ref":ask.asking_session,"client":ask.asking_client,"machine":ask.asking_machine,"message":message,"notes_line":notes_line})
-                })).collect();
-                Ok(json!({"answers":result.answers,"handoffs":handoffs,"instruction":"Relay only through routes your own instructions authorize. Record successful delivery after it happens; a failed send or prepared line is not delivery. Notes delivery does not remove the answer from the asking owner's checkpoint reads."}))
-            }),
+            McpOp::RelayList { handle } => {
+                self.write_json(now, |c| c.relay_page(client, &handle, Vec::new(), None))
+            }
+            McpOp::RelayPage {
+                handle,
+                owners,
+                before,
+            } => self.write_json(now, |c| c.relay_page(client, &handle, owners, before)),
             McpOp::RelayMark {
                 handle,
                 ask_id,
@@ -1598,18 +1775,26 @@ impl Service for StoreService {
     fn desk(&self, op: DeskOp) -> Result<(Value, Vec<Effect>), String> {
         let now = self.now_ms();
         match op {
+            DeskOp::History { query } => self.write_json(now, |c| c.history(query)),
             DeskOp::Phone => self.write_json(now, |c| crate::phone::status(c.db)),
             DeskOp::SetPhone { config } => {
                 self.write_json(now, |c| crate::phone::set_config(c.db, now, config))
             }
             DeskOp::PhoneReply { id } => self.write_json(now, |c| c.phone_reply(&id)),
             DeskOp::Holds => self.write_json(now, |c| crate::holds::snapshot(c.db, now)),
+            DeskOp::HoldsPage { after } => {
+                self.write_json(now, |c| crate::holds::snapshot_page(c.db, now, after, None))
+            }
             DeskOp::SetHolds { config } => {
                 self.write_json(now, |c| crate::holds::set_config(c.db, now, config))
             }
             DeskOp::Board => self.write_json(now, |c| {
                 crate::board::expire(c.db, now)?;
                 crate::board::snapshot(c.db, now)
+            }),
+            DeskOp::BoardPage { query } => self.write_json(now, |c| {
+                crate::board::expire(c.db, now)?;
+                crate::board::snapshot_page(c.db, now, query)
             }),
             DeskOp::Metrics => self.write_json(now, |c| crate::metrics::report(c.db, now)),
             DeskOp::StartBaseline { label } => {
@@ -1622,6 +1807,7 @@ impl Service for StoreService {
                 self.write_json(now, |c| crate::board::set_lease(c.db, now, &owner, seconds))
             }
             DeskOp::List => self.write_json(now, |c| c.list()),
+            DeskOp::InboxPage { after } => self.write_json(now, |c| c.inbox_page(after)),
             DeskOp::OpenDigest => self.write_json(now, |c| c.open_digest()),
             DeskOp::Answer {
                 ask_id,

@@ -25,3 +25,6 @@ the host requires in the original session. If the tools are unavailable, say so 
 Respect `Not needed`, mute and cancellation. Do not recreate an unwanted question under a new title. Use
 `desk_cancel` when the question no longer applies. Ordinary calculations, explanations and work already
 authorized by the user need no Desk question.
+
+For answer lists, follow `next` as `before` while `more` is true. Registration exposes the same
+continuation as `answers_next` and `more_answers`. Exact IDs can read answers older than the list window.

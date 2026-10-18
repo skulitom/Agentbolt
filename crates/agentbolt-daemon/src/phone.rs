@@ -46,6 +46,13 @@ pub async fn run(shared: Arc<Shared>) {
 
 async fn cycle(shared: &Arc<Shared>, state: State) -> Result<(), String> {
     let cfg = state.config;
+    // Receipts are already authenticated and durable. Finishing their local Desk activation must not
+    // depend on another successful network round trip. The Desk still checks expiry/revocation.
+    if let ResultValue::Pending { ids, .. } = work(shared, &cfg.generation, Work::Pending).await? {
+        for id in ids {
+            deliver(shared, &id).await?;
+        }
+    }
     let now = agentbolt_core::store::to_ms(time::OffsetDateTime::now_utc());
     if !state
         .health

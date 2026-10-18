@@ -195,7 +195,7 @@ impl Handler for McpHandler {
         let op: McpOp =
             serde_json::from_value(op).map_err(|e| format!("unknown or malformed op: {e}"))?;
         match op {
-            McpOp::Answers { wait_ms, .. } if wait_ms > 0 => {
+            McpOp::Answers { wait_ms, .. } | McpOp::AnswersPage { wait_ms, .. } if wait_ms > 0 => {
                 answers_wait(&self.0, client, op, wait_ms).await
             }
             op => self.0.mcp(client, op).await,
@@ -240,7 +240,7 @@ impl Handler for DeskHandler {
             DeskOp::SetSettings { settings } => Some(settings.clone()),
             _ => None,
         };
-        let health = matches!(op, DeskOp::List | DeskOp::Status);
+        let health = matches!(op, DeskOp::List | DeskOp::InboxPage { .. } | DeskOp::Status);
         let mut value = self.0.desk(op).await?;
         if health {
             let names = self.0.names.clone();

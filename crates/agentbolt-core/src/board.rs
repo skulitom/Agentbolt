@@ -35,6 +35,8 @@ pub struct PostInput {
     pub to: Destination,
     pub title: String,
     pub body: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub references: Vec<String>,
     #[serde(default)]
     pub thread: Option<String>,
     #[serde(default)]
@@ -68,6 +70,12 @@ pub enum BoardOp {
         clear_repo: bool,
     },
     Who,
+    WhoPage {
+        #[serde(default)]
+        after: u64,
+        #[serde(default)]
+        include_inactive: bool,
+    },
     Post {
         input: PostInput,
     },
@@ -104,6 +112,8 @@ pub enum BoardOp {
         id: String,
         fence: u64,
         result: String,
+        #[serde(default)]
+        failed: bool,
     },
     Cancel {
         id: String,
@@ -158,6 +168,46 @@ pub struct Snapshot {
     pub requests: Vec<BoardRequest>,
     pub messages: Vec<BoardMessage>,
     pub notice: String,
+    #[serde(default)]
+    pub request_next: Option<RequestCursor>,
+    #[serde(default)]
+    pub more_requests: bool,
+    #[serde(default)]
+    pub total_requests: u32,
+    #[serde(default)]
+    pub message_next: Option<u64>,
+    #[serde(default)]
+    pub more_messages: bool,
+    #[serde(default)]
+    pub total_messages: u32,
+    #[serde(default)]
+    pub agent_next: u64,
+    #[serde(default)]
+    pub more_agents: bool,
+    #[serde(default)]
+    pub total_agents: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RequestCursor {
+    pub updated_ms: i64,
+    pub id: String,
+}
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeskQuery {
+    pub requests_before: Option<RequestCursor>,
+    pub messages_before: Option<u64>,
+    pub agents_after: u64,
+    pub include_closed: bool,
+    pub include_inactive: bool,
+    pub search: String,
+}
+#[derive(Serialize)]
+pub struct AgentsPage {
+    pub agents: Vec<BoardAgent>,
+    pub next: u64,
+    pub more: bool,
+    pub total: u32,
 }
 
 pub fn public_id(handle: &str) -> String {
@@ -216,6 +266,9 @@ pub fn repository(value: &str) -> Result<String, String> {
 }
 
 pub fn paths(values: Vec<String>) -> Result<Vec<String>, String> {
+    if values.iter().map(String::len).sum::<usize>() > 16_384 {
+        return Err("path patterns exceed 16 KiB in total".into());
+    }
     if values.len() > 100 {
         return Err("at most 100 path patterns".into());
     }
@@ -325,11 +378,37 @@ fn profile(db: &Connection, handle: &str) -> Result<(Vec<String>, Option<String>
     }
 }
 
-pub fn who(db: &Connection, now: i64) -> Result<Vec<BoardAgent>, String> {
-    store::agents(db)
+pub fn who_page(
+    db: &Connection,
+    now: i64,
+    after: u64,
+    include_inactive: bool,
+) -> Result<AgentsPage, String> {
+    let after = i64::try_from(after).map_err(|_| "cursor is too large")?;
+    let active = "(?1 OR a.last_seen_ms + COALESCE((SELECT lease_seconds FROM board_limits WHERE owner=a.owner),14400)*1000 > ?2)";
+    let total = store::count(
+        db,
+        &format!("SELECT COUNT(*) FROM agents a WHERE {active}"),
+        params![include_inactive, now],
+    )
+    .map_err(db_err)?;
+    let mut statement=db.prepare(&format!("SELECT a.rowid,a.handle FROM agents a WHERE {active} AND a.rowid>?3 ORDER BY a.rowid LIMIT 51")).map_err(db_err)?;
+    let mut page = statement
+        .query_map(params![include_inactive, now, after], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+        })
         .map_err(db_err)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_err)?;
+    let more = page.len() > PAGE;
+    page.truncate(PAGE);
+    let next = page.last().map_or(after, |r| r.0) as u64;
+    let agents = page
         .into_iter()
-        .map(|a| {
+        .map(|(_, handle)| {
+            let a = store::agent(db, &handle)
+                .map_err(db_err)?
+                .ok_or("agent disappeared")?;
             let (roles, repo) = profile(db, &a.handle)?;
             let ceiling = lease_seconds(db, &a.owner)?;
             let last = db
@@ -354,7 +433,13 @@ pub fn who(db: &Connection, now: i64) -> Result<Vec<BoardAgent>, String> {
                 lease_seconds: ceiling,
             })
         })
-        .collect()
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(AgentsPage {
+        agents,
+        next,
+        more,
+        total,
+    })
 }
 
 fn requests(db: &Connection, now: i64, closed: bool) -> Result<Vec<BoardRequest>, String> {
@@ -443,16 +528,100 @@ fn addressed(m: &BoardMessage, a: &Agent, roles: &[String]) -> bool {
 }
 
 pub fn snapshot(db: &Connection, now: i64) -> Result<Snapshot, String> {
-    let newest: i64 = db
-        .query_row("SELECT COALESCE(MAX(seq),0) FROM board_messages", [], |r| {
-            r.get(0)
-        })
+    snapshot_page(db, now, DeskQuery::default())
+}
+
+pub fn snapshot_page(db: &Connection, now: i64, query: DeskQuery) -> Result<Snapshot, String> {
+    let search = query.search.trim();
+    if search.len() > 800 || search.chars().any(char::is_control) {
+        return Err("Board search needs at most 800 bytes without control characters".into());
+    }
+    let agents = who_page(db, now, query.agents_after, query.include_inactive)?;
+    let filter = "(?1 OR status IN ('open','claimed')) AND (?2='' OR instr(lower(owner||' '||id||' '||json_extract(input_json,'$.title')||' '||json_extract(input_json,'$.body')),lower(?2))>0)";
+    let total_requests = store::count(
+        db,
+        &format!("SELECT COUNT(*) FROM board_requests WHERE {filter}"),
+        params![query.include_closed, search],
+    )
+    .map_err(db_err)?;
+    let mut statement=db.prepare(&format!("SELECT id,updated_ms FROM board_requests WHERE {filter} AND (?3 IS NULL OR (updated_ms,id)<(?3,?4)) ORDER BY updated_ms DESC,id DESC LIMIT 51")).map_err(db_err)?;
+    let mut rows = statement
+        .query_map(
+            params![
+                query.include_closed,
+                search,
+                query.requests_before.as_ref().map(|c| c.updated_ms),
+                query.requests_before.as_ref().map(|c| c.id.as_str())
+            ],
+            |r| {
+                Ok(RequestCursor {
+                    id: r.get(0)?,
+                    updated_ms: r.get(1)?,
+                })
+            },
+        )
+        .map_err(db_err)?
+        .collect::<Result<Vec<_>, _>>()
         .map_err(db_err)?;
+    let more_requests = rows.len() > PAGE;
+    rows.truncate(PAGE);
+    let request_next = rows.last().cloned();
+    let requests = rows
+        .iter()
+        .map(|c| request(db, now, &c.id))
+        .collect::<Result<Vec<_>, _>>()?;
+    let filter = "(?1='' OR instr(lower(owner||' '||id||' '||COALESCE(json_extract(input_json,'$.thread'),'')||' '||json_extract(input_json,'$.title')||' '||json_extract(input_json,'$.body')),lower(?1))>0)";
+    let total_messages = store::count(
+        db,
+        &format!("SELECT COUNT(*) FROM board_messages WHERE {filter}"),
+        [search],
+    )
+    .map_err(db_err)?;
+    let before = query
+        .messages_before
+        .map(i64::try_from)
+        .transpose()
+        .map_err(|_| "message cursor is too large")?;
+    let mut statement=db.prepare(&format!("SELECT seq,id,owner,sender,input_json,created_ms FROM board_messages WHERE {filter} AND (?2 IS NULL OR seq<?2) ORDER BY seq DESC LIMIT 51")).map_err(db_err)?;
+    let mut messages = statement
+        .query_map(params![search, before], |r| {
+            let raw: String = r.get(4)?;
+            let input = serde_json::from_str(&raw).map_err(|e| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    4,
+                    rusqlite::types::Type::Text,
+                    Box::new(e),
+                )
+            })?;
+            Ok(BoardMessage {
+                seq: r.get::<_, i64>(0)? as u64,
+                id: r.get(1)?,
+                owner: r.get(2)?,
+                sender: r.get(3)?,
+                input,
+                created_at: fmt_ms(r.get(5)?),
+            })
+        })
+        .map_err(db_err)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_err)?;
+    let more_messages = messages.len() > PAGE;
+    messages.truncate(PAGE);
+    let message_next = messages.last().map(|m| m.seq);
     Ok(Snapshot {
-        agents: who(db, now)?,
-        requests: requests(db, now, true)?,
-        messages: messages(db, newest.saturating_sub(PAGE as i64).max(0) as u64, None)?,
+        agents: agents.agents,
+        requests,
+        messages,
         notice: DATA_NOTICE.into(),
+        request_next,
+        more_requests,
+        total_requests,
+        message_next,
+        more_messages,
+        total_messages,
+        agent_next: agents.next,
+        more_agents: agents.more,
+        total_agents: agents.total,
     })
 }
 
@@ -477,6 +646,25 @@ pub fn context(db: &Connection, now: i64, agent: &Agent) -> Result<Value, String
         .transpose()?;
     Ok(
         json!({"agent_id":public_id(&agent.handle),"roles":roles,"repo":repo,"requests":requests,"more_requests":requests.len()==PAGE,"holds":holds,"lease_seconds":lease_seconds(db,&agent.owner)?,"notice":DATA_NOTICE}),
+    )
+}
+
+fn who_result(
+    db: &Connection,
+    now: i64,
+    after: u64,
+    include_inactive: bool,
+) -> Result<Value, String> {
+    let page = who_page(db, now, after, include_inactive)?;
+    let requests = requests(db, now, false)?;
+    let total_requests = store::count(
+        db,
+        "SELECT COUNT(*) FROM board_requests WHERE status IN ('open','claimed')",
+        [],
+    )
+    .map_err(db_err)?;
+    Ok(
+        json!({"agents":page.agents,"next":page.next,"more":page.more,"total":page.total,"requests":requests,"more_requests":total_requests>requests.len() as u32,"notice":DATA_NOTICE}),
     )
 }
 
@@ -522,9 +710,15 @@ pub fn run(db: &Connection, now: i64, agent: &Agent, op: BoardOp) -> Result<Valu
             )?;
             context(db, now, agent)
         }
-        BoardOp::Who => Ok(
-            json!({"agents":who(db,now)?,"requests":requests(db,now,false)?,"notice":DATA_NOTICE}),
-        ),
+        BoardOp::Who
+        | BoardOp::WhoPage {
+            after: 0,
+            include_inactive: false,
+        } => who_result(db, now, 0, false),
+        BoardOp::WhoPage {
+            after,
+            include_inactive,
+        } => who_result(db, now, after, include_inactive),
         BoardOp::Read { after, thread } => {
             let (roles, _) = profile(db, &agent.handle)?;
             let page = messages(db, after, thread.as_deref())?;
@@ -539,6 +733,12 @@ pub fn run(db: &Connection, now: i64, agent: &Agent, op: BoardOp) -> Result<Valu
         BoardOp::Post { mut input } => {
             input.title = line(&input.title, 200, "title")?;
             input.body = body(&input.body)?;
+            if input.references.len() > 8 {
+                return Err("at most eight message references".into());
+            }
+            for reference in &input.references {
+                rules::check_link(reference)?;
+            }
             input.thread = optional(input.thread, 200, "thread")?;
             input.dedupe_key = optional(input.dedupe_key, 200, "dedupe_key")?;
             match &mut input.to {
@@ -700,9 +900,20 @@ pub fn run(db: &Connection, now: i64, agent: &Agent, op: BoardOp) -> Result<Valu
         }
         BoardOp::Renew { id, fence } => finish(db, now, agent, &id, fence, "renew", None),
         BoardOp::Release { id, fence } => finish(db, now, agent, &id, fence, "release", None),
-        BoardOp::Done { id, fence, result } => {
-            finish(db, now, agent, &id, fence, "done", Some(body(&result)?))
-        }
+        BoardOp::Done {
+            id,
+            fence,
+            result,
+            failed,
+        } => finish(
+            db,
+            now,
+            agent,
+            &id,
+            fence,
+            if failed { "failed" } else { "done" },
+            Some(body(&result)?),
+        ),
         BoardOp::Cancel { id } => {
             let r = request(db, now, &id)?;
             if r.owner != agent.owner {
@@ -733,8 +944,8 @@ fn finish(
     let fence = i64::try_from(fence).map_err(|_| "invalid fencing token")?;
     let valid:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM board_requests WHERE id=?1 AND claimant=?2 AND fence=?3 AND status='claimed' AND lease_ms>?4)",params![id,agent.handle,fence,now],|r|r.get(0)).map_err(db_err)?;
     if !valid {
-        if action == "done" {
-            let already:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM board_requests WHERE id=?1 AND claimant=?2 AND fence=?3 AND status='done' AND result=?4)",params![id,agent.handle,fence,result],|r|r.get(0)).map_err(db_err)?;
+        if matches!(action, "done" | "failed") {
+            let already:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM board_requests WHERE id=?1 AND claimant=?2 AND fence=?3 AND status=?5 AND result=?4)",params![id,agent.handle,fence,result,action],|r|r.get(0)).map_err(db_err)?;
             if already {
                 return Ok(
                     json!({"request":request(db,now,id)?,"fence":fence,"existing":true,"notice":DATA_NOTICE}),
@@ -749,7 +960,7 @@ fn finish(
             db.execute("UPDATE board_requests SET status='open',claimant=NULL,lease_ms=NULL,updated_ms=?1 WHERE id=?2",params![now,id]).map_err(db_err)?;
         }
         _ => {
-            db.execute("UPDATE board_requests SET status='done',lease_ms=NULL,result=?1,updated_ms=?2 WHERE id=?3",params![result,now,id]).map_err(db_err)?;
+            db.execute("UPDATE board_requests SET status=?4,lease_ms=NULL,result=?1,updated_ms=?2 WHERE id=?3",params![result,now,id,action]).map_err(db_err)?;
         }
     }
     event(

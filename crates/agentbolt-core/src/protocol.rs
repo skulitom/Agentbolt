@@ -79,6 +79,11 @@ pub enum McpOp {
         ids: Vec<String>,
         wait_ms: u64,
     },
+    AnswersPage {
+        handle: String,
+        before: Option<String>,
+        wait_ms: u64,
+    },
     Cancel {
         handle: String,
         id: String,
@@ -86,6 +91,12 @@ pub enum McpOp {
     /// Relay owner only: answers waiting for any owner.
     RelayList {
         handle: String,
+    },
+    RelayPage {
+        handle: String,
+        #[serde(default)]
+        owners: Vec<String>,
+        before: Option<String>,
     },
     /// Relay owner only: record a delivery.
     RelayMark {
@@ -119,6 +130,10 @@ pub struct RegisterResult {
     pub requested_owner: Option<String>,
     /// Answered asks without confirmed delivery to this owner or its asking session.
     pub answers: Vec<Ask>,
+    #[serde(default)]
+    pub answers_next: Option<String>,
+    #[serde(default)]
+    pub more_answers: bool,
     /// This owner's open asks.
     pub open_asks: Vec<Ask>,
 }
@@ -153,6 +168,10 @@ pub struct AnswersResult {
     /// Requested ids that are unknown or belong to another owner.
     #[serde(default)]
     pub unknown: Vec<String>,
+    #[serde(default)]
+    pub next: Option<String>,
+    #[serde(default)]
+    pub more: bool,
 }
 
 /// Result of `McpOp::RelayList`: answered asks of other owners, answered in the last 14 days, with no confirmed
@@ -181,6 +200,9 @@ pub struct StatusResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", content = "args", rename_all = "snake_case")]
 pub enum DeskOp {
+    History {
+        query: HistoryQuery,
+    },
     Phone,
     SetPhone {
         config: crate::phone::Update,
@@ -190,6 +212,9 @@ pub enum DeskOp {
         id: String,
     },
     Holds,
+    HoldsPage {
+        after: Option<String>,
+    },
     SetHolds {
         config: crate::holds::Config,
     },
@@ -201,6 +226,9 @@ pub enum DeskOp {
         text: String,
     },
     Board,
+    BoardPage {
+        query: crate::board::DeskQuery,
+    },
     SetLease {
         owner: String,
         seconds: u32,
@@ -208,6 +236,9 @@ pub enum DeskOp {
     /// Inbox and recent answers. Listing the Inbox marks those asks shown, so the Desk sends it only
     /// while its window is focused and not minimized (`Status` refreshes the counts otherwise).
     List,
+    InboxPage {
+        after: Option<InboxCursor>,
+    },
     /// Legacy wire compatibility. Migrated asks are in the Inbox; no new digest asks are created.
     OpenDigest,
     Answer {
@@ -263,6 +294,40 @@ pub struct ListResult {
     pub recent: Vec<Ask>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notification_warning: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InboxCursor {
+    pub muted: bool,
+    pub priority: String,
+    pub deadline_ms: i64,
+    pub created_ms: i64,
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InboxResult {
+    pub inbox: Vec<Ask>,
+    pub recent: Vec<Ask>,
+    pub total: u32,
+    pub next: Option<InboxCursor>,
+    pub more: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notification_warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HistoryQuery {
+    pub before: Option<String>,
+    pub search: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct HistoryResult {
+    pub asks: Vec<Ask>,
+    pub total: u32,
+    pub next: Option<String>,
+    pub more: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

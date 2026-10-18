@@ -6,7 +6,7 @@ use std::sync::mpsc;
 use agentbolt_core::channel::Names;
 use agentbolt_core::model::{Owner, Settings};
 use agentbolt_core::protocol::{
-    AgentsResult, AnswerResult, BatchAnswerResult, DeskAnswer, DeskOp, ListResult, OwnersResult,
+    AgentsResult, AnswerResult, BatchAnswerResult, DeskAnswer, DeskOp, InboxResult, OwnersResult,
     StatusResult,
 };
 use agentbolt_ipc::{Client, IpcError, Pipe};
@@ -20,7 +20,8 @@ pub enum Req {
     Quiesce(tokio::sync::oneshot::Sender<()>),
     AnswerBatch(Vec<DeskAnswer>),
     /// The Inbox; marks its asks shown. Only while the window is seen.
-    List,
+    List(Option<agentbolt_core::protocol::InboxCursor>),
+    History(agentbolt_core::protocol::HistoryQuery),
     /// The counts only; marks nothing shown.
     Status,
     Answer {
@@ -42,8 +43,8 @@ pub enum Req {
         seconds: u32,
     },
     Agents,
-    Board,
-    Holds,
+    Board(agentbolt_core::board::DeskQuery),
+    Holds(Option<String>),
     SetHolds(agentbolt_core::holds::Config),
     ImportFocus {
         path: String,
@@ -81,15 +82,28 @@ pub enum Resp {
         ids: Vec<String>,
         result: Result<BatchAnswerResult, String>,
     },
-    List(ListResult),
+    List {
+        after: Option<agentbolt_core::protocol::InboxCursor>,
+        result: Result<InboxResult, String>,
+    },
+    History {
+        query: agentbolt_core::protocol::HistoryQuery,
+        result: Result<agentbolt_core::protocol::HistoryResult, String>,
+    },
     Status(StatusResult),
     Answered {
         ask_id: String,
         result: Result<AnswerResult, String>,
     },
     Agents(AgentsResult),
-    Board(agentbolt_core::board::Snapshot),
-    Holds(agentbolt_core::holds::Snapshot),
+    Board {
+        query: agentbolt_core::board::DeskQuery,
+        result: Result<agentbolt_core::board::Snapshot, String>,
+    },
+    Holds {
+        after: Option<String>,
+        result: Result<agentbolt_core::holds::Snapshot, String>,
+    },
     HoldsSaved(Result<(), String>),
     FocusImported(Result<agentbolt_core::holds::Config, String>),
     Metrics(agentbolt_core::metrics::Report),
@@ -195,11 +209,24 @@ async fn run(
                 };
                 Resp::BatchAnswered { ids, result }
             }
-            Req::List => conn
-                .get(&DeskOp::List)
-                .await
-                .map(Resp::List)
-                .unwrap_or_else(|e| failed("the Inbox", e)),
+            Req::History(query) => {
+                let result = conn
+                    .get(&DeskOp::History {
+                        query: query.clone(),
+                    })
+                    .await
+                    .map_err(|e| e.to_string());
+                Resp::History { query, result }
+            }
+            Req::List(after) => {
+                let result = conn
+                    .get(&DeskOp::InboxPage {
+                        after: after.clone(),
+                    })
+                    .await
+                    .map_err(|e| e.to_string());
+                Resp::List { after, result }
+            }
             Req::Status => conn
                 .get(&DeskOp::Status)
                 .await
@@ -210,16 +237,24 @@ async fn run(
                 .await
                 .map(Resp::Agents)
                 .unwrap_or_else(|e| failed("the agents", e)),
-            Req::Board => conn
-                .get(&DeskOp::Board)
-                .await
-                .map(Resp::Board)
-                .unwrap_or_else(|e| failed("the Board", e)),
-            Req::Holds => conn
-                .get(&DeskOp::Holds)
-                .await
-                .map(Resp::Holds)
-                .unwrap_or_else(|e| failed("work holds", e)),
+            Req::Board(query) => {
+                let result = conn
+                    .get(&DeskOp::BoardPage {
+                        query: query.clone(),
+                    })
+                    .await
+                    .map_err(|e| e.to_string());
+                Resp::Board { query, result }
+            }
+            Req::Holds(after) => {
+                let result = conn
+                    .get(&DeskOp::HoldsPage {
+                        after: after.clone(),
+                    })
+                    .await
+                    .map_err(|e| e.to_string());
+                Resp::Holds { after, result }
+            }
             Req::SetHolds(config) => Resp::HoldsSaved(
                 conn.call(&DeskOp::SetHolds { config }, false)
                     .await

@@ -198,6 +198,7 @@ CREATE TABLE phone_receipts (
 );
 "#,
     "ALTER TABLE owners ADD COLUMN muted_until_ms INTEGER; CREATE INDEX owners_mute_expiry ON owners(muted_until_ms) WHERE muted_until_ms IS NOT NULL;",
+    "CREATE INDEX asks_history ON asks(closed_ms DESC,id DESC); CREATE INDEX board_request_history ON board_requests(updated_ms DESC,id DESC);",
 ];
 
 pub(crate) fn db_err(e: rusqlite::Error) -> String {

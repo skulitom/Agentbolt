@@ -11,6 +11,14 @@ The plugin does not install Agentbolt, publish anything, grant host permissions 
 Agentbolt connection in each client; if you already registered it manually, avoid enabling both connections
 in the same session. Existing client configuration is not changed automatically.
 
+## Tool catalog
+
+The saved mock catalog now includes all twelve Desk, Board and hold tools and the plugin's ten-minute
+wait cap. Regenerate it from the same schema source used by the server with
+`cargo run -p agentbolt --example tool_catalog` (redirect stdout to
+`plugins/agentbolt/evals/mocks/agentbolt/_tools.json` as UTF-8). This only generates schema JSON; it
+never connects to the daemon or creates questions. Behavioral evaluation remains deferred below.
+
 ## Evaluate
 
 The existing evaluation covers the original decision skill. The expanded coordination skill and tool catalog

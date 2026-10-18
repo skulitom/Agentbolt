@@ -26,10 +26,12 @@ Add `--write` within Reception's authorized workflow to append and record delive
 
 Only cooperating writers honor the file lock; the owning workflow must prevent concurrent rewrites of
 the notes file. The adapter reads at most 4 MiB and refuses larger notes. It handles the current relay
-page (up to 100 recent answers); run again to drain further pages after successful marks. If other
-owners occupy the relay page, use `desk_relay` to route them through their authorized workflows.
+page (up to 100 recent answers, fewer for large answers). Recipient filtering happens before paging,
+so unrelated owners cannot crowd out the requested recipients. Continue with the returned `next` as
+`--before ASK_ID` while `more` is true, or repeat from the first page after successful delivery marks.
+`complete` reports this page's writes only; it does not claim the whole queue was drained.
 
-At each owner run's start and finish, read `desk_answers` and the authorized notes file. Notes delivery
+At each owner run's start and finish, read `desk_answers` and the authorized notes file. Follow `next` as `before` while `more` is true. Notes delivery
 does not confirm receipt by a live session and does not consume exact-ID reads. Deduplicate actions by
 ask ID. Defaults and Not needed retain their meaning; a default is never permission from Artem.
 Reception may send the prepared message into a live session only under its own messaging authority.

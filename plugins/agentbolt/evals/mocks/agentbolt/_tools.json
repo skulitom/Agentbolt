@@ -1,58 +1,64 @@
 {
   "tools": [
     {
-      "name": "desk_register",
-      "description": "Say who you are at the start of a run. Returns your handle, the answers Artem has given your owner since last time, and your open asks. Pass your handle later to renew it. Other tools register you on their own if you skip this.",
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "description": "Register work/roles/repo; get answers and Board matches.",
       "inputSchema": {
         "properties": {
+          "clear_repo": {
+            "type": "boolean"
+          },
           "cwd": {
-            "description": "Your working folder, if not the server's",
             "type": "string"
           },
           "doing": {
-            "description": "One line: what you're working on",
             "type": "string"
           },
           "handle": {
-            "description": "Your handle from desk_register. Leave out to use this server's own.",
+            "type": "string"
+          },
+          "repo": {
             "type": "string"
           },
           "requested_owner": {
-            "description": "Propose an unused stable name; takes effect only after Desk approval",
             "type": "string"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 12,
+            "type": "array"
           }
         },
         "type": "object"
       },
-      "annotations": {
-        "title": "Register with Artem's desk",
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "openWorldHint": false
-      }
+      "name": "desk_register"
     },
     {
-      "name": "desk_ask",
-      "description": "Ask Artem a question you can't settle from the files: a choice, an approval or missing information. Always give options where you can, a recommended default and a deadline; you get an id at once and keep working. It enters his Inbox immediately; each owner has a cap of 3 open asks. An ask that can't be undone never takes its default.",
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "description": "Ask Artem what files cannot settle; defaults only if reversible.",
       "inputSchema": {
         "properties": {
           "body": {
-            "description": "What he needs to decide, plain text",
             "type": "string"
           },
           "deadline": {
-            "description": "RFC 3339, e.g. 2026-10-20T18:00:00+01:00",
             "type": "string"
           },
           "dedupe_key": {
-            "description": "The same key returns the existing ask",
             "type": "string"
           },
           "default": {
-            "description": "Your recommended answer: an option's text, or {field: value} for a form"
+            "description": "Recommended option or form values"
           },
           "evidence": {
-            "description": "https://, claude:// links or file paths",
             "items": {
               "properties": {
                 "label": {
@@ -71,7 +77,6 @@
             "type": "array"
           },
           "fields": {
-            "description": "For form: up to 8",
             "items": {
               "properties": {
                 "id": {
@@ -109,11 +114,9 @@
             "type": "array"
           },
           "handle": {
-            "description": "Your handle from desk_register. Leave out to use this server's own.",
             "type": "string"
           },
           "kind": {
-            "description": "choose: pick an option; approve: yes or no; text: a reply; form: fields; inform: FYI",
             "enum": [
               "choose",
               "approve",
@@ -124,7 +127,6 @@
             "type": "string"
           },
           "options": {
-            "description": "For choose: 2 to 5",
             "items": {
               "type": "string"
             },
@@ -134,7 +136,6 @@
             "type": "string"
           },
           "priority": {
-            "description": "Default P1. P0 needs p0_reason and a bound owner; provisional P0 is stored as P1",
             "enum": [
               "P0",
               "P1",
@@ -143,11 +144,9 @@
             "type": "string"
           },
           "reversible": {
-            "description": "Can it be undone? Only reversible asks take their default",
             "type": "boolean"
           },
           "title": {
-            "description": "The question, in one line",
             "type": "string"
           }
         },
@@ -160,55 +159,51 @@
         ],
         "type": "object"
       },
-      "annotations": {
-        "title": "Ask Artem",
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "openWorldHint": false
-      }
+      "name": "desk_ask"
     },
     {
-      "name": "desk_answers",
-      "description": "Check Artem's answers to your asks: at the start of a run, before you finish, and when you're blocked. Reading never consumes an answer. No answer yet means wait, not yes.",
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read answers at checkpoints. Silence is never yes.",
       "inputSchema": {
         "properties": {
+          "before": {
+            "type": "string"
+          },
           "handle": {
-            "description": "Your handle from desk_register. Leave out to use this server's own.",
             "type": "string"
           },
           "ids": {
-            "description": "Ask ids; leave out for all your owner's answers",
             "items": {
               "type": "string"
             },
             "type": "array"
           },
           "wait_ms": {
-            "description": "Wait up to this long for an answer (capped)",
+            "maximum": 600000,
             "minimum": 0,
             "type": "integer"
           }
         },
         "type": "object"
       },
-      "annotations": {
-        "title": "Read Artem's answers",
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "openWorldHint": false
-      }
+      "name": "desk_answers"
     },
     {
-      "name": "desk_cancel",
-      "description": "Withdraw an ask you no longer need, because you settled it or it went stale, so it leaves Artem's Inbox.",
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "description": "Withdraw an ask.",
       "inputSchema": {
         "properties": {
           "handle": {
-            "description": "Your handle from desk_register. Leave out to use this server's own.",
             "type": "string"
           },
           "id": {
-            "description": "The ask id",
             "type": "string"
           }
         },
@@ -217,16 +212,14 @@
         ],
         "type": "object"
       },
-      "annotations": {
-        "title": "Withdraw an ask",
-        "readOnlyHint": false,
-        "destructiveHint": false,
-        "openWorldHint": false
-      }
+      "name": "desk_cancel"
     },
     {
-      "name": "desk_relay",
-      "description": "Relay owner only: list the answers waiting for other owners (last 14 days, newest first), then mark each one delivered once you have passed it on. Refused to every other owner.",
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "description": "Relay only: list; mark after delivery. Page next as before.",
       "inputSchema": {
         "properties": {
           "action": {
@@ -237,22 +230,29 @@
             "type": "string"
           },
           "ask_id": {
-            "description": "For mark",
+            "type": "string"
+          },
+          "before": {
             "type": "string"
           },
           "detail": {
             "type": "string"
           },
           "handle": {
-            "description": "Your handle from desk_register. Leave out to use this server's own.",
             "type": "string"
           },
           "ok": {
-            "description": "For mark: did delivery work",
             "type": "boolean"
           },
+          "owners": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+          },
           "to": {
-            "description": "For mark: where you delivered it: a session id, or \"notes\" for NOTES.md",
+            "description": "Delivered session id or \"notes\"",
             "type": "string"
           }
         },
@@ -261,12 +261,288 @@
         ],
         "type": "object"
       },
+      "name": "desk_relay"
+    },
+    {
       "annotations": {
-        "title": "Relay answers (relay owner only)",
-        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "See agents/roles/work; next as after. Inactive is opt-in.",
+      "inputSchema": {
+        "properties": {
+          "after": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "handle": {
+            "type": "string"
+          },
+          "include_inactive": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "name": "board_who"
+    },
+    {
+      "annotations": {
         "destructiveHint": false,
         "openWorldHint": false
-      }
+      },
+      "description": "Message role/owner/public agent ID/everyone. Thread/dedupe retries.",
+      "inputSchema": {
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "dedupe_key": {
+            "type": "string"
+          },
+          "handle": {
+            "type": "string"
+          },
+          "references": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "thread": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "to": {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "everyone",
+                  "role",
+                  "agent",
+                  "owner"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "title",
+          "body"
+        ],
+        "type": "object"
+      },
+      "name": "board_post"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read routed/sent messages; nonconsuming. Page with next as after.",
+      "inputSchema": {
+        "properties": {
+          "after": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "handle": {
+            "type": "string"
+          },
+          "thread": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "board_read"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "description": "Create/list/get/cancel handoffs; dedupe, ten open per owner.",
+      "inputSchema": {
+        "properties": {
+          "action": {
+            "enum": [
+              "request",
+              "requests",
+              "get",
+              "cancel"
+            ]
+          },
+          "after": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "beads_issue": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "dedupe_key": {
+            "type": "string"
+          },
+          "handle": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "include_closed": {
+            "type": "boolean"
+          },
+          "paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "repo": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "to_role": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "board_request"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "description": "Claim; save fence. Handle calls renew live claims; fence for release.",
+      "inputSchema": {
+        "properties": {
+          "action": {
+            "enum": [
+              "claim",
+              "renew",
+              "release"
+            ]
+          },
+          "fence": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "handle": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "name": "board_claim"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "description": "Finish with fence; failed:true reports failure.",
+      "inputSchema": {
+        "properties": {
+          "failed": {
+            "type": "boolean"
+          },
+          "fence": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "handle": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "fence",
+          "result"
+        ],
+        "type": "object"
+      },
+      "name": "board_done"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "description": "Check PR/merge overlaps; unknown is not clear. Manage own holds.",
+      "inputSchema": {
+        "properties": {
+          "action": {
+            "enum": [
+              "list",
+              "check",
+              "acquire",
+              "release"
+            ]
+          },
+          "after": {
+            "type": "string"
+          },
+          "handle": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "repo": {
+            "type": "string"
+          },
+          "stage": {
+            "enum": [
+              "pr_open",
+              "merge"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "type": "object"
+      },
+      "name": "work_holds"
     }
   ]
 }

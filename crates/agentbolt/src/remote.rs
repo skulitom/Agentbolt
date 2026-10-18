@@ -201,17 +201,23 @@ impl Remote {
 pub(crate) fn retryable(op: &McpOp) -> bool {
     matches!(
         op,
-        McpOp::Status | McpOp::Answers { .. } | McpOp::RelayList { .. }
+        McpOp::Status
+            | McpOp::Answers { .. }
+            | McpOp::AnswersPage { .. }
+            | McpOp::RelayList { .. }
+            | McpOp::RelayPage { .. }
     ) || matches!(
         op,
         McpOp::Board {
             action: agentbolt_core::board::BoardOp::Who
+                | agentbolt_core::board::BoardOp::WhoPage { .. }
                 | agentbolt_core::board::BoardOp::Read { .. }
                 | agentbolt_core::board::BoardOp::Requests { .. }
                 | agentbolt_core::board::BoardOp::Get { .. },
             ..
         } | McpOp::Holds {
-            action: agentbolt_core::holds::HoldOp::List,
+            action: agentbolt_core::holds::HoldOp::List
+                | agentbolt_core::holds::HoldOp::ListPage { .. },
             ..
         }
     )

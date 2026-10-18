@@ -85,7 +85,7 @@ Usage:
   agentbolt mcp [--owner NAME] [--client NAME] [--max-wait-ms N]   MCP server on stdio
                 [--ssh HOST --machine LABEL --remote-exe PATH]  use the Desk on a trusted SSH host
   agentbolt relay --machine LABEL [--channel NAME]              MCP-only bridge, normally started by SSH
-  agentbolt relay-notes --owner NAME --notes FILE --recipient-owner NAME... [--write]
+  agentbolt relay-notes --owner NAME --notes FILE --recipient-owner NAME... [--before ASK_ID] [--write]
                                                 preview or durably append authorized answer handoffs
   agentbolt pr-check --owner NAME --repo OWNER/REPO --cwd DIR --base REF --head REF --stage pr_open|merge
                                                 derive all PR paths and check work holds
@@ -160,6 +160,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String>
                     "--owner" => out.owner = a.value(&flag, inline)?,
                     "--notes" => out.notes = PathBuf::from(a.value(&flag, inline)?),
                     "--recipient-owner" => out.recipients.push(a.value(&flag, inline)?),
+                    "--before" => out.before = Some(a.value(&flag, inline)?),
                     "--write" => {
                         no_value(&flag, &inline)?;
                         out.write = true;

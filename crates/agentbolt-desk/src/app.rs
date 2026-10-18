@@ -24,6 +24,7 @@ const POLL: Duration = Duration::from_millis(1500);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tab {
     Inbox,
+    History,
     Board,
     Activity,
     Holds,
@@ -55,9 +56,19 @@ pub struct DeskApp {
     worker: Worker,
     tab: Tab,
     inbox: Vec<Ask>,
+    inbox_after: Option<agentbolt_core::protocol::InboxCursor>,
+    inbox_back: Vec<Option<agentbolt_core::protocol::InboxCursor>>,
+    inbox_next: Option<agentbolt_core::protocol::InboxCursor>,
+    inbox_more: bool,
     /// Open asks by the last count (a List, or a Status while the window wasn't seen).
     open_count: Option<u32>,
     recent: Vec<Ask>,
+    history: agentbolt_core::protocol::HistoryResult,
+    history_query: agentbolt_core::protocol::HistoryQuery,
+    history_search: String,
+    history_back: Vec<Option<String>>,
+    history_selected: Option<String>,
+    history_inflight: bool,
     selected_inbox: Option<String>,
     batch_selection: HashSet<String>,
     review_batch: bool,
@@ -68,6 +79,11 @@ pub struct DeskApp {
     sending: HashSet<String>,
     agents: Vec<Agent>,
     board: agentbolt_core::board::Snapshot,
+    board_query: agentbolt_core::board::DeskQuery,
+    board_search: String,
+    board_request_back: Vec<Option<agentbolt_core::board::RequestCursor>>,
+    board_message_back: Vec<Option<u64>>,
+    board_agent_back: Vec<u64>,
     board_inflight: bool,
     last_board: Option<Instant>,
     lease_drafts: HashMap<String, u32>,
@@ -77,6 +93,8 @@ pub struct DeskApp {
     baseline_label: String,
     verdict_draft: String,
     holds: agentbolt_core::holds::Snapshot,
+    holds_after: Option<String>,
+    holds_back: Vec<Option<String>>,
     holds_inflight: bool,
     last_holds: Option<Instant>,
     hold_draft: Option<agentbolt_core::holds::Config>,
@@ -175,8 +193,18 @@ impl DeskApp {
             worker,
             tab: Tab::Inbox,
             inbox: Vec::new(),
+            inbox_after: None,
+            inbox_back: Vec::new(),
+            inbox_next: None,
+            inbox_more: false,
             open_count: None,
             recent: Vec::new(),
+            history: Default::default(),
+            history_query: Default::default(),
+            history_search: String::new(),
+            history_back: Vec::new(),
+            history_selected: None,
+            history_inflight: false,
             selected_inbox: state.selected,
             batch_selection: state.batch,
             review_batch: false,
@@ -187,6 +215,11 @@ impl DeskApp {
             sending: HashSet::new(),
             agents: Vec::new(),
             board: Default::default(),
+            board_query: Default::default(),
+            board_search: String::new(),
+            board_request_back: Vec::new(),
+            board_message_back: Vec::new(),
+            board_agent_back: Vec::new(),
             board_inflight: false,
             last_board: None,
             lease_drafts: HashMap::new(),
@@ -197,6 +230,8 @@ impl DeskApp {
             verdict_draft: String::new(),
             holds: Default::default(),
             holds_inflight: false,
+            holds_after: None,
+            holds_back: Vec::new(),
             last_holds: None,
             hold_draft: None,
             hold_excludes: String::new(),
@@ -240,7 +275,39 @@ impl DeskApp {
     fn drain(&mut self) {
         while let Ok(resp) = self.worker.rx.try_recv() {
             match resp {
-                Resp::List(mut r) => {
+                Resp::History { query, result } => {
+                    if query != self.history_query {
+                        continue;
+                    }
+                    self.history_inflight = false;
+                    match result {
+                        Ok(page) => {
+                            if self
+                                .history_selected
+                                .as_ref()
+                                .is_none_or(|id| !page.asks.iter().any(|a| &a.id == id))
+                            {
+                                self.history_selected = page.asks.first().map(|a| a.id.clone());
+                            }
+                            self.history = page;
+                        }
+                        Err(error) => self.note(format!("Couldn't load history: {error}"), true),
+                    }
+                }
+                Resp::List { after, result } => {
+                    self.list_inflight = false;
+                    if after != self.inbox_after {
+                        continue;
+                    }
+                    let mut r = match result {
+                        Ok(r) => r,
+                        Err(error) => {
+                            self.conn = Conn::Down(error);
+                            continue;
+                        }
+                    };
+                    self.inbox_next = r.next;
+                    self.inbox_more = r.more;
                     self.notification_warning = r.notification_warning.take();
                     crate::startup::mark("inbox_received");
                     crate::startup::record("inbox_refreshed");
@@ -248,11 +315,13 @@ impl DeskApp {
                     self.conn = Conn::Up;
                     view::sort_asks(&mut r.inbox);
                     self.inbox = r.inbox;
-                    self.open_count = Some(self.inbox.len() as u32);
+                    self.open_count = Some(r.total);
                     self.recent = r.recent;
                     let ids: HashSet<&str> = self.inbox.iter().map(|a| a.id.as_str()).collect();
                     self.batch_selection.retain(|id| ids.contains(id.as_str()));
-                    self.drafts.retain(|id, _| ids.contains(id.as_str()));
+                    // Another page can hold an unsent draft. Retire only questions known to be closed.
+                    let closed: HashSet<&str> = self.recent.iter().map(|a| a.id.as_str()).collect();
+                    self.drafts.retain(|id, _| !closed.contains(id.as_str()));
                     if self
                         .selected_inbox
                         .as_deref()
@@ -316,16 +385,32 @@ impl DeskApp {
                     self.agents_inflight = false;
                     self.agents = r.agents;
                 }
-                Resp::Board(r) => {
+                Resp::Board { query, result } => {
                     self.board_inflight = false;
-                    self.board = r;
+                    if query != self.board_query {
+                        continue;
+                    }
+                    match result {
+                        Ok(page) => self.board = page,
+                        Err(error) => self.note(format!("Couldn't load the Board: {error}"), true),
+                    }
                 }
                 Resp::Metrics(r) => {
                     self.metrics_inflight = false;
                     self.metrics = Some(r);
                 }
-                Resp::Holds(r) => {
+                Resp::Holds { after, result } => {
                     self.holds_inflight = false;
+                    if after != self.holds_after {
+                        continue;
+                    }
+                    let r = match result {
+                        Ok(r) => r,
+                        Err(error) => {
+                            self.note(format!("Couldn't load work holds: {error}"), true);
+                            continue;
+                        }
+                    };
                     if self.hold_draft.is_none() {
                         self.hold_excludes = r.config.excluded_paths.join("\n");
                         self.hold_draft = Some(r.config.clone());
@@ -337,6 +422,8 @@ impl DeskApp {
                         Ok(()) => {
                             self.note("Working-copy allowlist saved", false);
                             self.hold_draft = None;
+                            self.holds_after = None;
+                            self.holds_back.clear();
                         }
                         Err(e) => self.note(e, true),
                     }
@@ -448,8 +535,14 @@ impl DeskApp {
         let focused = ctx.input(|i| i.viewport().focused.unwrap_or(i.focused));
         // Listing the Inbox marks its asks shown (their default clocks start), so list only while he can see the
         // window; otherwise refresh the counts. Coming back to the window lists at once.
-        let kind = view::poll_kind(focused && crate::resident::visible(), minimized);
-        let seen = kind == view::Poll::List;
+        let visibility = view::poll_kind(focused && crate::resident::visible(), minimized);
+        let seen = visibility == view::Poll::List;
+        // Another tab can be visible without showing a new question in the Inbox.
+        let kind = if seen && self.tab == Tab::Inbox {
+            view::Poll::List
+        } else {
+            view::Poll::Status
+        };
         if seen && !self.was_seen {
             self.last_list = None;
         }
@@ -458,7 +551,7 @@ impl DeskApp {
             self.list_inflight = true;
             self.last_list = Some(Instant::now());
             self.send(match kind {
-                view::Poll::List => Req::List,
+                view::Poll::List => Req::List(self.inbox_after.clone()),
                 view::Poll::Status => Req::Status,
             });
         }
@@ -478,7 +571,7 @@ impl DeskApp {
         {
             self.board_inflight = true;
             self.last_board = Some(Instant::now());
-            self.send(Req::Board);
+            self.send(Req::Board(self.board_query.clone()));
         }
         if seen
             && !self.owners_inflight
@@ -510,7 +603,7 @@ impl DeskApp {
         {
             self.holds_inflight = true;
             self.last_holds = Some(Instant::now());
-            self.send(Req::Holds);
+            self.send(Req::Holds(self.holds_after.clone()));
         }
         ctx.request_repaint_after(POLL);
     }
@@ -530,6 +623,8 @@ impl DeskApp {
         }
         self.tab = tab;
         match tab {
+            Tab::Inbox => self.last_list = None,
+            Tab::History => self.load_history(),
             Tab::Settings => {
                 self.send(Req::GetSettings);
                 self.send(Req::Phone);
@@ -539,7 +634,6 @@ impl DeskApp {
             Tab::Board => self.last_board = None,
             Tab::Activity => self.last_metrics = None,
             Tab::Holds => self.last_holds = None,
-            _ => {}
         }
     }
 
@@ -554,6 +648,7 @@ impl DeskApp {
                     ),
                 ),
                 (Tab::Agents, "Agents".to_string()),
+                (Tab::History, "History".to_string()),
                 (Tab::Board, "Board".to_string()),
                 (Tab::Activity, "Activity".to_string()),
                 (Tab::Holds, "Work holds".to_string()),
@@ -599,6 +694,38 @@ impl DeskApp {
     }
 
     fn ask_list(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal_wrapped(|ui| {
+            ui.weak(format!("Page {}", self.inbox_back.len() + 1));
+            if ui
+                .add_enabled(
+                    !self.list_inflight && !self.inbox_back.is_empty(),
+                    egui::Button::new("Previous"),
+                )
+                .clicked()
+            {
+                self.inbox_after = self.inbox_back.pop().flatten();
+                self.last_list = None;
+                self.batch_selection.clear();
+            }
+            if ui
+                .add_enabled(
+                    !self.list_inflight && self.inbox_more,
+                    egui::Button::new("More"),
+                )
+                .clicked()
+            {
+                self.inbox_back.push(self.inbox_after.clone());
+                self.inbox_after = self.inbox_next.clone();
+                self.last_list = None;
+                self.batch_selection.clear();
+            }
+            if ui.button("First page").clicked() {
+                self.inbox_after = None;
+                self.inbox_back.clear();
+                self.last_list = None;
+                self.batch_selection.clear();
+            }
+        });
         if !self.batch_selection.is_empty() {
             if ui
                 .button(format!("Review {} answers", self.batch_selection.len()))
@@ -836,8 +963,108 @@ impl DeskApp {
         })
     }
 
+    fn load_history(&mut self) {
+        self.history_inflight = true;
+        self.send(Req::History(self.history_query.clone()));
+    }
+
+    fn history_tab(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal_wrapped(|ui| {
+            ui.heading("Question history");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.history_search)
+                    .hint_text("Search question, owner or ID")
+                    .desired_width(260.0),
+            );
+            if ui
+                .add_enabled(
+                    !self.history_inflight,
+                    egui::Button::new("Search / refresh"),
+                )
+                .clicked()
+            {
+                self.history_query = agentbolt_core::protocol::HistoryQuery {
+                    before: None,
+                    search: self.history_search.trim().into(),
+                };
+                self.history_back.clear();
+                self.load_history();
+            }
+        });
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(
+                    !self.history_inflight && !self.history_back.is_empty(),
+                    egui::Button::new("Newer"),
+                )
+                .clicked()
+            {
+                self.history_query.before = self.history_back.pop().flatten();
+                self.load_history();
+            }
+            if ui
+                .add_enabled(
+                    !self.history_inflight && self.history.more,
+                    egui::Button::new("Older"),
+                )
+                .clicked()
+            {
+                self.history_back.push(self.history_query.before.clone());
+                self.history_query.before = self.history.next.clone();
+                self.load_history();
+            }
+            ui.weak(format!(
+                "{} matching questions · page {}",
+                self.history.total,
+                self.history_back.len() + 1
+            ));
+            if self.history_inflight {
+                ui.spinner();
+            }
+        });
+        ui.separator();
+        egui::Panel::left("history-list")
+            .resizable(true)
+            .default_size(320.0)
+            .min_size(220.0)
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("history-rows")
+                    .show(ui, |ui| {
+                        if self.history.asks.is_empty() && !self.history_inflight {
+                            ui.weak("No matching answered or withdrawn questions.");
+                        }
+                        for ask in &self.history.asks {
+                            if ui
+                                .selectable_label(
+                                    self.history_selected.as_deref() == Some(&ask.id),
+                                    format!("{}\n{}", ask.input.title, ask.owner),
+                                )
+                                .clicked()
+                            {
+                                self.history_selected = Some(ask.id.clone());
+                            }
+                            ui.separator();
+                        }
+                    });
+            });
+        let ask = self
+            .history
+            .asks
+            .iter()
+            .find(|a| Some(&a.id) == self.history_selected.as_ref())
+            .cloned();
+        egui::CentralPanel::default().show(ui, |ui| {
+            if let Some(ask) = ask {
+                if let Some(req) = self.details(ui, &ask) {
+                    self.send(req);
+                }
+            }
+        });
+    }
+
     fn ask_pane(&mut self, ui: &mut egui::Ui) {
-        if self.inbox.is_empty() && self.recent.is_empty() {
+        if self.inbox.is_empty() && self.recent.is_empty() && self.inbox_after.is_none() {
             ui.centered_and_justified(|ui| {
                 ui.label(RichText::new(view::EMPTY_INBOX).size(16.0).weak());
             });
@@ -1081,9 +1308,29 @@ impl DeskApp {
     fn board_tab(&mut self, ui: &mut egui::Ui) {
         let mut open = None;
         let mut save = None;
+        let mut reload = false;
         egui::ScrollArea::vertical().auto_shrink([false,false]).show(ui,|ui| {
             ui.heading("Agent handoffs");
             ui.weak("Messages and requests between agents. They do not grant approval or replace the work ledger.");
+            ui.horizontal_wrapped(|ui|{
+                ui.add(egui::TextEdit::singleline(&mut self.board_search).hint_text("Find request or message").desired_width(240.0));
+                if ui.button("Search / newest").clicked() {
+                    self.board_query.search=self.board_search.trim().into(); self.board_query.requests_before=None; self.board_query.messages_before=None;
+                    self.board_request_back.clear(); self.board_message_back.clear(); reload=true;
+                }
+                if ui.checkbox(&mut self.board_query.include_closed,"Include completed and cancelled").changed() {
+                    self.board_query.requests_before=None;self.board_request_back.clear();reload=true;
+                }
+            });
+            ui.horizontal(|ui|{
+                if ui.add_enabled(!self.board_inflight && !self.board_request_back.is_empty(),egui::Button::new("Newer handoffs")).clicked() {
+                    self.board_query.requests_before=self.board_request_back.pop().flatten();reload=true;
+                }
+                if ui.add_enabled(!self.board_inflight && self.board.more_requests,egui::Button::new("Older handoffs")).clicked() {
+                    self.board_request_back.push(self.board_query.requests_before.clone());self.board_query.requests_before=self.board.request_next.clone();reload=true;
+                }
+                ui.weak(format!("{} matching handoffs · page {}",self.board.total_requests,self.board_request_back.len()+1));
+            });
             if self.board.requests.is_empty() { ui.label("No handoffs yet."); }
             for r in &self.board.requests {
                 egui::CollapsingHeader::new(format!("{} · {}",r.status,r.input.title)).id_salt(&r.id).show(ui,|ui| {
@@ -1103,6 +1350,18 @@ impl DeskApp {
                 });
             }
             ui.separator(); ui.heading("Who is working");
+            ui.horizontal_wrapped(|ui|{
+                if ui.checkbox(&mut self.board_query.include_inactive,"Include inactive agents").changed() {
+                    self.board_query.agents_after=0;self.board_agent_back.clear();reload=true;
+                }
+                if ui.add_enabled(!self.board_inflight && !self.board_agent_back.is_empty(),egui::Button::new("Previous agents")).clicked() {
+                    self.board_query.agents_after=self.board_agent_back.pop().unwrap_or(0);reload=true;
+                }
+                if ui.add_enabled(!self.board_inflight && self.board.more_agents,egui::Button::new("More agents")).clicked() {
+                    self.board_agent_back.push(self.board_query.agents_after);self.board_query.agents_after=self.board.agent_next;reload=true;
+                }
+                ui.weak(format!("{} agents · page {}",self.board.total_agents,self.board_agent_back.len()+1));
+            });
             for a in &self.board.agents {
                 egui::CollapsingHeader::new(format!("{} · {} · {}",a.owner,if a.alive {"active"} else {"inactive"},a.roles.join(", "))).id_salt(&a.id).show(ui,|ui| {
                     ui.label(format!("{} on {}",a.client,a.machine));
@@ -1117,18 +1376,33 @@ impl DeskApp {
                     });
                 });
             }
-            ui.separator(); ui.heading("Recent messages");
+            ui.separator(); ui.heading("Messages");
+            ui.horizontal(|ui|{
+                if ui.add_enabled(!self.board_inflight && !self.board_message_back.is_empty(),egui::Button::new("Newer messages")).clicked() {
+                    self.board_query.messages_before=self.board_message_back.pop().flatten();reload=true;
+                }
+                if ui.add_enabled(!self.board_inflight && self.board.more_messages,egui::Button::new("Older messages")).clicked() {
+                    self.board_message_back.push(self.board_query.messages_before);self.board_query.messages_before=self.board.message_next;reload=true;
+                }
+                ui.weak(format!("{} matching messages · page {}",self.board.total_messages,self.board_message_back.len()+1));
+            });
             if self.board.messages.is_empty() {ui.label("No messages yet.");}
-            for m in self.board.messages.iter().rev() {
+            for m in &self.board.messages {
                 egui::CollapsingHeader::new(format!("{} · {}",m.owner,m.input.title)).id_salt(&m.id).show(ui,|ui| {
                     use agentbolt_core::board::Destination;
                     let to=match &m.input.to {Destination::Everyone=>"everyone".into(),Destination::Role(s)=>format!("role {s}"),Destination::Owner(s)=>format!("owner {s}"),Destination::Agent(s)=>s.clone()};
                     ui.weak(format!("To {to} · {}",m.created_at));
                     if let Some(thread)=&m.input.thread {ui.label(format!("Thread {thread}"));}
                     ui.add(egui::Label::new(&m.input.body).selectable(true).wrap());
+                    for reference in &m.input.references {
+                        evidence_row(ui, reference, reference, &HashMap::new());
+                    }
                 });
             }
         });
+        if reload {
+            self.last_board = None;
+        }
         if let Some(req) = save {
             self.send(req);
         }
@@ -1203,6 +1477,23 @@ impl DeskApp {
         egui::ScrollArea::vertical().auto_shrink([false,false]).show(ui,|ui|{
             ui.heading("Work holds");
             ui.label("Agents can check these holds before opening or merging a PR. A hold is advisory; it does not edit or lock your files.");
+            ui.horizontal_wrapped(|ui| {
+                ui.label(format!("{} active agent holds · page {}", self.holds.total_agent_holds, self.holds_back.len() + 1));
+                if ui.add_enabled(!self.holds_inflight && !self.holds_back.is_empty(), egui::Button::new("Previous holds")).clicked() {
+                    self.holds_after = self.holds_back.pop().flatten();
+                    self.last_holds = None;
+                }
+                if ui.add_enabled(!self.holds_inflight && self.holds.more, egui::Button::new("More holds")).clicked() {
+                    self.holds_back.push(self.holds_after.clone());
+                    self.holds_after = self.holds.next.clone();
+                    self.last_holds = None;
+                }
+                if ui.button("First page / refresh").clicked() {
+                    self.holds_after = None;
+                    self.holds_back.clear();
+                    self.last_holds = None;
+                }
+            });
             let now=agentbolt_core::store::to_ms(time::OffsetDateTime::now_utc());
             for source in &self.holds.config.working_copies {
                 ui.strong(&source.repo);ui.label(&source.path);
@@ -1545,13 +1836,16 @@ fn evidence_row(
                 egui::Label::new(RichText::new(p.display().to_string()).monospace())
                     .selectable(true),
             );
-            let exists = exists.get(&p).copied().unwrap_or(false);
+            // Board references are checked on click; selected ask paths have a cached existence result.
+            let exists = exists.get(&p).copied().unwrap_or(true);
             if ui
                 .add_enabled(exists, egui::Button::new("Show in Explorer").small())
                 .on_disabled_hover_text("Not found on this PC")
                 .clicked()
             {
-                let _ = os::show_in_explorer(&p);
+                if let Err(error) = os::show_in_explorer(&p) {
+                    ui.colored_label(ui.visuals().error_fg_color, error);
+                }
             }
         }
         Link::Text => {
@@ -1745,6 +2039,7 @@ impl eframe::App for DeskApp {
         }
         egui::CentralPanel::default().show(ui, |ui| match self.tab {
             Tab::Inbox => self.ask_pane(ui),
+            Tab::History => self.history_tab(ui),
             Tab::Agents => self.agents_tab(ui),
             Tab::Board => self.board_tab(ui),
             Tab::Activity => self.activity_tab(ui),

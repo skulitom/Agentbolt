@@ -47,6 +47,12 @@ pub struct Snapshot {
     pub config: Config,
     pub scans: Vec<Scan>,
     pub holds: Vec<Hold>,
+    #[serde(default)]
+    pub next: Option<String>,
+    #[serde(default)]
+    pub more: bool,
+    #[serde(default)]
+    pub total_agent_holds: u32,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Check {
@@ -55,12 +61,20 @@ pub struct Check {
     pub clear: bool,
     pub collisions: Vec<Hold>,
     pub unknown: Vec<String>,
+    #[serde(default)]
+    pub total_collisions: u32,
+    #[serde(default)]
+    pub more_collisions: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum HoldOp {
     List,
+    ListPage {
+        after: Option<String>,
+        repo: Option<String>,
+    },
     Check {
         repo: String,
         paths: Vec<String>,
@@ -161,7 +175,7 @@ pub fn save_scan(db: &Connection, scan: Scan) -> Result<(), String> {
     db.execute("INSERT INTO hold_scans(source,result_json) VALUES (?1,?2) ON CONFLICT(source) DO UPDATE SET result_json=excluded.result_json",params![path_key(&scan.path)?,json!(scan).to_string()]).map_err(db_err)?;
     Ok(())
 }
-pub fn snapshot(db: &Connection, now: i64) -> Result<Snapshot, String> {
+fn working_copies(db: &Connection) -> Result<Snapshot, String> {
     let cfg = config(db)?;
     let mut stmt = db
         .prepare("SELECT result_json FROM hold_scans")
@@ -188,70 +202,147 @@ pub fn snapshot(db: &Connection, now: i64) -> Result<Snapshot, String> {
             });
         }
     }
-    let mut stmt=db.prepare("SELECT id,owner,repo,paths_json,note,expires_ms FROM agent_holds WHERE expires_ms>?1 ORDER BY repo,owner").map_err(db_err)?;
-    for row in stmt
-        .query_map([now], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, String>(3)?,
-                r.get::<_, String>(4)?,
-                r.get::<_, i64>(5)?,
-            ))
-        })
-        .map_err(db_err)?
-    {
-        let (id, owner, repo, paths, note, until) = row.map_err(db_err)?;
-        holds.push(Hold {
-            id,
-            owner,
-            kind: "agent".into(),
-            repo,
-            paths: serde_json::from_str(&paths).map_err(|e| e.to_string())?,
-            note,
-            until: Some(fmt_ms(until)),
-        });
-    }
     Ok(Snapshot {
         config: cfg,
         scans,
         holds,
+        ..Default::default()
     })
+}
+
+fn agent_hold(row: &rusqlite::Row<'_>) -> rusqlite::Result<Hold> {
+    let raw: String = row.get(3)?;
+    let paths = serde_json::from_str(&raw).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(e))
+    })?;
+    Ok(Hold {
+        id: row.get(0)?,
+        owner: row.get(1)?,
+        repo: row.get(2)?,
+        paths,
+        note: row.get(4)?,
+        until: Some(fmt_ms(row.get(5)?)),
+        kind: "agent".into(),
+    })
+}
+pub fn snapshot(db: &Connection, now: i64) -> Result<Snapshot, String> {
+    snapshot_page(db, now, None, None)
+}
+pub fn snapshot_page(
+    db: &Connection,
+    now: i64,
+    after: Option<String>,
+    repo: Option<String>,
+) -> Result<Snapshot, String> {
+    let repo = repo.map(|r| board::repository(&r)).transpose()?;
+    let mut state = working_copies(db)?;
+    if let Some(repo) = &repo {
+        state.holds.retain(|h| &h.repo == repo);
+    }
+    state.total_agent_holds = store::count(
+        db,
+        "SELECT COUNT(*) FROM agent_holds WHERE expires_ms>?1 AND (?2 IS NULL OR repo=?2)",
+        params![now, repo],
+    )
+    .map_err(db_err)?;
+    let mut stmt=db.prepare("SELECT id,owner,repo,paths_json,note,expires_ms FROM agent_holds WHERE expires_ms>?1 AND (?2 IS NULL OR repo=?2) AND (?3 IS NULL OR id>?3) ORDER BY id LIMIT 51").map_err(db_err)?;
+    let mut page = stmt
+        .query_map(params![now, repo, after], agent_hold)
+        .map_err(db_err)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_err)?;
+    state.more = page.len() > 50;
+    page.truncate(50);
+    state.next = page.last().map(|h| h.id.clone());
+    state.holds.extend(page);
+    Ok(state)
 }
 
 /// '*' spans one path component; '**' spans components; '?' matches one non-separator character.
 pub fn matches(pattern: &str, path: &str) -> bool {
-    let p: Vec<char> = pattern.chars().collect();
-    let s: Vec<char> = path.chars().collect();
-    let mut memo = std::collections::HashMap::new();
-    fn visit(
-        p: &[char],
-        s: &[char],
-        i: usize,
-        j: usize,
-        m: &mut std::collections::HashMap<(usize, usize), bool>,
-    ) -> bool {
-        if let Some(v) = m.get(&(i, j)) {
-            return *v;
-        }
-        let yes = if i == p.len() {
-            j == s.len()
-        } else if p[i] == '*' {
-            let double = p.get(i + 1) == Some(&'*');
-            let next = i + if double { 2 } else { 1 };
-            visit(p, s, next, j, m)
-                || (double && p.get(next) == Some(&'/') && visit(p, s, next + 1, j, m))
-                || (j < s.len() && (double || s[j] != '/') && visit(p, s, i, j + 1, m))
-        } else {
-            j < s.len()
-                && (p[i] == s[j] || (p[i] == '?' && s[j] != '/'))
-                && visit(p, s, i + 1, j + 1, m)
-        };
-        m.insert((i, j), yes);
-        yes
+    if !pattern.contains(['*', '?']) {
+        return pattern == path;
     }
-    visit(&p, &s, 0, 0, &mut memo)
+    #[derive(Clone, Copy)]
+    enum State {
+        Literal(char),
+        Any,
+        Star,
+        DeepStar,
+        DirectoryStart,
+        DirectoryRest,
+    }
+    // A small forward automaton keeps stack and memory independent of path length.
+    // **/ can consume zero directories or finish at a slash, never part of a filename.
+    let mut states = Vec::new();
+    let mut chars = pattern.chars().peekable();
+    while let Some(ch) = chars.next() {
+        let state = match ch {
+            '*' if chars.peek() == Some(&'*') => {
+                chars.next();
+                if chars.peek() == Some(&'/') {
+                    chars.next();
+                    states.push(State::DirectoryStart);
+                    State::DirectoryRest
+                } else {
+                    State::DeepStar
+                }
+            }
+            '*' => State::Star,
+            '?' => State::Any,
+            ch => State::Literal(ch),
+        };
+        states.push(state);
+    }
+    let closure = |active: &mut [bool]| {
+        // Epsilon edges only go forward, so one pass reaches the full closure.
+        for (i, state) in states.iter().enumerate() {
+            if active[i] {
+                match state {
+                    State::Star | State::DeepStar => active[i + 1] = true,
+                    State::DirectoryStart => active[i + 2] = true,
+                    _ => {}
+                }
+            }
+        }
+    };
+    let mut active = vec![false; states.len() + 1];
+    let mut next = active.clone();
+    active[0] = true;
+    closure(&mut active);
+    for ch in path.chars() {
+        next.fill(false);
+        for (i, state) in states.iter().enumerate() {
+            if !active[i] {
+                continue;
+            }
+            match state {
+                State::Literal(value) if *value == ch => next[i + 1] = true,
+                State::Any if ch != '/' => next[i + 1] = true,
+                State::Star if ch != '/' => next[i] = true,
+                State::DeepStar => next[i] = true,
+                State::DirectoryStart => {
+                    next[i + 1] = true;
+                    if ch == '/' {
+                        next[i + 2] = true;
+                    }
+                }
+                State::DirectoryRest => {
+                    next[i] = true;
+                    if ch == '/' {
+                        next[i + 1] = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        closure(&mut next);
+        std::mem::swap(&mut active, &mut next);
+        if !active.iter().any(|value| *value) {
+            return false;
+        }
+    }
+    active[states.len()]
 }
 fn overlap(a: &str, b: &str) -> bool {
     if !a.contains(['*', '?']) {
@@ -277,7 +368,7 @@ pub fn check(
     if requested.is_empty() {
         return Err("provide paths to check, or '**' for the whole repository".into());
     }
-    let state = snapshot(db, now)?;
+    let state = working_copies(db)?;
     let mut unknown = Vec::new();
     let sources: Vec<_> = state
         .config
@@ -305,21 +396,40 @@ pub fn check(
             }
         }
     }
-    let collisions = state
-        .holds
-        .into_iter()
-        .filter(|h| {
-            h.repo == repo
-                && ignore != Some(h.id.as_str())
-                && h.paths
-                    .iter()
-                    .any(|p| requested.iter().any(|q| overlap(p, q)))
-        })
-        .collect::<Vec<_>>();
+    let collides = |h: &Hold| {
+        h.repo == repo
+            && ignore != Some(h.id.as_str())
+            && h.paths
+                .iter()
+                .any(|p| requested.iter().any(|q| overlap(p, q)))
+    };
+    let mut collisions = Vec::new();
+    let mut total_collisions = 0u32;
+    let mut record = |hold: Hold| {
+        if collides(&hold) {
+            total_collisions = total_collisions.saturating_add(1);
+            if collisions.len() < 50 {
+                collisions.push(hold);
+            }
+        }
+    };
+    for hold in state.holds {
+        record(hold);
+    }
+    // Stream all relevant agent holds. Display pagination must never become a false clearance.
+    let mut stmt=db.prepare("SELECT id,owner,repo,paths_json,note,expires_ms FROM agent_holds WHERE expires_ms>?1 AND repo=?2 ORDER BY id").map_err(db_err)?;
+    for row in stmt
+        .query_map(params![now, repo], agent_hold)
+        .map_err(db_err)?
+    {
+        record(row.map_err(db_err)?);
+    }
     Ok(Check {
         repo,
         paths: requested,
-        clear: collisions.is_empty() && unknown.is_empty(),
+        clear: total_collisions == 0 && unknown.is_empty(),
+        more_collisions: total_collisions > collisions.len() as u32,
+        total_collisions,
         collisions,
         unknown,
     })
@@ -331,13 +441,14 @@ pub fn touch(db: &Connection, now: i64, handle: &str) -> Result<(), String> {
 pub fn run(db: &Connection, now: i64, agent: &Agent, action: HoldOp) -> Result<Value, String> {
     match action {
         HoldOp::List => Ok(json!(snapshot(db, now)?)),
+        HoldOp::ListPage { after, repo } => Ok(json!(snapshot_page(db, now, after, repo)?)),
         HoldOp::Check { repo, paths, stage } => {
             let result = check(db, now, &repo, paths, None)?;
             if let Some(stage) = stage {
                 if !matches!(stage.as_str(), "pr_open" | "merge") {
                     return Err("stage must be pr_open or merge".into());
                 }
-                events::append(db,now,"holds.checked",&result.repo,&json!({"stage":stage,"owner":agent.owner,"collisions":result.collisions.len(),"unknown":result.unknown.len(),"clear":result.clear})).map_err(db_err)?;
+                events::append(db,now,"holds.checked",&result.repo,&json!({"stage":stage,"owner":agent.owner,"collisions":result.total_collisions,"unknown":result.unknown.len(),"clear":result.clear})).map_err(db_err)?;
             }
             Ok(json!(result))
         }

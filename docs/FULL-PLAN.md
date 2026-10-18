@@ -40,7 +40,7 @@ release test run has been claimed):
 - M4: Desk-only working-copy allowlist/exclusions and reviewed FOCUS import; bounded background Git scans;
   dirty and unpushed paths; unknown/error/stale status; renewable agent holds and overlap matching.
   `work_holds` and `agentbolt holds --stage pr_open|merge` expose the guard. Nothing is configured or
-  scanned in the real installation. Actual Compass PR/merge workflow wiring remains implementation work.
+  scanned in the real installation. `pr-check` now implements the PR/merge adapter; live workflow rollout is separate.
 - M5: durable routed/threaded messages and cursor reads; role/doing registration and matches; deduplicated
   requests, ten-request owner cap, atomic claims, inactivity leases, fencing, explicit renew/release/done,
   cancellation and Desk Board view. Lease ceilings can be changed in the Desk. Tool-call activity renews
@@ -69,9 +69,23 @@ The next expanded pass adds these features (compilation only):
   in the daemon, including after restart. Board profile updates now preserve omitted roles/repository;
   explicit empty roles and `clear_repo` remove those fields without disturbing the other one.
 
-Remaining implementation audit: compare every full-plan requirement with current code; finish any missing
-features, including complete Desk Board/history navigation, pagination/large-result behavior,
-relay filtering/pagination, and the expanded plugin catalog. Keep source and
+The navigation pass adds searchable History and Board pages, all-status Board requests, inactive agent
+pages, Inbox and hold pages, and owner-filtered relay/answer continuation cursors. Only the returned
+Inbox page starts shown/default clocks; browsing other tabs polls counts without showing asks. Drafts
+survive Inbox page changes. Question pages also stop at a byte budget instead of exceeding the pipe
+limit. Hold checks inspect every matching active hold while returning at most 50 collision details;
+`total_collisions` and `more_collisions` disclose the remainder. The glob matcher uses bounded stack
+and memory independent of path length, with directory-boundary handling for `**/`.
+
+Board messages now carry up to eight safe references; fenced completion supports `failed: true` with
+the same stale-claim and retry rules as success. Durable phone receipts reach the installed Desk before
+new network checks, so a poll outage does not hold up a previously received reply. The plugin's full
+twelve-tool catalog is generated from the server's schema source, including its host wait cap. All of
+these changes have compilation feedback only; no feature, native, behavioral or release checks ran.
+
+Remaining implementation audit: compare every full-plan requirement with current code; finish missing
+features and bounds, including older Agents/Owners navigation, orphaned draft lifecycle across pages
+and complete delivery-record access without oversized question responses. Keep source and
 distribution descriptions in sync. Continue feature work before test suites, licensing, packaging,
 idle/soak or live-client checks. No configured phone/SSH/Beads/Compass workflow has been exercised yet.
 

@@ -14,9 +14,11 @@ commands implement durable Reception handoffs and PR/merge hold checks. These ad
 feedback only. No phone account, live workflow, scan configuration or baseline has been activated.
 Earlier test results below predate these additions.
 
-Timed mute and partial Board profile updates are implemented too. Continue the full-plan feature audit:
-complete Desk history/Board navigation, pagination and large-result behavior, relay filtering and the expanded plugin catalog. See
-[FULL-PLAN.md](docs/FULL-PLAN.md). Implement those gaps before returning to test suites or release work.
+Timed mute, partial Board profile updates, Inbox/History/Board/hold navigation, filtered relay and answer
+paging, linked Board messages and failed handoff outcomes are implemented. The twelve-tool plugin
+catalog now comes from the server schema source. Continue the full-plan implementation audit, including
+older Agents/Owners navigation, draft lifecycle across pages and bounded delivery records. See
+[FULL-PLAN.md](docs/FULL-PLAN.md). Finish those gaps before test suites or release work.
 
 **Current order: finish all implementation before heavy validation.** The long CPU
 probe and 72-hour run were stopped, and the hourly monitor is paused. Complete the handoff-to-code audit

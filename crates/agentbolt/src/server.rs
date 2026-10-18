@@ -281,7 +281,7 @@ impl DeskServer {
                             .await
                             .map_err(|e| e.to_string())?;
                     }
-                    let v = json!({ "handle": h, "renewed": true, "answers": answers, "board":agent["board"],
+                    let v = json!({ "handle": h, "renewed": true, "answers": answers["answers"], "answers_next":answers["next"], "more_answers":answers["more"], "open_ask_ids":answers["waiting"], "board":agent["board"],
                         "owner": agent["owner"], "provisional": agent["provisional"], "requested_owner": agent["requested_owner"] });
                     let pending = agent["requested_owner"].as_str().map(|name| format!(" Proposed name '{name}' awaits Desk approval; your owner has not changed.")).unwrap_or_default();
                     return Ok(ok(
@@ -341,10 +341,20 @@ impl DeskServer {
             }
             tools::ANSWERS => {
                 let a = tools::answers_args(args, self.args.max_wait_ms)?;
-                self.with_handle(&who, handle, |handle| McpOp::Answers {
-                    handle,
-                    ids: a.ids.clone(),
-                    wait_ms: a.wait_ms,
+                self.with_handle(&who, handle, |handle| {
+                    if a.ids.is_empty() {
+                        McpOp::AnswersPage {
+                            handle,
+                            before: a.before.clone(),
+                            wait_ms: a.wait_ms,
+                        }
+                    } else {
+                        McpOp::Answers {
+                            handle,
+                            ids: a.ids.clone(),
+                            wait_ms: a.wait_ms,
+                        }
+                    }
                 })
                 .await
                 .map(|v| (tools::answers_line(&v), v))
@@ -361,6 +371,14 @@ impl DeskServer {
             tools::RELAY => match tools::relay_action(args)? {
                 RelayAction::List => self
                     .with_handle(&who, handle, |handle| McpOp::RelayList { handle })
+                    .await
+                    .map(|v| (tools::relay_list_line(&v), v)),
+                RelayAction::ListPage { owners, before } => self
+                    .with_handle(&who, handle, |handle| McpOp::RelayPage {
+                        handle,
+                        owners: owners.clone(),
+                        before: before.clone(),
+                    })
                     .await
                     .map(|v| (tools::relay_list_line(&v), v)),
                 RelayAction::Mark {
@@ -431,17 +449,7 @@ impl ServerHandler for DeskServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, McpError> {
-        let mut tools = tools::tools();
-        if let Some(answer) = tools.iter_mut().find(|t| t.name == tools::ANSWERS) {
-            let cap = self.args.max_wait_ms.min(600_000);
-            let schema = Arc::make_mut(&mut answer.input_schema);
-            if let Some(properties) = schema.get_mut("properties").and_then(Value::as_object_mut) {
-                properties["wait_ms"]["maximum"] = json!(cap);
-                properties["wait_ms"]["description"] = json!(format!(
-                    "Wait for an answer, up to this host's configured {cap} ms. Keep doing independent work if a long wait is backgrounded; silence is not agreement."
-                ));
-            }
-        }
+        let tools = tools::tools_for_host(self.args.max_wait_ms);
         Ok(ListToolsResult::with_all_items(tools))
     }
 
