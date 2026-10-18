@@ -707,11 +707,13 @@ impl DeskApp {
                             ui.label("Note");
                             ui.text_edit_singleline(&mut draft.note);
                         });
-                        if let Err(e) = agentbolt_core::rules::check_answer(
-                            &ask.input,
-                            choice.clone(),
-                            values.clone(),
-                        ) {
+                        if !(ask.input.kind == AskKind::Form && values.is_none())
+                            && let Err(e) = agentbolt_core::rules::check_answer(
+                                &ask.input,
+                                choice.clone(),
+                                values.clone(),
+                            )
+                        {
                             ui.colored_label(ui.visuals().warn_fg_color, e);
                             ready = false;
                         }

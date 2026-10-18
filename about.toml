@@ -1,0 +1,161 @@
+# Keep this list aligned with deny.toml. Generate for each shipped target with --locked --fail.
+accepted = [
+    "MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause", "BSD-3-Clause",
+    "ISC", "Zlib", "0BSD", "Unicode-3.0", "Unicode-DFS-2016", "CC0-1.0", "BSL-1.0", "MPL-2.0", "OFL-1.1",
+    "Ubuntu-font-1.0", "CDLA-Permissive-2.0",
+]
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+
+workarounds = ["chrono"]
+
+[agentbolt.clarify]
+license = "MIT"
+files = [{ path = "../../LICENSE", license = "MIT", checksum = "be73b8fbfbdbbc6ccb0cab35131529dd89e055965641f74af6cc775c49aa15fb" }]
+
+[agentbolt-core.clarify]
+license = "MIT"
+files = [{ path = "../../LICENSE", license = "MIT", checksum = "be73b8fbfbdbbc6ccb0cab35131529dd89e055965641f74af6cc775c49aa15fb" }]
+
+[agentbolt-daemon.clarify]
+license = "MIT"
+files = [{ path = "../../LICENSE", license = "MIT", checksum = "be73b8fbfbdbbc6ccb0cab35131529dd89e055965641f74af6cc775c49aa15fb" }]
+
+[agentbolt-desk.clarify]
+license = "MIT"
+files = [{ path = "../../LICENSE", license = "MIT", checksum = "be73b8fbfbdbbc6ccb0cab35131529dd89e055965641f74af6cc775c49aa15fb" }]
+
+[agentbolt-ipc.clarify]
+license = "MIT"
+files = [{ path = "../../LICENSE", license = "MIT", checksum = "be73b8fbfbdbbc6ccb0cab35131529dd89e055965641f74af6cc775c49aa15fb" }]
+
+[accesskit.clarify]
+license = "MIT OR Apache-2.0"
+git = [{ path = "LICENSE-MIT", license = "MIT", checksum = "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3" }]
+
+[accesskit_consumer.clarify]
+license = "MIT OR Apache-2.0"
+git = [{ path = "LICENSE-MIT", license = "MIT", checksum = "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3" }]
+
+[accesskit_windows.clarify]
+license = "MIT OR Apache-2.0"
+git = [{ path = "LICENSE-MIT", license = "MIT", checksum = "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3" }]
+
+[accesskit_winit.clarify]
+license = "Apache-2.0"
+git = [{ path = "LICENSE-APACHE", license = "Apache-2.0", checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a" }]
+
+[rmcp.clarify]
+license = "Apache-2.0"
+git = [{ path = "LICENSE", license = "Apache-2.0", checksum = "0382b0057770ca05e9c350a50aa3b1c1fea84da0bc81d723bf00b9aa841be58a" }]
+
+[rmcp-macros.clarify]
+license = "Apache-2.0"
+git = [{ path = "LICENSE", license = "Apache-2.0", checksum = "0382b0057770ca05e9c350a50aa3b1c1fea84da0bc81d723bf00b9aa841be58a" }]
+
+[ecolor.clarify]
+license = "MIT OR Apache-2.0"
+# The packaged VCS commit is unavailable upstream. Pin the official 0.37.0 release tag's commit.
+override-git-commit = "841a328ba2dd8f6996beb7189ebb7fc00e668a2a"
+git = [{ path = "LICENSE-MIT", license = "MIT", checksum = "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c" }]
+
+[eframe.clarify]
+license = "MIT OR Apache-2.0"
+git = [{ path = "LICENSE-MIT", license = "MIT", checksum = "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c" }]
+
+[egui-winit.clarify]
+license = "MIT OR Apache-2.0"
+# The packaged VCS commit is unavailable upstream. Pin the official 0.37.0 release tag's commit.
+override-git-commit = "841a328ba2dd8f6996beb7189ebb7fc00e668a2a"
+git = [{ path = "LICENSE-MIT", license = "MIT", checksum = "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c" }]
+
+[egui.clarify]
+license = "MIT OR Apache-2.0"
+# The packaged VCS commit is unavailable upstream. Pin the official 0.37.0 release tag's commit.
+override-git-commit = "841a328ba2dd8f6996beb7189ebb7fc00e668a2a"
+git = [{ path = "LICENSE-MIT", license = "MIT", checksum = "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c" }]
+
+[egui_glow.clarify]
+license = "MIT OR Apache-2.0"
+# The packaged VCS commit is unavailable upstream. Pin the official 0.37.0 release tag's commit.
+override-git-commit = "841a328ba2dd8f6996beb7189ebb7fc00e668a2a"
+git = [{ path = "LICENSE-MIT", license = "MIT", checksum = "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c" }]
+
+[emath.clarify]
+license = "MIT OR Apache-2.0"
+# The packaged VCS commit is unavailable upstream. Pin the official 0.37.0 release tag's commit.
+override-git-commit = "841a328ba2dd8f6996beb7189ebb7fc00e668a2a"
+git = [{ path = "LICENSE-MIT", license = "MIT", checksum = "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c" }]
+
+[epaint.clarify]
+license = "MIT OR Apache-2.0"
+# The packaged VCS commit is unavailable upstream. Pin the official 0.37.0 release tag's commit.
+override-git-commit = "841a328ba2dd8f6996beb7189ebb7fc00e668a2a"
+git = [{ path = "LICENSE-MIT", license = "MIT", checksum = "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c" }]
+
+[profiling.clarify]
+license = "MIT OR Apache-2.0"
+git = [{ path = "LICENSE-MIT", license = "MIT", checksum = "c8167fdeeed46d3f244d3f85c5bf998ce889343691c32be2c61a8bc4b5c08333" }]
+
+[windows.clarify]
+license = "MIT OR Apache-2.0"
+git = [{ path = "license-mit", license = "MIT", checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383" }]
+
+[windows-collections.clarify]
+license = "MIT OR Apache-2.0"
+git = [{ path = "license-mit", license = "MIT", checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383" }]
+
+[windows-core.clarify]
+license = "MIT OR Apache-2.0"
+git = [{ path = "license-mit", license = "MIT", checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383" }]
+
+[windows-future.clarify]
+license = "MIT OR Apache-2.0"
+git = [{ path = "license-mit", license = "MIT", checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383" }]
+
+[windows-implement.clarify]
+license = "MIT OR Apache-2.0"
+git = [{ path = "license-mit", license = "MIT", checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383" }]
+
+[windows-interface.clarify]
+license = "MIT OR Apache-2.0"
+git = [{ path = "license-mit", license = "MIT", checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383" }]
+
+[windows-link.clarify]
+license = "MIT OR Apache-2.0"
+git = [{ path = "license-mit", license = "MIT", checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383" }]
+
+[windows-numerics.clarify]
+license = "MIT OR Apache-2.0"
+git = [{ path = "license-mit", license = "MIT", checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383" }]
+
+[windows-result.clarify]
+license = "MIT OR Apache-2.0"
+git = [{ path = "license-mit", license = "MIT", checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383" }]
+
+[windows-strings.clarify]
+license = "MIT OR Apache-2.0"
+git = [{ path = "license-mit", license = "MIT", checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383" }]
+
+[windows-sys.clarify]
+license = "MIT OR Apache-2.0"
+git = [{ path = "license-mit", license = "MIT", checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383" }]
+
+[windows-targets.clarify]
+license = "MIT OR Apache-2.0"
+git = [{ path = "license-mit", license = "MIT", checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383" }]
+
+[windows-threading.clarify]
+license = "MIT OR Apache-2.0"
+git = [{ path = "license-mit", license = "MIT", checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383" }]
+
+[windows_x86_64_msvc.clarify]
+license = "MIT OR Apache-2.0"
+git = [{ path = "license-mit", license = "MIT", checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383" }]
+
+[dpi.clarify]
+license = "Apache-2.0 AND MIT"
+files = [
+    { path = "LICENSE", license = "Apache-2.0", checksum = "6dc0e068dcf3a5bc8e054205b85b7720e1d49265bbc64bf515d2cf79197df69a" },
+    { path = "LICENSE-LIBM-MIT", license = "MIT", checksum = "9eff396a99bafd208e7126602420d6864f6066c08b84485a5b032320a9c01997" },
+]
