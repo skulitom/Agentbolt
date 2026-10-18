@@ -354,6 +354,7 @@ mod tests {
             asking_session: None,
             asking_client: None,
             asking_cwd: None,
+            asking_machine: None,
             input: AskInput {
                 kind: AskKind::Choose,
                 title: id.into(),

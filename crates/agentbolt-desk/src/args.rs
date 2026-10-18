@@ -8,6 +8,8 @@ pub enum Mode {
     Warm,
     /// The URL protocol handler: `<protocol>://answer?t=<token>` or `<protocol>://open`.
     Url(String),
+    /// The daemon queues a phone receipt first; no raw token is passed on the command line.
+    PhoneReply(String),
     /// Test channels only: answer one ask through the Desk pipe and exit.
     Answer {
         ask_id: String,
@@ -34,6 +36,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
     let items: Vec<String> = args.into_iter().collect();
     let mut i = 0;
     let mut warm = false;
+    let mut phone_reply = None;
     let (mut channel, mut url, mut answer, mut choice, mut values, mut note) =
         (None, None, None, None, None, None);
     while i < items.len() {
@@ -57,6 +60,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
             "--warm" if inline.is_none() => warm = true,
             "--channel" => channel = Some(value()?),
             "--url" => url = Some(value()?),
+            "--phone-reply" => phone_reply = Some(value()?),
             "--answer" => answer = Some(value()?),
             "--choice" => choice = Some(value()?),
             "--values" => values = Some(value()?),
@@ -85,6 +89,16 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
             }
             Mode::Window
         }
+    };
+    let mode = if let Some(id) = phone_reply {
+        if mode != Mode::Window || warm || !agentbolt_core::phone::identifier(&id) {
+            return Err(
+                "--phone-reply needs a receipt id and cannot be combined with another mode".into(),
+            );
+        }
+        Mode::PhoneReply(id)
+    } else {
+        mode
     };
     let mode = if warm {
         if mode != Mode::Window {

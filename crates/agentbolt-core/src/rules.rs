@@ -610,7 +610,7 @@ pub fn codex_text(ask_id: &str, title: &str, answer: &Answer) -> String {
             "Agentbolt: your ask {ask_id} ({title:?}) reached its deadline and took its default: {what}. A default \
              carries no authority from Artem; act under your own rules."
         ),
-        AnswerVia::Desk | AnswerVia::Toast => {
+        AnswerVia::Desk | AnswerVia::Toast | AnswerVia::Phone => {
             let note = answer
                 .note
                 .as_deref()

@@ -1,7 +1,12 @@
 # Agentbolt 0.2.0 — unsigned release candidate
 
-This candidate is being verified. It has not been tagged or published. See
+This candidate is still being implemented against the expanded M2–M7 scope. It has not been tagged or published. See
 [NEXT.md](../NEXT.md) and [the evidence log](PRODUCTION-READINESS.md) for outstanding checks.
+
+The expanded candidate adds Board handoffs/claims, advisory working-copy holds, adoption reporting,
+protected phone choices, an SSH relay for other machines, Beads issue links and durable Reception/PR
+workflow adapters. These additions have compile feedback only; earlier M0/M1 validation is historical.
+Feature completion and its audit come before the final validation run.
 
 The Desk stays warm so opening it is fast. Every question goes directly into the Inbox, ordered by priority
 and deadline. Daily budgets and the Digest are gone. **Not needed** tells an agent that a question was unnecessary;
@@ -39,7 +44,7 @@ Uninstall through Windows Installed Apps, or run the installed program with `uni
 remain on disk. Only an explicit `uninstall --purge` removes that data. MCP registrations are managed separately
 by each client; uninstall prints the removal commands.
 
-The Linux x64 ZIP contains the CLI/MCP front-end for protocol discovery and inspection. The installed Desk,
+The Linux x64 ZIP contains the CLI/MCP front-end for discovery, inspection and SSH access to a Windows Desk. The installed Desk,
 Windows notifications and sign-in integration require Windows; this release does not promise a Linux GUI.
 
 ## Provenance and limitations

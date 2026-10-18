@@ -157,6 +157,16 @@ impl StoreService {
     pub fn hold_config(&self) -> Result<crate::holds::Config, String> {
         crate::holds::config(&self.lock())
     }
+    pub fn phone_work(
+        &self,
+        generation: &str,
+        op: crate::phone::Work,
+    ) -> Result<crate::phone::ResultValue, String> {
+        self.write(self.now_ms(), |c| {
+            crate::phone::work(c.db, c.now, c.secret, generation, op)
+        })
+        .map(|(value, _)| value)
+    }
     pub fn save_hold_scan(&self, scan: crate::holds::Scan) -> Result<(), String> {
         self.write(self.now_ms(), |c| crate::holds::save_scan(c.db, scan))
             .map(|_| ())
@@ -382,6 +392,13 @@ fn is_answered(s: AskStatus) -> bool {
 }
 
 fn is_codex_chat(row: &AskRow) -> bool {
+    if row
+        .asking_machine
+        .as_deref()
+        .is_some_and(|m| m.starts_with("remote:"))
+    {
+        return false;
+    }
     matches!(
         crate::navigation::ChatTarget::from_host(
             row.asking_client.as_deref().unwrap_or_default(),
@@ -458,6 +475,7 @@ impl Ctx<'_> {
             asking_session: row.asking_session.clone(),
             asking_client: row.asking_client.clone(),
             asking_cwd: row.asking_cwd.clone(),
+            asking_machine: row.asking_machine.clone(),
             input: row.input.clone(),
             status: row.status,
             created_at: fmt_ms(row.created_ms),
@@ -684,7 +702,9 @@ impl Ctx<'_> {
         store::insert_answer(self.db, &answer, self.now).map_err(db_err)?;
         let (status, kind) = match via {
             AnswerVia::Defaulted => (AskStatus::Defaulted, "ask.defaulted"),
-            AnswerVia::Desk | AnswerVia::Toast => (AskStatus::Answered, "ask.answered"),
+            AnswerVia::Desk | AnswerVia::Toast | AnswerVia::Phone => {
+                (AskStatus::Answered, "ask.answered")
+            }
             AnswerVia::NotNeeded => (AskStatus::Answered, "ask.not_needed"),
         };
         // A default can only happen to a shown ask; a clicked answer means it has been seen now.
@@ -827,6 +847,11 @@ impl Ctx<'_> {
                     .clone()
                     .or(provisional_key)
                     .unwrap_or_else(|| tokens::random_hex(8));
+                let id = if machine.starts_with("remote:") {
+                    format!("{machine}:{id}")
+                } else {
+                    id
+                };
                 let name = format!("session:{id}");
                 if let Some(bound) = store::approved_owner(self.db, &name).map_err(db_err)? {
                     bound
@@ -858,7 +883,7 @@ impl Ctx<'_> {
         self.event(
             "agent.registered",
             &owner_name,
-            json!({ "client": client_name, "session_ref": session_ref, "cwd": cwd, "provisional": agent.provisional }),
+            json!({ "client": client_name, "session_ref": session_ref, "cwd": cwd, "machine":machine, "provisional": agent.provisional }),
         )?;
         Ok(RegisterResult {
             handle,
@@ -950,6 +975,7 @@ impl Ctx<'_> {
                 asking_session: agent.session_ref.as_deref(),
                 asking_client: Some(&agent.client),
                 asking_cwd: agent.cwd.as_deref(),
+                asking_machine: Some(&agent.machine),
                 input: &input,
                 p0_skip: false,
                 deadline_ms,
@@ -1178,13 +1204,13 @@ impl Ctx<'_> {
         Ok(AnswerResult { answer })
     }
 
-    fn answer_token(&mut self, token: &str) -> Result<AnswerResult, String> {
+    fn answer_token(&mut self, token: &str, purpose: &str) -> Result<AnswerResult, String> {
         let parsed = tokens::parse(token)?;
         let toast: Option<(String, i64, Option<i64>, Option<i64>)> = self
             .db
             .query_row(
-                "SELECT ask_id, expires_ms, used_ms, revoked_ms FROM toasts WHERE toast_id = ?1",
-                [&parsed.toast_id],
+                "SELECT ask_id, expires_ms, used_ms, revoked_ms FROM toasts WHERE toast_id = ?1 AND purpose=?2",
+                params![parsed.toast_id, purpose],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
             .optional()
@@ -1210,8 +1236,10 @@ impl Ctx<'_> {
         if self.now >= expires_ms {
             return Err("this answer token has expired; answer on the Desk".into());
         }
-        if !rules::toast_buttons_allowed(&row.input) {
-            return Err(format!("ask {ask_id} can't be answered from a toast"));
+        if !rules::toast_buttons_allowed(&row.input)
+            || (purpose == "phone" && !crate::phone::buttons_allowed(&row.input))
+        {
+            return Err(format!("ask {ask_id} needs the Desk"));
         }
         let choice = row
             .input
@@ -1230,8 +1258,55 @@ impl Ctx<'_> {
             &ask_id,
             json!({ "toast": parsed.toast_id, "option": parsed.option_index }),
         )?;
-        let answer = self.write_answer(&row, AnswerVia::Toast, Some(choice), None, None)?;
+        let via = if purpose == "phone" {
+            AnswerVia::Phone
+        } else {
+            AnswerVia::Toast
+        };
+        let answer = self.write_answer(&row, via, Some(choice), None, None)?;
         Ok(AnswerResult { answer })
+    }
+
+    fn phone_reply(&mut self, id: &str) -> Result<Value, String> {
+        if !crate::phone::config(self.db)?.settings.enabled {
+            return Err("phone replies are disabled".into());
+        }
+        let Some((ask_id, token, completed)) = crate::phone::receipt(self.db, id)? else {
+            return Err("unknown phone receipt".into());
+        };
+        if completed.is_some() {
+            return Ok(json!({"processed":true}));
+        }
+        // Recheck the token at consumption time. Expired/revoked/already answered notifications get
+        // an acknowledgement, never a replacement answer or a repeated popup on the computer.
+        self.db
+            .execute_batch("SAVEPOINT phone_answer")
+            .map_err(db_err)?;
+        let before_effects = self.effects.len();
+        let outcome = match self.answer_token(&token, "phone") {
+            Ok(answer) => {
+                self.db
+                    .execute_batch("RELEASE phone_answer")
+                    .map_err(db_err)?;
+                format!(
+                    "Answer recorded: {}",
+                    answer.answer.choice.as_deref().unwrap_or("answered")
+                )
+            }
+            Err(error) => {
+                self.db
+                    .execute_batch("ROLLBACK TO phone_answer; RELEASE phone_answer")
+                    .map_err(db_err)?;
+                self.effects.truncate(before_effects);
+                if error.starts_with("database error:") {
+                    return Err(error);
+                }
+                "This reply was not applied: the question is already closed or its button expired. Check the Desk.".into()
+            }
+        };
+        crate::phone::complete(self.db, self.now, id, &outcome)?;
+        self.event("phone.processed", &ask_id, json!({"id":id}))?;
+        Ok(json!({"processed":true}))
     }
 
     fn set_owner(&self, owner: Owner) -> Result<Owner, String> {
@@ -1405,6 +1480,15 @@ impl Service for StoreService {
     fn mcp(&self, client: &ClientInfo, op: McpOp) -> Result<(Value, Vec<Effect>), String> {
         let now = self.now_ms();
         match op {
+            McpOp::RegisterRemote{machine,registration:r}=>{
+                if machine.is_empty()||machine.len()>64||!machine.bytes().all(|b|b.is_ascii_alphanumeric()||b"._-".contains(&b)){return Err("machine needs 1–64 letters, digits, dots, underscores or hyphens".into());}
+                let machine=format!("remote:{machine}");
+                self.write_json(now,|c|{
+                    let registered=c.register(client,&machine,Registration{owner:r.owner,client:r.client,session_ref:r.session_ref,cwd:r.cwd,doing:r.doing,provisional_key:r.provisional_key})?;
+                    let agent=store::agent(c.db,&registered.handle).map_err(db_err)?.ok_or(UNKNOWN_HANDLE)?;
+                    let mut value=to_json(&registered)?;value["board"]=crate::board::context(c.db,now,&agent)?;value["machine"]=json!(machine);Ok(value)
+                })
+            }
             McpOp::Board { handle, action } => self.write_json(now, |c| {
                 let agent = c.touch(&handle, client)?;
                 crate::board::run(c.db, now, &agent, action)
@@ -1476,7 +1560,7 @@ impl Service for StoreService {
                     let message=rules::codex_text(&ask.id,&ask.input.title,answer);
                     // JSON quoting keeps every Notes entry on one physical line, including multiline replies.
                     let notes_line=format!("(via desk, ask {}) owner={} {}",ask.id,json!(ask.owner),json!(message));
-                    json!({"ask_id":ask.id,"owner":ask.owner,"session_ref":ask.asking_session,"client":ask.asking_client,"message":message,"notes_line":notes_line})
+                    json!({"ask_id":ask.id,"owner":ask.owner,"session_ref":ask.asking_session,"client":ask.asking_client,"machine":ask.asking_machine,"message":message,"notes_line":notes_line})
                 })).collect();
                 Ok(json!({"answers":result.answers,"handoffs":handoffs,"instruction":"Relay only through routes your own instructions authorize. Record successful delivery after it happens; a failed send or prepared line is not delivery. Notes delivery does not remove the answer from the asking owner's checkpoint reads."}))
             }),
@@ -1498,6 +1582,11 @@ impl Service for StoreService {
     fn desk(&self, op: DeskOp) -> Result<(Value, Vec<Effect>), String> {
         let now = self.now_ms();
         match op {
+            DeskOp::Phone => self.write_json(now, |c| crate::phone::status(c.db)),
+            DeskOp::SetPhone { config } => {
+                self.write_json(now, |c| crate::phone::set_config(c.db, now, config))
+            }
+            DeskOp::PhoneReply { id } => self.write_json(now, |c| c.phone_reply(&id)),
             DeskOp::Holds => self.write_json(now, |c| crate::holds::snapshot(c.db, now)),
             DeskOp::SetHolds { config } => {
                 self.write_json(now, |c| crate::holds::set_config(c.db, now, config))
@@ -1554,7 +1643,9 @@ impl Service for StoreService {
                 o.muted = muted;
                 c.set_owner(o)
             }),
-            DeskOp::AnswerToken { token } => self.write_json(now, |c| c.answer_token(&token)),
+            DeskOp::AnswerToken { token } => {
+                self.write_json(now, |c| c.answer_token(&token, "toast"))
+            }
             DeskOp::Agents => self.write_json(now, |c| {
                 Ok(AgentsResult {
                     agents: store::agents(c.db).map_err(db_err)?,

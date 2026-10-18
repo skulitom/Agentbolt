@@ -88,6 +88,10 @@ pub struct DeskApp {
     more_owners: u32,
     settings: Option<Settings>,
     settings_draft: SettingsDraft,
+    phone: Option<agentbolt_core::phone::Status>,
+    phone_draft: Option<agentbolt_core::phone::Settings>,
+    phone_daemon_token: String,
+    phone_reply_token: String,
     notice: Option<Notice>,
     conn: Conn,
     notification_warning: Option<String>,
@@ -203,6 +207,10 @@ impl DeskApp {
             more_owners: 0,
             settings: None,
             settings_draft: SettingsDraft::default(),
+            phone: None,
+            phone_draft: None,
+            phone_daemon_token: String::new(),
+            phone_reply_token: String::new(),
             notice: None,
             conn: Conn::Unknown,
             notification_warning: None,
@@ -376,6 +384,22 @@ impl DeskApp {
                     };
                     self.settings = Some(s);
                 }
+                Resp::Phone(status) => {
+                    if self.phone_draft.is_none() {
+                        self.phone_draft = Some(status.settings.clone());
+                    }
+                    self.phone = Some(status);
+                }
+                Resp::PhoneSaved(result) => match result {
+                    Ok(()) => {
+                        self.phone_daemon_token.clear();
+                        self.phone_reply_token.clear();
+                        self.phone_draft = None;
+                        self.note("Phone settings saved", false);
+                        self.send(Req::Phone);
+                    }
+                    Err(error) => self.note(format!("Couldn't save phone settings: {error}"), true),
+                },
                 Resp::SettingsSaved(r) => match r {
                     Ok(()) => {
                         self.note("Settings saved", false);
@@ -508,6 +532,7 @@ impl DeskApp {
         match tab {
             Tab::Settings => {
                 self.send(Req::GetSettings);
+                self.send(Req::Phone);
                 self.last_owners = None;
             }
             Tab::Agents => self.last_agents = None,
@@ -731,7 +756,7 @@ impl DeskApp {
                 }
             }
             ui.add_space(4.0);
-            if let Some(target) = chat_button(ui, ask.asking_client.as_deref().unwrap_or_default(), ask.asking_session.as_deref())
+            if let Some(target) = chat_button(ui, ask.asking_client.as_deref().unwrap_or_default(), ask.asking_session.as_deref(), ask.asking_machine.as_deref())
                 && let Err(e) = os::open_chat(&target, ask.asking_cwd.as_deref()) {
                 self.note(e, true);
             }
@@ -747,6 +772,7 @@ impl DeskApp {
                         AnswerVia::Defaulted => "Default applied — no approval from Artem",
                         AnswerVia::Desk => "Answered in the Desk",
                         AnswerVia::Toast => "Answered from a notification",
+                        AnswerVia::Phone => "Answered from the phone",
                     };
                     ui.strong(label);
                     ui.weak(&answer.answered_at);
@@ -1030,9 +1056,12 @@ impl DeskApp {
                             }
                             ui.label(view::ago(&a.last_seen, now))
                                 .on_hover_text(&a.last_seen);
-                            if let Some(target) =
-                                chat_button(ui, &a.client, a.session_ref.as_deref())
-                            {
+                            if let Some(target) = chat_button(
+                                ui,
+                                &a.client,
+                                a.session_ref.as_deref(),
+                                Some(&a.machine),
+                            ) {
                                 open = Some((target, a.cwd.clone()));
                             }
                             if ui
@@ -1075,7 +1104,7 @@ impl DeskApp {
                     if let Some(claimant)=&r.claimant {
                         let agent=self.board.agents.iter().find(|a|&a.id==claimant);
                         ui.label(format!("Claimed by {}",agent.map_or(claimant.as_str(),|a|a.owner.as_str())));
-                        if let Some(a)=agent && let Some(target)=chat_button(ui,&a.client,a.session_ref.as_deref()) {open=Some((target,a.cwd.clone()));}
+                        if let Some(a)=agent && let Some(target)=chat_button(ui,&a.client,a.session_ref.as_deref(),Some(&a.machine)) {open=Some((target,a.cwd.clone()));}
                     }
                     if let Some(until)=&r.lease_until {ui.label(format!("Lease until {until}"));}
                     if r.lapsing {ui.colored_label(ui.visuals().warn_fg_color,"Lease expires within 15 minutes unless the agent checks in.");}
@@ -1088,7 +1117,7 @@ impl DeskApp {
                     ui.label(format!("{} on {}",a.client,a.machine));
                     if let Some(doing)=&a.doing {ui.add(egui::Label::new(doing).wrap());}
                     ui.weak(format!("Last seen {}",a.last_seen));
-                    if let Some(target)=chat_button(ui,&a.client,a.session_ref.as_deref()) {open=Some((target,a.cwd.clone()));}
+                    if let Some(target)=chat_button(ui,&a.client,a.session_ref.as_deref(),Some(&a.machine)) {open=Some((target,a.cwd.clone()));}
                     ui.horizontal_wrapped(|ui| {
                         let seconds=self.lease_drafts.entry(a.owner.clone()).or_insert(a.lease_seconds);
                         ui.label("Release claims after inactivity (seconds)");
@@ -1233,6 +1262,100 @@ impl DeskApp {
         }
     }
 
+    fn phone_settings(&mut self, ui: &mut egui::Ui) {
+        use agentbolt_core::phone::{Secret, Update, time_label};
+        ui.heading("Phone replies");
+        ui.label("Send questions and reply buttons through your ntfy server. This shares question text with that server and your subscribed phone.");
+        ui.weak("Use two private topics with anonymous reading and publishing denied. The Desk checks anonymous read protection before sending. Reversible choices with up to three short options get buttons; all other questions need the Desk.");
+        let mut update = None;
+        if let Some(draft) = &mut self.phone_draft {
+            ui.checkbox(&mut draft.enabled, "Enable phone replies");
+            egui::Grid::new("phone-reply-settings")
+                .num_columns(2)
+                .spacing([16.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label("ntfy server");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut draft.server)
+                            .hint_text("https://ntfy.example.com")
+                            .desired_width(360.0),
+                    );
+                    ui.end_row();
+                    ui.label("Questions topic");
+                    ui.text_edit_singleline(&mut draft.questions);
+                    ui.end_row();
+                    ui.label("Replies topic");
+                    ui.text_edit_singleline(&mut draft.replies);
+                    ui.end_row();
+                    ui.label("Desk account token");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.phone_daemon_token)
+                            .password(true)
+                            .hint_text("Blank keeps the saved token"),
+                    );
+                    ui.end_row();
+                    ui.label("Phone publisher token");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.phone_reply_token)
+                            .password(true)
+                            .hint_text("Blank keeps the saved token"),
+                    );
+                    ui.end_row();
+                });
+            ui.weak("The Desk account needs read/write access to both topics. Use a separate phone publisher account that can only write to the replies topic. Subscribe to the questions topic in your ntfy app. Low-priority messages request no sound; keep that channel silent on the phone.");
+            ui.horizontal(|ui| {
+                if ui.button("Save phone settings").clicked() {
+                    update = Some(Update {
+                        settings: draft.clone(),
+                        daemon_token: (!self.phone_daemon_token.is_empty())
+                            .then(|| Secret(self.phone_daemon_token.clone())),
+                        reply_token: (!self.phone_reply_token.is_empty())
+                            .then(|| Secret(self.phone_reply_token.clone())),
+                        forget_credentials: false,
+                    });
+                }
+                if ui.button("Disable and forget credentials").clicked() {
+                    update = Some(Update {
+                        settings: draft.clone(),
+                        forget_credentials: true,
+                        ..Default::default()
+                    });
+                }
+            });
+        } else {
+            ui.weak("Loading phone settings...");
+        }
+        if let Some(update) = update {
+            self.send(Req::SetPhone(update));
+        }
+        if let Some(status) = &self.phone {
+            ui.label(if status.settings.enabled {
+                "Phone replies are enabled"
+            } else {
+                "Phone replies are off"
+            });
+            ui.weak(format!(
+                "Protection checked: {} · Last reply check: {} · Last question sent: {}",
+                time_label(status.health.protected_at),
+                time_label(status.health.polled_at),
+                time_label(status.health.published_at)
+            ));
+            if status.pending_replies > 0 {
+                ui.label(format!(
+                    "{} phone replies waiting for the Desk",
+                    status.pending_replies
+                ));
+            }
+            if let Some(error) = &status.health.error {
+                ui.colored_label(ui.visuals().error_fg_color, error);
+            }
+        }
+        if ui.small_button("Refresh phone status").clicked() {
+            self.send(Req::Phone);
+        }
+        ui.weak("A phone tap queues a reply. Wait for the follow-up confirmation that the Desk recorded it. Replies can wait while this computer is offline; delivery also depends on your ntfy server's retention period.");
+    }
+
     fn settings_tab(&mut self, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.heading("Notifications");
@@ -1262,6 +1385,8 @@ impl DeskApp {
                 self.send(Req::SetSettings(s));
             }
 
+            ui.add_space(16.0);
+            self.phone_settings(ui);
             ui.add_space(16.0);
             ui.horizontal(|ui| {
                 ui.heading("Owners");
@@ -1348,7 +1473,17 @@ fn chat_button(
     ui: &mut egui::Ui,
     client: &str,
     session: Option<&str>,
+    machine: Option<&str>,
 ) -> Option<agentbolt_core::navigation::ChatTarget> {
+    if let Some(machine) = machine.and_then(|m| m.strip_prefix("remote:")) {
+        ui.add_enabled(false,egui::Button::new(format!("Open chat on {machine}"))).on_hover_text("This chat belongs to another computer. Its session and working folder will not be opened locally.");
+        if let Some(session) = session
+            && ui.small_button("Copy remote session").clicked()
+        {
+            ui.ctx().copy_text(session.to_owned());
+        }
+        return None;
+    }
     let target = agentbolt_core::navigation::ChatTarget::from_host(client, session);
     let label = target.as_ref().map_or("Open chat", |t| t.label());
     if ui.add_enabled(target.is_some(), egui::Button::new(label))

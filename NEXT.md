@@ -8,10 +8,15 @@ handoff's M0/M1 limit and the evidence gate before building the Board. Finish al
 testing, licensing or release validation. [Full feature work](docs/FULL-PLAN.md) tracks the expanded scope.
 
 The expanded implementation now includes selectable question history, Board tools and Desk tab,
-work-copy/agent holds with PR/merge guard commands, Activity reporting and saved baselines, and Claude
-long-wait/relay handoff support. Phone answers, Beads, remote machines and concrete Compass workflow
-integration remain feature work. No baseline, scan configuration or new validation run has been started
-in the real installation. Earlier test results below predate these additions.
+working-copy/agent holds, Activity reporting and saved baselines, Claude long waits, protected phone
+replies, Beads links and authenticated SSH access for remote agents. Concrete `relay-notes` and `pr-check`
+commands implement durable Reception handoffs and PR/merge hold checks. These additions have compile
+feedback only. No phone account, live workflow, scan configuration or baseline has been activated.
+Earlier test results below predate these additions.
+
+Continue the full-plan feature audit: timed mute, complete Desk history/Board navigation, pagination and
+large-result behavior, partial profile updates, relay filtering and the expanded plugin catalog. See
+[FULL-PLAN.md](docs/FULL-PLAN.md). Implement those gaps before returning to test suites or release work.
 
 **Current order: finish all implementation before heavy validation.** The long CPU
 probe and 72-hour run were stopped, and the hourly monitor is paused. Complete the handoff-to-code audit

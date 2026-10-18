@@ -48,10 +48,28 @@ release test run has been claimed):
 - Plugin: added scoped coordination instructions and long-wait configuration. Its previous evaluation
   applies only to the old plugin; a new evaluation belongs after all feature work.
 
-Remaining implementation: M6 phone answer transport, Beads adapter, M7 authenticated remote-machine
-relay; concrete Compass integration (Reception and PR/merge guards); remaining end-to-end feature audit,
-including pagination/large-result behavior, settings UX and source/distribution metadata. Continue this
-work before running test suites, licensing, packaging, idle/soak or live-client checks.
+The next expanded pass adds these features (compilation only):
+
+- M6: optional protected ntfy delivery with Desk settings, credentials omitted from status/logs, anonymous
+  read-protection checks, bounded HTTPS requests, durable publication/receipt state and acknowledgements.
+  Purpose-bound single-use buttons go through the installed Desk. Simple reversible choices support up
+  to three options; irreversible/long/form/text questions stay in the Desk under the existing token trust
+  restriction. [Phone replies](PHONE-REPLIES.md) records the setup and retention limits.
+- M6: `agentbolt beads` imports an exact existing issue into a linked, deduplicated handoff. It does not
+  claim, change or close the issue. [Beads adapter](BEADS.md).
+- M7: `agentbolt mcp --ssh ... --machine ...` and the MCP-only SSH relay; verified host keys, no password
+  prompts, bounded connections, safe-read reconnection and explicit remote-machine provenance on asks.
+  A remote chat is not opened or queued as if it were local. [Remote machines](REMOTE-MACHINES.md).
+- Workflow adapters: `relay-notes` filters an explicit owner allowlist, durably appends once to the chosen
+  notes file, then records delivery; `pr-check` computes complete paths from immutable Git commits and
+  checks holds at PR open/merge. Both fail visibly on incomplete work. [Integration](WORKFLOW-INTEGRATION.md).
+  These are implemented commands; live Compass charters, notes and schedules have not been changed.
+
+Remaining implementation audit: compare every full-plan requirement with current code; finish any missing
+features, including timed mute, complete Desk Board/history navigation, pagination/large-result behavior,
+partial profile updates, relay filtering/pagination, and the expanded plugin catalog. Keep source and
+distribution descriptions in sync. Continue feature work before test suites, licensing, packaging,
+idle/soak or live-client checks. No configured phone/SSH/Beads/Compass workflow has been exercised yet.
 
 ## Later verification and rollout
 

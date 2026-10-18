@@ -81,13 +81,20 @@ fn main() -> Result<()> {
     }
     files.insert("LICENSE".into(), fs::read(root.join("LICENSE"))?);
     files.insert("README.md".into(), fs::read(root.join("README.md"))?);
+    files.insert("NEXT.md".into(), fs::read(root.join("NEXT.md"))?);
+    for path in git(&root, &["ls-files", "--", "docs"])?
+        .lines()
+        .filter(|p| p.ends_with(".md"))
+    {
+        files.insert(path.to_owned(), fs::read(root.join(path))?);
+    }
     files.insert("THIRD_PARTY_NOTICES.md".into(), notices);
     files.insert(
         "release.json".into(),
         pretty(&json!({
             "name": "Agentbolt", "version": VERSION, "target": target,
             "revision": revision, "codeSigned": false, "binarySha256": binary_hashes,
-            "linuxSupport": "CLI/MCP discovery and tests; the installed Desk requires Windows"
+            "linuxSupport": "CLI/MCP discovery, tools and SSH client; the installed Desk requires Windows"
         }))?,
     );
     let zip_bytes = archive(&files, programs)?;
@@ -265,7 +272,7 @@ fn registry_manifest() -> Value {
     // not claim a package is published to Cargo, or that the Windows Desk runs on Linux.
     json!({
         "$schema": SCHEMA, "name": "io.github.skulitom/agentbolt", "title": "Agentbolt",
-        "description": "A local Windows desk where agents ask questions and read durable human answers through MCP.",
+        "description": "A Windows desk for durable human answers, agent handoffs and work holds, with optional phone and SSH access.",
         "version": VERSION, "repository": {"url": REPO, "source": "github"},
         "websiteUrl": format!("{REPO}#install")
     })
@@ -277,7 +284,7 @@ fn winget_manifest(url: &str, digest: &str) -> Value {
         "PackageLocale": "en-US", "Publisher": "Artem Skulimovskiy",
         "PublisherUrl": "https://github.com/skulitom", "PackageName": "Agentbolt",
         "PackageUrl": REPO, "License": "MIT", "LicenseUrl": format!("{REPO}/blob/v{VERSION}/LICENSE"),
-        "ShortDescription": "A local desk where agents ask questions and receive durable human answers.",
+        "ShortDescription": "A local desk for human answers, agent handoffs and work-overlap checks.",
         "Tags": ["mcp", "ai", "agents"], "Moniker": "agentbolt",
         "InstallerType": "zip", "NestedInstallerType": "exe",
         "NestedInstallerFiles": [{"RelativeFilePath": "agentbolt.exe"}],
@@ -292,7 +299,7 @@ fn winget_manifest(url: &str, digest: &str) -> Value {
 
 fn scoop_manifest(url: &str, digest: &str) -> Value {
     json!({
-        "version": VERSION, "description": "A local desk where agents ask questions and receive durable human answers.",
+        "version": VERSION, "description": "A local desk for human answers, agent handoffs and work-overlap checks.",
         "homepage": REPO, "license": "MIT",
         "architecture": {"64bit": {"url": url, "hash": digest}},
         "pre_install": "if ($global) { throw 'Agentbolt installs for the current user; omit --global.' }",

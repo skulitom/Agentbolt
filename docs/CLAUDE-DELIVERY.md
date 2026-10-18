@@ -28,7 +28,9 @@ Notes delivery stops repeated relay work but keeps the answer on the asking owne
 Explicit delivery to that asking session confirms receipt for normal no-ID reads. Exact-ID reads
 remain available. The next owner run should read both its authorized handoff notes and `desk_answers`.
 
-This repository supplies the adapter contract; it does not edit a live dispatcher's charter, append to
-Compass's NOTES, send messages, or claim a live Claude turn acted on an answer. Those rollout and host
-checks follow feature implementation. Any integration must preserve that dispatcher's maintenance-hour
-and messaging rules. Agentbolt never creates an MCP human-answer operation.
+`agentbolt relay-notes` implements durable notes delivery with an explicit recipient allowlist and a
+preview by default. Add `--write` from the authorized dispatcher's workflow to append once, sync, then mark
+delivery. See [workflow integration](WORKFLOW-INTEGRATION.md). No live dispatcher's charter or notes was
+changed while implementing it, and it sends no chat messages. Rollout and live-host checks follow feature
+implementation. Preserve the dispatcher's maintenance-hour and messaging rules. Agentbolt never creates
+an MCP human-answer operation.

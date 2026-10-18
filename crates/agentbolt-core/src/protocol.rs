@@ -32,6 +32,11 @@ pub struct Response {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", content = "args", rename_all = "snake_case")]
 pub enum McpOp {
+    /// SSH relay registration. Machine comes from the user's relay configuration, not a tool argument.
+    RegisterRemote {
+        machine: String,
+        registration: RemoteRegistration,
+    },
     Holds {
         handle: String,
         action: crate::holds::HoldOp,
@@ -91,6 +96,17 @@ pub enum McpOp {
         detail: Option<String>,
     },
     Status,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RemoteRegistration {
+    pub owner: Option<String>,
+    pub client: String,
+    pub session_ref: Option<String>,
+    pub cwd: Option<String>,
+    pub doing: Option<String>,
+    pub provisional_key: Option<String>,
 }
 
 /// Results of MCP operations (the `result` field).
@@ -165,6 +181,14 @@ pub struct StatusResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", content = "args", rename_all = "snake_case")]
 pub enum DeskOp {
+    Phone,
+    SetPhone {
+        config: crate::phone::Update,
+    },
+    /// Consume a durable phone receipt. The daemon only launches the installed Desk with its id.
+    PhoneReply {
+        id: String,
+    },
     Holds,
     SetHolds {
         config: crate::holds::Config,

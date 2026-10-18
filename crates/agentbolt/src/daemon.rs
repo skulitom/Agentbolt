@@ -22,6 +22,7 @@ pub struct Daemon {
     autostart: bool,
     idle: Mutex<Vec<Client>>,
     last_start: Mutex<Option<Instant>>,
+    remote: Option<crate::remote::Remote>,
 }
 
 #[derive(Debug)]
@@ -52,7 +53,14 @@ impl Daemon {
             autostart,
             idle: Mutex::new(Vec::new()),
             last_start: Mutex::new(None),
+            remote: None,
         }
+    }
+
+    pub fn with_remote(mut self, config: Option<crate::remote::Config>) -> Self {
+        self.remote =
+            config.map(|config| crate::remote::Remote::new(config, self.names.channel.clone()));
+        self
     }
 
     pub fn names(&self) -> &Names {
@@ -61,12 +69,31 @@ impl Daemon {
 
     /// Send one op and return its `result`.
     pub async fn call<T: Serialize + Sync>(&self, op: &T) -> Result<Value, CallError> {
+        if let Some(remote) = &self.remote {
+            return remote.call(op).await;
+        }
+        let retry = serde_json::to_value(op)
+            .ok()
+            .and_then(|v| serde_json::from_value::<agentbolt_core::protocol::McpOp>(v).ok())
+            .is_some_and(|op| crate::remote::retryable(&op));
         let pooled = self.idle.lock().unwrap_or_else(|e| e.into_inner()).pop();
         let was_pooled = pooled.is_some();
         let mut client = match pooled {
             Some(c) => c,
             None => self.connect().await?,
         };
+        // Detect an old pooled connection before submitting a write. Once a write is sent, an I/O
+        // failure cannot tell us whether it committed; only reads are retried automatically.
+        if was_pooled && !retry {
+            let probe = client.call(&agentbolt_core::protocol::McpOp::Status).await;
+            if let Err(e) = probe {
+                if disconnected(&e) {
+                    client = self.connect().await?;
+                } else {
+                    return Err(classify(e));
+                }
+            }
+        }
         match client.call(op).await {
             Ok(v) => {
                 self.put_back(client);
@@ -77,7 +104,7 @@ impl Daemon {
                 Err(CallError::Refused(e))
             }
             // A pooled connection can go stale when the daemon restarts: one fresh try.
-            Err(IpcError::Io(_)) if was_pooled => {
+            Err(e) if was_pooled && retry && disconnected(&e) => {
                 let mut client = self.connect().await?;
                 let r = client.call(op).await;
                 if matches!(r, Ok(_) | Err(IpcError::Remote(_))) {
@@ -142,6 +169,11 @@ impl Daemon {
             }
         }
     }
+}
+
+fn disconnected(error: &IpcError) -> bool {
+    matches!(error, IpcError::Io(_) | IpcError::NotRunning(_))
+        || matches!(error, IpcError::Protocol(message) if message.starts_with("the daemon closed "))
 }
 
 fn classify(e: IpcError) -> CallError {

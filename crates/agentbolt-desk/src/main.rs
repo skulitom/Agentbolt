@@ -79,6 +79,10 @@ fn main() {
     let code = match parsed.mode {
         Mode::Window => window(names, false),
         Mode::Warm => window(names, true),
+        Mode::PhoneReply(id) => match desk_call(&names, &DeskOp::PhoneReply { id }) {
+            Ok(_) => 0,
+            Err(_) => 1,
+        },
         Mode::Url(url) => match view::parse_url(&url, &names.protocol) {
             Ok(UrlAction::Open) => window(names, false),
             Ok(UrlAction::Answer { token }) => {

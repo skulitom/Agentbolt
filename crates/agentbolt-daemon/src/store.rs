@@ -8,6 +8,13 @@ use agentbolt_core::channel::Names;
 use crate::daemon::DaemonService;
 
 impl DaemonService for StoreService {
+    fn phone_work(
+        &self,
+        generation: &str,
+        op: agentbolt_core::phone::Work,
+    ) -> Result<agentbolt_core::phone::ResultValue, String> {
+        StoreService::phone_work(self, generation, op)
+    }
     fn hold_config(&self) -> Result<agentbolt_core::holds::Config, String> {
         StoreService::hold_config(self)
     }

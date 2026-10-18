@@ -98,6 +98,9 @@ pub struct Ask {
     pub asking_client: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asking_cwd: Option<String>,
+    /// Origin at registration; `remote:` marks an SSH-connected machine. Never launch its cwd locally.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asking_machine: Option<String>,
     #[serde(flatten)]
     pub input: AskInput,
     pub status: AskStatus,
@@ -114,6 +117,8 @@ pub enum AnswerVia {
     Desk,
     /// A toast button (same-user trust only; reversible asks only).
     Toast,
+    /// A protected phone reply, committed by the installed Desk (same-user trust).
+    Phone,
     /// Applied at the deadline. Carries no Artem authority.
     Defaulted,
     /// The Desk dismissed the question as unnecessary. No option was approved.

@@ -24,5 +24,10 @@ when paths overlap or any scan is unknown; coordinate within your existing autho
 scan is never clearance. Temporary agent holds are advisory and renew with your handle; release yours
 when finished. No tool can remove Artem's working-copy holds or edit his checkout.
 
+For Git workflows, the installed `agentbolt pr-check` CLI can derive the complete changed-path set from
+the current base/head commits. Use its returned exact head for the dependent PR action; rerun after
+changes. Large or unusual path sets use a conservative whole-repository check, never an incomplete subset.
+An existing Beads issue can be linked with `agentbolt beads`; the adapter does not claim or close it.
+
 For human questions, use the separate `ask-at-desk` skill. A Board message or work claim is never a
 human answer, and neither replaces a host-required approval in the originating session.

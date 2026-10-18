@@ -179,6 +179,24 @@ CREATE TABLE hold_scans(source TEXT PRIMARY KEY, result_json TEXT NOT NULL);
 CREATE TABLE agent_holds(id TEXT PRIMARY KEY, owner TEXT NOT NULL, handle TEXT NOT NULL, repo TEXT NOT NULL, paths_json TEXT NOT NULL, note TEXT NOT NULL, expires_ms INTEGER NOT NULL);
 CREATE INDEX agent_holds_repo ON agent_holds(repo,expires_ms);
 "#,
+    "ALTER TABLE asks ADD COLUMN asking_machine TEXT;",
+    r#"
+ALTER TABLE toasts ADD COLUMN purpose TEXT NOT NULL DEFAULT 'toast';
+CREATE TABLE phone_outbox (
+    ask_id TEXT PRIMARY KEY REFERENCES asks(id),
+    toast_id TEXT NOT NULL REFERENCES toasts(toast_id),
+    sent_ms INTEGER
+);
+CREATE TABLE phone_receipts (
+    id TEXT PRIMARY KEY,
+    ask_id TEXT NOT NULL REFERENCES asks(id),
+    token TEXT NOT NULL,
+    received_ms INTEGER NOT NULL,
+    completed_ms INTEGER,
+    outcome TEXT,
+    acknowledged_ms INTEGER
+);
+"#,
 ];
 
 pub(crate) fn db_err(e: rusqlite::Error) -> String {
@@ -302,6 +320,7 @@ pub(crate) fn via_str(v: AnswerVia) -> &'static str {
     match v {
         AnswerVia::Desk => "desk",
         AnswerVia::Toast => "toast",
+        AnswerVia::Phone => "phone",
         AnswerVia::Defaulted => "defaulted",
         AnswerVia::NotNeeded => "not_needed",
     }
@@ -311,6 +330,7 @@ fn parse_via(s: &str) -> Option<AnswerVia> {
     Some(match s {
         "desk" => AnswerVia::Desk,
         "toast" => AnswerVia::Toast,
+        "phone" => AnswerVia::Phone,
         "defaulted" => AnswerVia::Defaulted,
         "not_needed" => AnswerVia::NotNeeded,
         _ => return None,
@@ -332,6 +352,7 @@ pub(crate) struct AskRow {
     pub asking_session: Option<String>,
     pub asking_client: Option<String>,
     pub asking_cwd: Option<String>,
+    pub asking_machine: Option<String>,
     pub input: AskInput,
     pub status: AskStatus,
     pub created_ms: i64,
@@ -339,7 +360,7 @@ pub(crate) struct AskRow {
     pub deadline_ms: i64,
 }
 
-const ASK_COLS: &str = "id, owner, asking_session, input_json, status, created_ms, shown_ms, deadline_ms, asking_client, asking_cwd, COALESCE((SELECT muted FROM owners WHERE name = asks.owner), 0) AS muted";
+const ASK_COLS: &str = "id, owner, asking_session, input_json, status, created_ms, shown_ms, deadline_ms, asking_client, asking_cwd, COALESCE((SELECT muted FROM owners WHERE name = asks.owner), 0) AS muted, asking_machine";
 
 fn map_ask(r: &Row<'_>) -> rusqlite::Result<AskRow> {
     let input_json: String = r.get(3)?;
@@ -353,6 +374,7 @@ fn map_ask(r: &Row<'_>) -> rusqlite::Result<AskRow> {
         asking_session: r.get(2)?,
         asking_client: r.get(8)?,
         asking_cwd: r.get(9)?,
+        asking_machine: r.get(11)?,
         input,
         status: parse_status(&status).ok_or_else(|| bad(4, "ask status"))?,
         created_ms: r.get(5)?,
@@ -387,6 +409,7 @@ pub(crate) struct NewAsk<'a> {
     pub asking_session: Option<&'a str>,
     pub asking_client: Option<&'a str>,
     pub asking_cwd: Option<&'a str>,
+    pub asking_machine: Option<&'a str>,
     pub input: &'a AskInput,
     pub p0_skip: bool,
     pub deadline_ms: i64,
@@ -401,8 +424,8 @@ pub(crate) fn insert_ask(conn: &Connection, a: &NewAsk<'_>) -> rusqlite::Result<
     let priority = rules::priority_str(a.input.priority);
     conn.execute(
         "INSERT INTO asks (id, owner, asking_session, input_json, priority, p0_skip, reversible, deadline_ms, status,
-                           created_ms, inbox_ms, asking_client, asking_cwd)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                           created_ms, inbox_ms, asking_client, asking_cwd, asking_machine)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             a.id,
             a.owner,
@@ -416,7 +439,8 @@ pub(crate) fn insert_ask(conn: &Connection, a: &NewAsk<'_>) -> rusqlite::Result<
             a.created_ms,
             a.inbox_ms,
             a.asking_client,
-            a.asking_cwd
+            a.asking_cwd,
+            a.asking_machine
         ],
     )?;
     Ok(())

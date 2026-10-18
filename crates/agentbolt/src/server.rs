@@ -36,9 +36,10 @@ pub struct DeskServer {
 impl DeskServer {
     pub fn new(args: McpArgs, names: Names) -> Self {
         let instructions = tools::instructions(args.owner.as_deref());
+        let daemon = Arc::new(Daemon::new(names, Pipe::Mcp, true).with_remote(args.ssh.clone()));
         Self {
             args,
-            daemon: Arc::new(Daemon::new(names, Pipe::Mcp, true)),
+            daemon,
             handles: Mutex::new(HashMap::new()),
             instructions,
             process_key: format!("mcp-{}", agentbolt_core::tokens::random_hex(8)),
@@ -530,6 +531,7 @@ mod tests {
             owner: owner.map(String::from),
             client: None,
             max_wait_ms: 20_000,
+            ssh: None,
         };
         DeskServer::new(args, Names::for_channel("mcptest-unit").unwrap())
     }

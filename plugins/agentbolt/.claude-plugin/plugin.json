@@ -1,12 +1,12 @@
 {
   "name": "agentbolt",
   "version": "0.2.0",
-  "description": "Ask for human decisions through a local Desk and read durable answers without losing the originating session.",
+  "description": "Ask for human decisions, read durable answers, coordinate agent handoffs and check overlapping work through Agentbolt.",
   "author": { "name": "Artem Skulimovskiy" },
   "homepage": "https://github.com/skulitom/Agentbolt#install",
   "repository": "https://github.com/skulitom/Agentbolt",
   "license": "MIT",
-  "keywords": ["mcp", "human-feedback", "decisions"],
+  "keywords": ["mcp", "human-feedback", "decisions", "coordination", "work-holds"],
   "userConfig": {
     "agentbolt_exe": {
       "type": "file",

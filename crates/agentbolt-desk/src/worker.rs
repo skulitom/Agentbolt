@@ -64,6 +64,8 @@ pub enum Req {
         approve: bool,
     },
     GetSettings,
+    Phone,
+    SetPhone(agentbolt_core::phone::Update),
     SetSettings(Settings),
     /// Start the daemon through its sign-in task.
     StartDaemon,
@@ -92,6 +94,8 @@ pub enum Resp {
     Owners(OwnersResult),
     OwnerSaved(Result<String, String>),
     Settings(Settings),
+    Phone(agentbolt_core::phone::Status),
+    PhoneSaved(Result<(), String>),
     SettingsSaved(Result<(), String>),
     Started(Result<(), String>),
     /// A read failed. `not_running` when the daemon isn't there at all.
@@ -254,6 +258,17 @@ async fn run(
                 .await
                 .map(Resp::Settings)
                 .unwrap_or_else(|e| failed("the settings", e)),
+            Req::Phone => conn
+                .get(&DeskOp::Phone)
+                .await
+                .map(Resp::Phone)
+                .unwrap_or_else(|e| failed("phone replies", e)),
+            Req::SetPhone(config) => Resp::PhoneSaved(
+                conn.call(&DeskOp::SetPhone { config }, false)
+                    .await
+                    .map(|_| ())
+                    .map_err(|e| e.to_string()),
+            ),
             Req::Answer {
                 ask_id,
                 choice,

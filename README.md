@@ -7,17 +7,17 @@ you, the question gets lost in a session you'll never reopen. Agentbolt gives th
 window, like an inbox. Each ask comes with its evidence, the options, a recommended default and a deadline. You answer
 in one click, and the answer reaches the agent that asked, even if its session has ended since.
 
-Local, no account, no API key. MIT licensed. Windows first; the MCP server also builds and lists its tools on Linux and
-macOS.
+Local by default, with no account or API key for the Desk. Optional phone delivery uses your ntfy account;
+remote machines use your SSH setup. MIT licensed. Windows first; the MCP server also builds on Linux and macOS.
 
 > Status: **0.2.0, full-plan implementation in progress.** The Board, work holds and Activity reporting are
-> implemented on the candidate branch. Phone answers, remote machines and integrations are still being built.
+> implemented on the candidate branch, alongside phone replies, SSH access, Beads and workflow adapters.
 > Feature work comes before final verification. See [NEXT.md](NEXT.md) and [the feature tracker](docs/FULL-PLAN.md).
 
 ## How it works
 ```
 agent ──stdio──► agentbolt mcp ──user-only pipe──► agentbolt-daemon ──► SQLite (the daemon is the only writer)
-                                                        │   tray icon, silent toasts, count-only phone push
+                                                        │   tray icon, silent toasts, optional phone delivery
                                                         ▼
                                                    agentbolt-desk (the window, opened from the tray)
 ```
@@ -58,6 +58,12 @@ agent ──stdio──► agentbolt mcp ──user-only pipe──► agentbolt
   questions, old unanswered questions and collision checks. You can record your verdict in the Desk.
 - **Claude replies:** configurable long waits and prepared relay handoff records support live sessions and
   the next run of a stable owner. See [Claude delivery](docs/CLAUDE-DELIVERY.md).
+- **Phone replies:** opt-in protected ntfy topics carry simple reversible choices. Replies are saved and
+  processed by the installed Desk, with a confirmation back to your phone. [Setup and limits](docs/PHONE-REPLIES.md).
+- **Other machines:** use the same Desk through SSH with verified host keys and explicit machine identity.
+  Remote answers remain available through durable reads. [Remote setup](docs/REMOTE-MACHINES.md).
+- **Integrations:** link an existing Beads issue to a Board handoff; give Reception durable notes delivery;
+  derive PR paths from Git for work-hold checks. [Beads](docs/BEADS.md), [workflow adapters](docs/WORKFLOW-INTEGRATION.md).
 
 ## Install
 Extract the Windows release ZIP, keep its three programs together, and run `agentbolt.exe install`.
@@ -82,7 +88,7 @@ Windows Installed Apps lists its version and can uninstall it while retaining qu
 See [release preparation](docs/RELEASING.md) for archives, checksums, notices and distribution manifests.
 
 ## What it does and doesn't promise
-- Only the Desk window and its link handler can answer: no MCP tool can. The pipes accept only this Windows user, the
+- Only the installed Desk and its activation handlers can answer: no MCP tool can. The pipes accept only this Windows user, the
   programs check each other's identity, and toast buttons carry single-use tokens.
 - **Same-user limit:** every agent on your PC runs as you. An agent with a shell can rewrite the database, or read a
   live toast token, without Agentbolt being able to tell. Agentbolt stops forged answers coming through its own

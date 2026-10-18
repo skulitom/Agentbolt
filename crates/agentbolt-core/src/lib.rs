@@ -9,6 +9,7 @@ pub mod holds;
 pub mod metrics;
 pub mod model;
 pub mod navigation;
+pub mod phone;
 pub mod protocol;
 pub mod rules;
 pub mod service;

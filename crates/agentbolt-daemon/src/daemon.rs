@@ -22,6 +22,13 @@ pub const POLL: Duration = Duration::from_millis(250);
 
 /// What the daemon needs beyond the `Service` trait.
 pub trait DaemonService: Service {
+    fn phone_work(
+        &self,
+        _generation: &str,
+        _op: agentbolt_core::phone::Work,
+    ) -> Result<agentbolt_core::phone::ResultValue, String> {
+        Err("phone transport unavailable".into())
+    }
     fn hold_config(&self) -> Result<agentbolt_core::holds::Config, String> {
         Ok(Default::default())
     }

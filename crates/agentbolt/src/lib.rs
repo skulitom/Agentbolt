@@ -4,11 +4,15 @@
 //! This crate has no GUI dependencies and builds on Linux, so `agentbolt mcp` can answer discovery and
 //! `tools/list` there (Glama; Anode B-049). Everything that touches Windows is behind `cfg(windows)`.
 
+pub mod beads;
 pub mod cli;
 pub mod daemon;
 pub mod install;
 #[cfg(windows)]
 mod install_upgrade;
+pub mod pr_check;
+pub mod relay_notes;
+pub mod remote;
 pub mod server;
 pub mod tools;
 
@@ -138,6 +142,32 @@ pub fn run<I: IntoIterator<Item = String>>(args: I) -> i32 {
 
 fn dispatch(cmd: Command) -> anyhow::Result<()> {
     match cmd {
+        Command::RelayNotes(args) => {
+            let result =
+                runtime()?.block_on(relay_notes::run(names_for(args.channel.as_deref())?, args))?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+            if result["complete"] != true {
+                bail!("some notes handoffs failed; see the per-answer result");
+            }
+        }
+        Command::PrCheck(args) => {
+            let result =
+                runtime()?.block_on(pr_check::run(names_for(args.channel.as_deref())?, args))?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+            if result["clear"] != true {
+                bail!(
+                    "work holds are not clear or the checked refs moved; resolve them before the PR action"
+                );
+            }
+        }
+        Command::Beads(args) => {
+            let names = names_for(args.channel.as_deref())?;
+            let result = runtime()?.block_on(beads::import(names, args))?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
+        Command::Relay { channel, machine } => {
+            runtime()?.block_on(remote::relay(names_for(channel.as_deref())?, &machine))?
+        }
         Command::Holds {
             channel,
             owner,

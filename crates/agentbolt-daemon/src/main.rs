@@ -24,6 +24,7 @@ mod supervisor;
 mod icon;
 mod log;
 mod ntfy;
+mod phone;
 mod store;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod toast;
@@ -278,6 +279,7 @@ fn run() -> i32 {
     }
     runtime.spawn(daemon::tick_loop(shared.clone()));
     runtime.spawn(holds::run(shared.clone()));
+    runtime.spawn(phone::run(shared.clone()));
     runtime.spawn(daemon::effects_loop(
         shared.clone(),
         events,

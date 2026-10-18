@@ -16,6 +16,7 @@ pub struct McpArgs {
     /// The client's name, when the host's own `clientInfo` isn't the one wanted.
     pub client: Option<String>,
     pub max_wait_ms: u64,
+    pub ssh: Option<crate::remote::Config>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,6 +39,13 @@ pub struct AskArgs {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
+    RelayNotes(crate::relay_notes::Args),
+    PrCheck(crate::pr_check::Args),
+    Beads(crate::beads::Args),
+    Relay {
+        channel: Option<String>,
+        machine: String,
+    },
     Holds {
         channel: Option<String>,
         owner: String,
@@ -75,6 +83,14 @@ agentbolt: Artem's desk for agents (CLI and MCP server)
 
 Usage:
   agentbolt mcp [--owner NAME] [--client NAME] [--max-wait-ms N]   MCP server on stdio
+                [--ssh HOST --machine LABEL --remote-exe PATH]  use the Desk on a trusted SSH host
+  agentbolt relay --machine LABEL [--channel NAME]              MCP-only bridge, normally started by SSH
+  agentbolt relay-notes --owner NAME --notes FILE --recipient-owner NAME... [--write]
+                                                preview or durably append authorized answer handoffs
+  agentbolt pr-check --owner NAME --repo OWNER/REPO --cwd DIR --base REF --head REF --stage pr_open|merge
+                                                derive all PR paths and check work holds
+  agentbolt beads --owner NAME --repo OWNER/REPO --issue ID [--cwd DIR] [--json-file FILE]
+                  [--to-role ROLE] [--path GLOB]...            link a Beads issue to a Board handoff
   agentbolt install [--from DIR] [--no-start]   copy the exes, register, create the sign-in task, start it
   agentbolt uninstall [--purge]                  remove the task, registry keys and install folder (--purge: data too)
   agentbolt start                                start the daemon through its sign-in task
@@ -136,6 +152,59 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String>
     let sub = items.remove(0);
     let mut a = Args { items, pos: 0 };
     match sub.as_str() {
+        "relay-notes" => {
+            let mut out = crate::relay_notes::Args::default();
+            while let Some((flag, inline)) = a.next_flag() {
+                match flag.as_str() {
+                    "--channel" => out.channel = Some(a.value(&flag, inline)?),
+                    "--owner" => out.owner = a.value(&flag, inline)?,
+                    "--notes" => out.notes = PathBuf::from(a.value(&flag, inline)?),
+                    "--recipient-owner" => out.recipients.push(a.value(&flag, inline)?),
+                    "--write" => {
+                        no_value(&flag, &inline)?;
+                        out.write = true;
+                    }
+                    other => return Err(unknown(other, "relay-notes")),
+                }
+            }
+            out.validate()?;
+            Ok(Command::RelayNotes(out))
+        }
+        "pr-check" => {
+            let mut out = crate::pr_check::Args::default();
+            while let Some((flag, inline)) = a.next_flag() {
+                match flag.as_str() {
+                    "--channel" => out.channel = Some(a.value(&flag, inline)?),
+                    "--owner" => out.owner = a.value(&flag, inline)?,
+                    "--repo" => out.repo = a.value(&flag, inline)?,
+                    "--cwd" => out.cwd = PathBuf::from(a.value(&flag, inline)?),
+                    "--base" => out.base = a.value(&flag, inline)?,
+                    "--head" => out.head = a.value(&flag, inline)?,
+                    "--stage" => out.stage = a.value(&flag, inline)?,
+                    other => return Err(unknown(other, "pr-check")),
+                }
+            }
+            out.validate()?;
+            Ok(Command::PrCheck(out))
+        }
+        "beads" => {
+            let mut out = crate::beads::Args::default();
+            while let Some((flag, inline)) = a.next_flag() {
+                match flag.as_str() {
+                    "--channel" => out.channel = Some(a.value(&flag, inline)?),
+                    "--owner" => out.owner = a.value(&flag, inline)?,
+                    "--repo" => out.repo = a.value(&flag, inline)?,
+                    "--issue" => out.issue = a.value(&flag, inline)?,
+                    "--cwd" => out.cwd = Some(PathBuf::from(a.value(&flag, inline)?)),
+                    "--json-file" => out.json_file = Some(PathBuf::from(a.value(&flag, inline)?)),
+                    "--to-role" => out.to_role = Some(a.value(&flag, inline)?),
+                    "--path" => out.paths.push(a.value(&flag, inline)?),
+                    other => return Err(unknown(other, "beads")),
+                }
+            }
+            out.validate()?;
+            Ok(Command::Beads(out))
+        }
         "help" | "--help" | "-h" => Ok(Command::Help),
         "version" | "--version" | "-V" => Ok(Command::Version),
         "mcp" => {
@@ -144,12 +213,17 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String>
                 owner: None,
                 client: None,
                 max_wait_ms: DEFAULT_MAX_WAIT_MS,
+                ssh: None,
             };
+            let (mut ssh_host, mut machine, mut remote_exe) = (None, None, "agentbolt".to_string());
             while let Some((flag, inline)) = a.next_flag() {
                 match flag.as_str() {
                     "--channel" => m.channel = Some(a.value(&flag, inline)?),
                     "--owner" => m.owner = Some(nonempty(&flag, a.value(&flag, inline)?)?),
                     "--client" => m.client = Some(nonempty(&flag, a.value(&flag, inline)?)?),
+                    "--ssh" => ssh_host = Some(a.value(&flag, inline)?),
+                    "--machine" => machine = Some(a.value(&flag, inline)?),
+                    "--remote-exe" => remote_exe = a.value(&flag, inline)?,
                     "--max-wait-ms" => {
                         let v = a.value(&flag, inline)?;
                         m.max_wait_ms = v
@@ -159,7 +233,31 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String>
                     other => return Err(unknown(other, "mcp")),
                 }
             }
+            if let Some(host) = ssh_host {
+                let config = crate::remote::Config {
+                    host,
+                    machine: machine.ok_or("--ssh requires --machine to identify this computer")?,
+                    executable: remote_exe,
+                };
+                config.validate()?;
+                m.ssh = Some(config);
+            } else if machine.is_some() || remote_exe != "agentbolt" {
+                return Err("--machine and --remote-exe require --ssh".into());
+            }
             Ok(Command::Mcp(m))
+        }
+        "relay" => {
+            let (mut channel, mut machine) = (None, None);
+            while let Some((flag, inline)) = a.next_flag() {
+                match flag.as_str() {
+                    "--channel" => channel = Some(a.value(&flag, inline)?),
+                    "--machine" => machine = Some(a.value(&flag, inline)?),
+                    other => return Err(unknown(other, "relay")),
+                }
+            }
+            let machine = machine.ok_or("relay requires --machine")?;
+            crate::remote::validate_machine(&machine)?;
+            Ok(Command::Relay { channel, machine })
         }
         "holds" => {
             let (mut channel, mut owner, mut repo, mut paths, mut stage) = (
@@ -367,6 +465,7 @@ mod tests {
                 owner: Some("compass-storefront".into()),
                 client: Some("codex".into()),
                 max_wait_ms: 90_000,
+                ssh: None,
             })
         );
         let Command::Mcp(m) = p(&["mcp"]).unwrap() else {
