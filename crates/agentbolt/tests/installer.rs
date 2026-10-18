@@ -34,6 +34,83 @@ fn text(o: &Output) -> String {
     )
 }
 
+fn daemon_pid(n: &Names) -> Option<u32> {
+    let log = std::fs::read_to_string(n.data.join("agentbolt.log")).ok()?;
+    let marker = format!("starting: channel {}, pid ", n.channel);
+    log.lines()
+        .rev()
+        .find_map(|line| line.split_once(&marker)?.1.split_once(',')?.0.parse().ok())
+}
+
+/// Kill only this fresh installation's verified daemon, then observe recovery without running /Run or MCP.
+fn check_crash_restart(n: &Names, installed_cli: &Path) {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::RemoteDesktop::ProcessIdToSessionId;
+    use windows::Win32::System::Threading::{
+        GetCurrentProcessId, OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+        PROCESS_TERMINATE, QueryFullProcessImageNameW, TerminateProcess,
+    };
+    use windows::core::PWSTR;
+    let pid = daemon_pid(n).expect("daemon logged its pid");
+    unsafe {
+        let mut daemon_session = 0;
+        let mut test_session = 0;
+        ProcessIdToSessionId(pid, &mut daemon_session).unwrap();
+        ProcessIdToSessionId(GetCurrentProcessId(), &mut test_session).unwrap();
+        // InteractiveToken chooses the user's interactive session, which can be the console when
+        // this test calls /Run from Anode. It need not be the caller's desktop session.
+        eprintln!(
+            "task launch: test session {test_session}, daemon session {daemon_session}, channel {}",
+            n.channel
+        );
+        let process = OpenProcess(
+            PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION,
+            false,
+            pid,
+        )
+        .unwrap();
+        let mut path = vec![0u16; 32768];
+        let mut len = path.len() as u32;
+        QueryFullProcessImageNameW(
+            process,
+            PROCESS_NAME_WIN32,
+            PWSTR(path.as_mut_ptr()),
+            &mut len,
+        )
+        .unwrap();
+        let image = PathBuf::from(String::from_utf16(&path[..len as usize]).unwrap());
+        assert_eq!(
+            image.canonicalize().unwrap(),
+            n.install
+                .join("agentbolt-daemon.exe")
+                .canonicalize()
+                .unwrap()
+        );
+        TerminateProcess(process, 1).unwrap();
+        let _ = CloseHandle(process);
+    }
+    let started = std::time::Instant::now();
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        if daemon_pid(n).is_some_and(|next| next != pid)
+            && run(installed_cli, &["status", "--channel", &n.channel])
+                .status
+                .success()
+        {
+            eprintln!(
+                "crash restart: channel {}, session task recovered in {:.1}s without a client start",
+                n.channel,
+                started.elapsed().as_secs_f64()
+            );
+            break;
+        }
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(95),
+            "the task did not restart the crashed daemon within 95s"
+        );
+    }
+}
+
 fn schtasks(args: &[&str]) -> Output {
     Command::new("schtasks.exe")
         .args(args)
@@ -348,6 +425,9 @@ fn install_then_uninstall_on_a_throwaway_channel() {
             "{}",
             text(&s)
         );
+        if std::env::var("AGENTBOLT_RESTART_TEST").as_deref() == Ok("1") {
+            check_crash_restart(&n, &installed_cli);
+        }
     }
 
     // An upgrade while an agent session runs `agentbolt mcp` from the install folder (always, on Artem's PC): the

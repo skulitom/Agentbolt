@@ -149,6 +149,16 @@ An actual release install was started by `schtasks /Run` from Anode session 4. W
 console session 1 for `InteractiveToken`; pipe status worked. Terminating only the verified test daemon
 with exit code 1 did **not** cause a restart within 95 seconds. This confirms the reported restart gap on
 this PC despite `RestartOnFailure` in the stored task. The test cleanup removed the installation, task,
-registrations, shortcut and data. A dedicated supervisor is the next fix.
+registrations, shortcut and data.
+
+The sign-in task now runs `--supervise`: a small parent restarts failed daemon workers with exponential
+backoff (1–30 seconds), resetting after a minute of stable operation. A normal Quit stops it. Both daemon
+workers and preloaded Desks are created suspended, assigned to a kill-on-close job, then resumed, closing
+the previous spawn/containment race. Stopping the installed task also stops its worker and warm Desk.
+
+The release installer probe now passes: **2.0 seconds to recover from the killed worker without any client
+start**, then upgrade with an MCP session open, installed status and complete uninstall/cleanup. Both
+installer tests passed in 7.94 seconds. This does not yet cover an open Desk during upgrade or the 72-hour
+soak. Workspace tests and all-target lint also pass.
 
 `cargo-deny 0.20.2 check licenses` passes (three harmless unused-license-allowance warnings).

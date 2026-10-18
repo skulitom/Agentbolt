@@ -2,17 +2,22 @@
 //! agentbolt-daemon: the only writer of the store. It serves the MCP pipe and the Desk pipe, ticks the service,
 //! and owns the tray icon, toasts, Codex delivery and the ntfy count push. GUI subsystem, no window, no console.
 //!
-//! `agentbolt-daemon [--channel <name>] [--headless]`
+//! `agentbolt-daemon [--channel <name>] [--headless] [--supervise]`
 //! - `--channel` overrides `AGENTBOLT_CHANNEL` (the sign-in task passes it; Task Scheduler can't set env).
 //! - `--headless`: no tray icon and no toasts (tests; sessions with no taskbar). Pipes, ticks, Codex delivery and
 //!   the ntfy push run as usual.
+//! - `--supervise`: the Windows sign-in task's parent process; restarts a crashed worker with backoff.
 //!
 //! Exit codes: 0 = stopped (or another daemon of the channel already runs), 1 = couldn't start or a pipe
 //! failed (the sign-in task restarts it), 2 = bad arguments.
 
+#[cfg(windows)]
+mod child;
 mod codex;
 mod daemon;
 mod delivery;
+#[cfg(windows)]
+mod supervisor;
 // The tray icon and toast XML are drawn and built everywhere (and tested on Linux CI), but shown only on Windows.
 #[cfg_attr(not(windows), allow(dead_code))]
 mod icon;
@@ -45,18 +50,21 @@ use crate::log::{error, info, warning};
 struct Args {
     channel: Option<String>,
     headless: bool,
+    supervise: bool,
 }
 
 fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     let mut out = Args {
         channel: None,
         headless: false,
+        supervise: false,
     };
     let mut it = args.into_iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--channel" => out.channel = Some(it.next().ok_or("--channel needs a name")?),
             "--headless" => out.headless = true,
+            "--supervise" => out.supervise = true,
             other if other.starts_with("--channel=") => {
                 out.channel = other.strip_prefix("--channel=").map(str::to_string);
             }
@@ -90,6 +98,15 @@ fn run() -> i32 {
     };
     if std::fs::create_dir_all(&data_dir).is_err() {
         return 1;
+    }
+    #[cfg(windows)]
+    if args.supervise {
+        log::init(data_dir.join("supervisor.log"));
+        return supervisor::run(&names, args.headless);
+    }
+    #[cfg(not(windows))]
+    if args.supervise {
+        return 2;
     }
     log::init(data_dir.join("agentbolt.log"));
 
@@ -356,24 +373,28 @@ mod tests {
             args(&[]).unwrap(),
             Args {
                 channel: None,
-                headless: false
+                headless: false,
+                supervise: false,
             }
         );
         assert_eq!(
             args(&["--channel", "t1"]).unwrap(),
             Args {
                 channel: Some("t1".into()),
-                headless: false
+                headless: false,
+                supervise: false,
             }
         );
         assert_eq!(
             args(&["--channel=t2", "--headless"]).unwrap(),
             Args {
                 channel: Some("t2".into()),
-                headless: true
+                headless: true,
+                supervise: false,
             }
         );
         assert!(args(&["--channel"]).is_err());
+        assert!(args(&["--supervise"]).unwrap().supervise);
         assert!(args(&["--sandbox"]).is_err());
         let names = names_for(&args(&["--channel", "ipctest-args"]).unwrap()).unwrap();
         assert_eq!(names.channel, "ipctest-args");

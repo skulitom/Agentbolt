@@ -165,7 +165,7 @@ pub fn task_xml(user: &str, daemon: &Path, channel: &str, workdir: &Path) -> Str
   <Actions Context="Author">
     <Exec>
       <Command>"{command}"</Command>
-      <Arguments>--channel {channel}</Arguments>
+      <Arguments>--channel {channel} --supervise</Arguments>
       <WorkingDirectory>{workdir}</WorkingDirectory>
     </Exec>
   </Actions>
@@ -921,7 +921,7 @@ mod tests {
             "<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>",
             "<Hidden>true</Hidden>",
             "<Command>\"C:\\A b\\agentbolt-daemon.exe\"</Command>",
-            "<Arguments>--channel t1</Arguments>",
+            "<Arguments>--channel t1 --supervise</Arguments>",
         ] {
             assert!(x.contains(needle), "the task XML lacks {needle}");
         }

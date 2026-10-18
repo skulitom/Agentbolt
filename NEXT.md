@@ -8,6 +8,8 @@ five Anode reopen cycles (11–13 ms window, 27–58 ms Inbox), including hidden
 Validated chat navigation, direct Inbox, Not needed, persistent mute and per-owner toast batching are implemented.
 Dedicated Codex delivery workers and execution-time wake-permission checks are implemented.
 Batch answering with a review step and atomic validation is implemented; its live GUI check is pending.
+The installed supervisor recovers from a killed daemon in 2 seconds; install, MCP-open upgrade and uninstall
+passed on a throwaway channel. Open-Desk upgrade and the 72-hour soak remain pending.
 Mute, unmute, Not needed, its count and draft retention passed live GUI checks; live-client navigation remains
 unverified. Notification registration is rechecked per toast and flagged on the Desk. The full ten-minute CPU/reopen probe now
 passes after a foreground-permission fix (0.276% of one core; 10–14 ms window, 23–61 ms Inbox afterward).
