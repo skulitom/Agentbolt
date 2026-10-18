@@ -18,9 +18,9 @@ pub fn sort_asks(asks: &mut [Ask]) {
     asks.sort_by(|a, b| {
         let da = parse_time(&a.input.deadline);
         let db = parse_time(&b.input.deadline);
-        a.input
-            .priority
-            .cmp(&b.input.priority)
+        a.muted
+            .cmp(&b.muted)
+            .then_with(|| a.input.priority.cmp(&b.input.priority))
             .then_with(|| match (da, db) {
                 (Some(x), Some(y)) => x.cmp(&y),
                 (Some(_), None) => std::cmp::Ordering::Less,
@@ -344,6 +344,7 @@ mod tests {
 
     fn ask(id: &str, priority: Priority, deadline: &str, created: &str) -> Ask {
         Ask {
+            muted: false,
             id: id.into(),
             owner: "o".into(),
             asking_session: None,

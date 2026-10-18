@@ -25,6 +25,14 @@ pub enum Req {
         values: Option<Value>,
         note: Option<String>,
     },
+    NotNeeded {
+        ask_id: String,
+        note: Option<String>,
+    },
+    SetMuted {
+        owner: String,
+        muted: bool,
+    },
     Agents,
     Owners,
     SetOwner(Owner),
@@ -181,6 +189,29 @@ async fn run(
                         .map_err(|e| e.to_string()),
                 )
             }
+            Req::NotNeeded { ask_id, note } => {
+                let op = DeskOp::NotNeeded {
+                    ask_id: ask_id.clone(),
+                    note,
+                };
+                let result = match conn.call(&op, false).await {
+                    Ok(v) => serde_json::from_value(v).map_err(|e| e.to_string()),
+                    Err(e) => Err(e.to_string()),
+                };
+                Resp::Answered { ask_id, result }
+            }
+            Req::SetMuted { owner, muted } => Resp::OwnerSaved(
+                conn.call(
+                    &DeskOp::SetMuted {
+                        owner: owner.clone(),
+                        muted,
+                    },
+                    false,
+                )
+                .await
+                .map(|_| owner)
+                .map_err(|e| e.to_string()),
+            ),
             Req::SetSettings(settings) => Resp::SettingsSaved(
                 conn.call(&DeskOp::SetSettings { settings }, false)
                     .await

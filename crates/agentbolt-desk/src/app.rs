@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use agentbolt_core::channel::Names;
-use agentbolt_core::model::{Agent, Ask, AskKind, Owner, Priority, Settings};
+use agentbolt_core::model::{Agent, AnswerVia, Ask, AskKind, Owner, Priority, Settings};
 use eframe::egui::{self, Color32, RichText};
 use serde_json::Value;
 
@@ -191,10 +191,12 @@ impl DeskApp {
                                 .choice
                                 .clone()
                                 .or_else(|| r.answer.values.as_ref().map(Value::to_string));
-                            self.note(
-                                format!("Answered \"{title}\": {}", said.unwrap_or_default()),
-                                false,
-                            );
+                            let message = if r.answer.via == AnswerVia::NotNeeded {
+                                format!("Marked \"{title}\" Not needed")
+                            } else {
+                                format!("Answered \"{title}\": {}", said.unwrap_or_default())
+                            };
+                            self.note(message, false);
                             self.inbox.retain(|a| a.id != ask_id);
                             self.drafts.remove(&ask_id);
                             self.last_list = None;
@@ -216,6 +218,8 @@ impl DeskApp {
                         Err(e) => self.note(format!("Couldn't save the owner: {e}"), true),
                     }
                     self.send(Req::Owners);
+                    self.last_agents = None;
+                    self.last_list = None;
                 }
                 Resp::Settings(s) => {
                     self.settings_draft = SettingsDraft {
@@ -373,6 +377,9 @@ impl DeskApp {
                             });
                             ui.horizontal(|ui| {
                                 ui.weak(&a.owner);
+                                if a.muted {
+                                    ui.weak("Muted");
+                                }
                                 ui.weak("·");
                                 let c = if overdue {
                                     ui.visuals().error_fg_color
@@ -409,6 +416,9 @@ impl DeskApp {
                                 .answer
                                 .as_ref()
                                 .map(|x| {
+                                    if x.via == AnswerVia::NotNeeded {
+                                        return "Not needed".to_string();
+                                    }
                                     x.choice
                                         .clone()
                                         .or_else(|| x.values.as_ref().map(Value::to_string))
@@ -460,6 +470,10 @@ impl DeskApp {
                 && let Err(e) = os::open_chat(&target, ask.asking_cwd.as_deref()) {
                 self.note(e, true);
             }
+            let mute_label = if ask.muted { "Unmute this agent" } else { "Mute this agent" };
+            if ui.button(mute_label).on_hover_text("Applies to this owner's sessions until unmuted. Questions stay in the Inbox, silently, at the bottom.").clicked() {
+                self.send(Req::SetMuted { owner: ask.owner.clone(), muted: !ask.muted });
+            }
             ui.separator();
             let sending = self.sending.contains(&ask.id);
             let draft = self.drafts.entry(ask.id.clone()).or_default();
@@ -475,6 +489,10 @@ impl DeskApp {
                 });
                 ui.add_space(4.0);
                 req = answer_controls(ui, ask, draft);
+                ui.add_space(6.0);
+                if ui.button("Not needed").on_hover_text("Tell the agent this question was unnecessary. No option is approved.").clicked() {
+                    req = Some(Req::NotNeeded { ask_id: ask.id.clone(), note: None });
+                }
             });
             if sending {
                 ui.horizontal(|ui| {
@@ -503,6 +521,7 @@ impl DeskApp {
                 values,
                 note,
             },
+            Req::NotNeeded { ask_id, .. } => Req::NotNeeded { ask_id, note },
             other => other,
         })
     }
@@ -547,15 +566,23 @@ impl DeskApp {
         }
         let now = time::OffsetDateTime::now_utc();
         let mut open = None;
+        let mut mute = None;
         egui::ScrollArea::both()
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 egui::Grid::new("agents")
                     .striped(true)
-                    .num_columns(5)
+                    .num_columns(6)
                     .spacing([16.0, 6.0])
                     .show(ui, |ui| {
-                        for h in ["Owner", "Client", "Doing", "Last seen", "Session"] {
+                        for h in [
+                            "Owner",
+                            "Client",
+                            "Doing",
+                            "Last seen",
+                            "Session",
+                            "Notifications",
+                        ] {
                             ui.strong(h);
                         }
                         ui.end_row();
@@ -584,10 +611,22 @@ impl DeskApp {
                             {
                                 open = Some((target, a.cwd.clone()));
                             }
+                            if ui
+                                .button(if a.muted { "Unmute" } else { "Mute this agent" })
+                                .clicked()
+                            {
+                                mute = Some(Req::SetMuted {
+                                    owner: a.owner.clone(),
+                                    muted: !a.muted,
+                                });
+                            }
                             ui.end_row();
                         }
                     });
             });
+        if let Some(req) = mute {
+            self.send(req);
+        }
         if let Some((target, cwd)) = open
             && let Err(e) = os::open_chat(&target, cwd.as_deref())
         {
@@ -643,8 +682,8 @@ impl DeskApp {
                 ));
             }
             let mut changed = None;
-            egui::Grid::new("owners").striped(true).num_columns(5).spacing([16.0, 6.0]).show(ui, |ui| {
-                for h in ["Owner", "Bound by", "", "Codex may be woken", "Relay"] {
+            egui::Grid::new("owners").striped(true).num_columns(7).spacing([16.0, 6.0]).show(ui, |ui| {
+                for h in ["Owner", "Bound by", "", "Codex may be woken", "Relay", "Muted", "Not needed"] {
                     ui.strong(h);
                 }
                 ui.end_row();
@@ -666,6 +705,11 @@ impl DeskApp {
                     if ui.checkbox(&mut relay, "").on_hover_text("May list and deliver other owners' answers").changed() {
                         changed = Some(Owner { relay, ..o.clone() });
                     }
+                    let mut muted = o.muted;
+                    if ui.checkbox(&mut muted, "").on_hover_text("Silent questions at the bottom, until unmuted").changed() {
+                        changed = Some(Owner { muted, ..o.clone() });
+                    }
+                    ui.label(o.not_needed_count.to_string());
                     ui.end_row();
                 }
             });

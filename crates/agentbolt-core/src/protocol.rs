@@ -160,6 +160,15 @@ pub enum DeskOp {
     AnswerToken {
         token: String,
     },
+    /// Dismiss an unnecessary question, without choosing its recommended option.
+    NotNeeded {
+        ask_id: String,
+        note: Option<String>,
+    },
+    SetMuted {
+        owner: String,
+        muted: bool,
+    },
     Agents,
     Owners,
     SetOwner {

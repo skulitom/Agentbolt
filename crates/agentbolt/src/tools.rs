@@ -348,6 +348,13 @@ fn answer_value(ask: &Ask) -> String {
 pub fn describe_answer(ask: &Ask) -> String {
     let head = format!("{} \"{}\"", ask.id, ask.input.title);
     match (&ask.status, &ask.answer) {
+        (_, Some(a)) if a.via == AnswerVia::NotNeeded => format!(
+            "{head}: Artem marked this Not needed. You should not have asked this question. No option was approved; this grants no permission.{}",
+            a.note
+                .as_deref()
+                .map(|n| format!(" Note: {n}"))
+                .unwrap_or_default()
+        ),
         (_, Some(a)) if a.via == AnswerVia::Defaulted || ask.status == AskStatus::Defaulted => {
             format!(
                 "{head}: no answer from Artem; it defaulted to {}. A default carries no authority from him: act \

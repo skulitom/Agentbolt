@@ -113,6 +113,9 @@ BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
 ALTER TABLE asks ADD COLUMN asking_client TEXT;
 ALTER TABLE asks ADD COLUMN asking_cwd TEXT;
 "#,
+    r#"
+ALTER TABLE owners ADD COLUMN muted INTEGER NOT NULL DEFAULT 0;
+"#,
 ];
 
 pub(crate) fn db_err(e: rusqlite::Error) -> String {
@@ -237,6 +240,7 @@ pub(crate) fn via_str(v: AnswerVia) -> &'static str {
         AnswerVia::Desk => "desk",
         AnswerVia::Toast => "toast",
         AnswerVia::Defaulted => "defaulted",
+        AnswerVia::NotNeeded => "not_needed",
     }
 }
 
@@ -245,6 +249,7 @@ fn parse_via(s: &str) -> Option<AnswerVia> {
         "desk" => AnswerVia::Desk,
         "toast" => AnswerVia::Toast,
         "defaulted" => AnswerVia::Defaulted,
+        "not_needed" => AnswerVia::NotNeeded,
         _ => return None,
     })
 }
@@ -260,6 +265,7 @@ fn bad(idx: usize, what: &str) -> rusqlite::Error {
 pub(crate) struct AskRow {
     pub id: String,
     pub owner: String,
+    pub muted: bool,
     pub asking_session: Option<String>,
     pub asking_client: Option<String>,
     pub asking_cwd: Option<String>,
@@ -270,7 +276,7 @@ pub(crate) struct AskRow {
     pub deadline_ms: i64,
 }
 
-const ASK_COLS: &str = "id, owner, asking_session, input_json, status, created_ms, shown_ms, deadline_ms, asking_client, asking_cwd";
+const ASK_COLS: &str = "id, owner, asking_session, input_json, status, created_ms, shown_ms, deadline_ms, asking_client, asking_cwd, COALESCE((SELECT muted FROM owners WHERE name = asks.owner), 0) AS muted";
 
 fn map_ask(r: &Row<'_>) -> rusqlite::Result<AskRow> {
     let input_json: String = r.get(3)?;
@@ -280,6 +286,7 @@ fn map_ask(r: &Row<'_>) -> rusqlite::Result<AskRow> {
     Ok(AskRow {
         id: r.get(0)?,
         owner: r.get(1)?,
+        muted: r.get(10)?,
         asking_session: r.get(2)?,
         asking_client: r.get(8)?,
         asking_cwd: r.get(9)?,
@@ -448,12 +455,16 @@ fn map_owner(r: &Row<'_>) -> rusqlite::Result<Owner> {
         binding: r.get(1)?,
         codex_interactive: r.get(2)?,
         relay: r.get(3)?,
+        muted: r.get(4)?,
+        not_needed_count: r.get(5)?,
     })
 }
 
 pub(crate) fn owner(conn: &Connection, name: &str) -> rusqlite::Result<Option<Owner>> {
     conn.query_row(
-        "SELECT name, binding, codex_interactive, relay FROM owners WHERE name = ?1",
+        "SELECT name, binding, codex_interactive, relay, muted,
+         (SELECT COUNT(*) FROM answers a JOIN asks k ON k.id = a.ask_id WHERE k.owner = owners.name AND a.via = 'not_needed')
+         FROM owners WHERE name = ?1",
         [name],
         map_owner,
     )
@@ -461,7 +472,8 @@ pub(crate) fn owner(conn: &Connection, name: &str) -> rusqlite::Result<Option<Ow
 }
 
 /// Owners Artem has to keep seeing: bound by config, approved, or given a flag on the Desk.
-const KEPT_OWNER: &str = "(binding <> 'pending' OR codex_interactive = 1 OR relay = 1)";
+const KEPT_OWNER: &str =
+    "(binding <> 'pending' OR codex_interactive = 1 OR relay = 1 OR muted = 1)";
 
 /// An owner's latest activity: created, an agent seen, or an ask made.
 const OWNER_ACTIVITY: &str = "MAX(o.created_ms,
@@ -475,13 +487,17 @@ pub(crate) fn owners_for_desk(
     recent: u32,
 ) -> rusqlite::Result<(Vec<Owner>, u32)> {
     let mut kept = conn.prepare(&format!(
-        "SELECT name, binding, codex_interactive, relay FROM owners WHERE {KEPT_OWNER} ORDER BY name"
+        "SELECT name, binding, codex_interactive, relay, muted,
+         (SELECT COUNT(*) FROM answers a JOIN asks k ON k.id = a.ask_id WHERE k.owner = owners.name AND a.via = 'not_needed')
+         FROM owners WHERE {KEPT_OWNER} ORDER BY name"
     ))?;
     let mut owners: Vec<Owner> = kept
         .query_map([], map_owner)?
         .collect::<rusqlite::Result<_>>()?;
     let mut provisional = conn.prepare(&format!(
-        "SELECT o.name, o.binding, o.codex_interactive, o.relay FROM owners o WHERE NOT {KEPT_OWNER}
+        "SELECT o.name, o.binding, o.codex_interactive, o.relay, o.muted,
+         (SELECT COUNT(*) FROM answers a JOIN asks k ON k.id = a.ask_id WHERE k.owner = o.name AND a.via = 'not_needed')
+         FROM owners o WHERE NOT {KEPT_OWNER}
          ORDER BY {OWNER_ACTIVITY} DESC, o.name LIMIT ?1"
     ))?;
     let shown: Vec<Owner> = provisional
@@ -514,10 +530,10 @@ pub(crate) fn prune_provisional_owners(
 
 pub(crate) fn upsert_owner(conn: &Connection, o: &Owner, now_ms: i64) -> rusqlite::Result<()> {
     conn.execute(
-        "INSERT INTO owners (name, binding, codex_interactive, relay, created_ms) VALUES (?1, ?2, ?3, ?4, ?5)
+        "INSERT INTO owners (name, binding, codex_interactive, relay, created_ms, muted) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
          ON CONFLICT(name) DO UPDATE SET binding = excluded.binding, codex_interactive = excluded.codex_interactive,
-                                         relay = excluded.relay",
-        params![o.name, o.binding, o.codex_interactive, o.relay, now_ms],
+                                         relay = excluded.relay, muted = excluded.muted",
+        params![o.name, o.binding, o.codex_interactive, o.relay, now_ms, o.muted],
     )?;
     Ok(())
 }
@@ -526,7 +542,7 @@ pub(crate) fn upsert_owner(conn: &Connection, o: &Owner, now_ms: i64) -> rusqlit
 
 const AGENT_SELECT: &str =
     "SELECT a.handle, a.owner, COALESCE(o.binding, 'pending'), a.client, a.session_ref, a.cwd,
-                                   a.machine, a.doing, a.registered_ms, a.last_seen_ms
+                                   a.machine, a.doing, a.registered_ms, a.last_seen_ms, COALESCE(o.muted, 0)
                             FROM agents a LEFT JOIN owners o ON o.name = a.owner";
 
 fn map_agent(r: &Row<'_>) -> rusqlite::Result<Agent> {
@@ -535,6 +551,7 @@ fn map_agent(r: &Row<'_>) -> rusqlite::Result<Agent> {
         handle: r.get(0)?,
         owner: r.get(1)?,
         provisional: binding == "pending",
+        muted: r.get(10)?,
         client: r.get(3)?,
         session_ref: r.get(4)?,
         cwd: r.get(5)?,

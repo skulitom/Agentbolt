@@ -225,6 +225,8 @@ impl T {
             binding: binding.into(),
             codex_interactive,
             relay,
+            muted: false,
+            not_needed_count: 0,
         };
         self.desk(DeskOp::SetOwner { owner }).unwrap();
     }
@@ -260,6 +262,146 @@ fn inbox_changes(fx: &[Effect]) -> Vec<(u32, u32)> {
 }
 
 // ---- v4: direct Inbox, owner cap, dedupe, priority ----
+
+#[test]
+fn not_needed_is_a_durable_desk_only_answer_for_every_kind_and_not_an_approval() {
+    let t = T::new();
+    let h = t.register("noise-owner");
+    for kind in [
+        AskKind::Inform,
+        AskKind::Choose,
+        AskKind::Approve,
+        AskKind::Text,
+        AskKind::Form,
+    ] {
+        let mut input = t.input(&format!("Unnecessary {kind:?}"));
+        input.kind = kind;
+        input.reversible = false;
+        if kind == AskKind::Inform {
+            input.default = json!(rules::ACKNOWLEDGED);
+        }
+        if kind == AskKind::Form {
+            input.options.clear();
+            input.fields = vec![Field {
+                id: "required".into(),
+                label: "Required".into(),
+                field_type: "text".into(),
+                required: true,
+                options: None,
+            }];
+            input.default = json!({"required":"default is not permission"});
+        }
+        if matches!(kind, AskKind::Text | AskKind::Inform) {
+            input.options.clear();
+        }
+        let id = t.ask(&h, input).id;
+        let op = DeskOp::NotNeeded {
+            ask_id: id.clone(),
+            note: Some("Please decide routine details yourself".into()),
+        };
+        let r: AnswerResult = de(t.desk(op.clone()).unwrap().0);
+        assert_eq!(r.answer.via, AnswerVia::NotNeeded);
+        assert!(r.answer.choice.is_none() && r.answer.values.is_none());
+        assert!(rules::codex_text(&id, "question", &r.answer).contains("No option was approved"));
+        assert!(t.desk(op).unwrap_err().contains("already answered"));
+        assert_eq!(
+            t.answers(&h, &[&id]).answers[0].answer.as_ref().unwrap(),
+            &r.answer
+        );
+    }
+    let owners: OwnersResult = de(t.desk(DeskOp::Owners).unwrap().0);
+    let owner = owners
+        .owners
+        .iter()
+        .find(|o| o.name == "noise-owner")
+        .unwrap();
+    assert_eq!(owner.not_needed_count, 5);
+    let mut forged_count = owner.clone();
+    forged_count.not_needed_count = 999;
+    let returned: Owner = de(t
+        .desk(DeskOp::SetOwner {
+            owner: forged_count,
+        })
+        .unwrap()
+        .0);
+    assert_eq!(returned.not_needed_count, 5);
+    for op in ["not_needed", "answer", "answer_token", "set_muted"] {
+        assert!(serde_json::from_value::<McpOp>(json!({"op":op,"args":{"ask_id":"x","token":"x","owner":"noise-owner","muted":true}})).is_err());
+    }
+}
+
+#[test]
+fn muted_agents_remain_in_inbox_at_bottom_and_cannot_unmute_by_registering() {
+    let t = T::new();
+    t.register("muted-owner");
+    t.desk(DeskOp::SetMuted {
+        owner: "muted-owner".into(),
+        muted: true,
+    })
+    .unwrap();
+    let h = t
+        .register_full(Some("muted-owner"), Some("later-session"), None)
+        .handle;
+    let mut input = urgent(&t, "Muted urgent ask");
+    input.priority = Priority::P0;
+    input.p0_reason = Some("Urgent but muted".into());
+    let (muted, fx) = t.try_ask(&h, input).unwrap();
+    assert_eq!(muted.placed, "open");
+    assert!(toasts(&fx).is_empty());
+    let other = t.register("other-owner");
+    let unmuted = t.ask(&other, t.input("Ordinary ask"));
+    let list = t.list();
+    assert_eq!(
+        list.inbox.iter().map(|a| &a.id).collect::<Vec<_>>(),
+        [&unmuted.id, &muted.id]
+    );
+    assert!(list.inbox[1].muted);
+    let agents: AgentsResult = de(t.desk(DeskOp::Agents).unwrap().0);
+    assert!(
+        agents
+            .agents
+            .iter()
+            .filter(|a| a.owner == "muted-owner")
+            .all(|a| a.muted)
+    );
+    t.desk(DeskOp::SetMuted {
+        owner: "muted-owner".into(),
+        muted: false,
+    })
+    .unwrap();
+    assert_eq!(t.list().inbox[0].id, muted.id);
+    assert!(
+        t.desk(DeskOp::SetMuted {
+            owner: "nonexistent".into(),
+            muted: true
+        })
+        .is_err()
+    );
+}
+
+#[test]
+fn not_needed_revokes_existing_toast_tokens() {
+    let t = T::new();
+    let h = t.register("toast-owner");
+    let (ask, fx) = t
+        .try_ask(&h, urgent(&t, "Unnecessary notification"))
+        .unwrap();
+    let token = toasts(&fx)[0].1[0].1.clone();
+    t.desk(DeskOp::NotNeeded {
+        ask_id: ask.id.clone(),
+        note: None,
+    })
+    .unwrap();
+    assert!(t.token(&token).is_err());
+    assert_eq!(
+        t.answers(&h, &[&ask.id]).answers[0]
+            .answer
+            .as_ref()
+            .unwrap()
+            .via,
+        AnswerVia::NotNeeded
+    );
+}
 
 #[test]
 fn every_ask_enters_the_inbox_without_a_daily_or_fair_share_limit() {

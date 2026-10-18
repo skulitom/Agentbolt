@@ -407,6 +407,7 @@ impl Ctx<'_> {
         Ok(Ask {
             id: row.id.clone(),
             owner: row.owner.clone(),
+            muted: row.muted,
             asking_session: row.asking_session.clone(),
             asking_client: row.asking_client.clone(),
             asking_cwd: row.asking_cwd.clone(),
@@ -480,7 +481,10 @@ impl Ctx<'_> {
     // ---- toasts ----
 
     fn maybe_toast(&mut self, row: &AskRow, settings: &Settings) -> Result<(), String> {
-        if settings.toasts_off || !rules::toast_worthy(&row.input, row.deadline_ms, self.now) {
+        if row.muted
+            || settings.toasts_off
+            || !rules::toast_worthy(&row.input, row.deadline_ms, self.now)
+        {
             return Ok(());
         }
         let buttons = if rules::toast_buttons_allowed(&row.input) {
@@ -557,6 +561,7 @@ impl Ctx<'_> {
         let (status, kind) = match via {
             AnswerVia::Defaulted => (AskStatus::Defaulted, "ask.defaulted"),
             AnswerVia::Desk | AnswerVia::Toast => (AskStatus::Answered, "ask.answered"),
+            AnswerVia::NotNeeded => (AskStatus::Answered, "ask.not_needed"),
         };
         // A default can only happen to a shown ask; a clicked answer means it has been seen now.
         self.db
@@ -744,6 +749,8 @@ impl Ctx<'_> {
                     binding: binding.into(),
                     codex_interactive: false,
                     relay: false,
+                    muted: false,
+                    not_needed_count: 0,
                 };
                 store::upsert_owner(self.db, &o, self.now).map_err(db_err)?;
                 self.event("owner.bound", name, json!({ "binding": binding }))?;
@@ -948,7 +955,7 @@ impl Ctx<'_> {
     fn list(&self) -> Result<ListResult, String> {
         let mut inbox = store::ask_rows(
             self.db,
-            "status = 'open' ORDER BY priority, deadline_ms, created_ms, rowid",
+            "status = 'open' ORDER BY muted, priority, deadline_ms, created_ms, rowid",
             [],
         )
         .map_err(db_err)?;
@@ -993,6 +1000,7 @@ impl Ctx<'_> {
         choice: Option<String>,
         values: Option<Value>,
         note: Option<String>,
+        not_needed: bool,
     ) -> Result<AnswerResult, String> {
         let row = self
             .row(ask_id)?
@@ -1003,7 +1011,11 @@ impl Ctx<'_> {
                 status_str(row.status)
             ));
         }
-        let (choice, values) = rules::check_answer(&row.input, choice, values)?;
+        let (choice, values) = if not_needed {
+            (None, None)
+        } else {
+            rules::check_answer(&row.input, choice, values)?
+        };
         let note = note.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
         if note
             .as_ref()
@@ -1014,7 +1026,12 @@ impl Ctx<'_> {
                 rules::MAX_NOTE
             ));
         }
-        let answer = self.write_answer(&row, AnswerVia::Desk, choice, values, note)?;
+        let via = if not_needed {
+            AnswerVia::NotNeeded
+        } else {
+            AnswerVia::Desk
+        };
+        let answer = self.write_answer(&row, via, choice, values, note)?;
         Ok(AnswerResult { answer })
     }
 
@@ -1087,9 +1104,11 @@ impl Ctx<'_> {
         self.event(
             "owner.set",
             &o.name,
-            json!({ "binding": o.binding, "codex_interactive": o.codex_interactive, "relay": o.relay }),
+            json!({ "binding": o.binding, "codex_interactive": o.codex_interactive, "relay": o.relay, "muted":o.muted }),
         )?;
-        Ok(o)
+        store::owner(self.db, &o.name)
+            .map_err(db_err)?
+            .ok_or_else(|| "The saved owner disappeared".into())
     }
 
     fn set_settings(&mut self, s: Settings) -> Result<Settings, String> {
@@ -1196,7 +1215,17 @@ impl Service for StoreService {
                 choice,
                 values,
                 note,
-            } => self.write_json(now, |c| c.desk_answer(&ask_id, choice, values, note)),
+            } => self.write_json(now, |c| c.desk_answer(&ask_id, choice, values, note, false)),
+            DeskOp::NotNeeded { ask_id, note } => {
+                self.write_json(now, |c| c.desk_answer(&ask_id, None, None, note, true))
+            }
+            DeskOp::SetMuted { owner, muted } => self.write_json(now, |c| {
+                let mut o = store::owner(c.db, &owner)
+                    .map_err(db_err)?
+                    .ok_or("Unknown owner")?;
+                o.muted = muted;
+                c.set_owner(o)
+            }),
             DeskOp::AnswerToken { token } => self.write_json(now, |c| c.answer_token(&token)),
             DeskOp::Agents => self.write_json(now, |c| {
                 Ok(AgentsResult {

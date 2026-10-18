@@ -93,4 +93,8 @@ Opening a 0.1 database moves held Digest asks to the Inbox in an audited transac
 shown. Existing notification settings and answers survive. Legacy wire fields remain for compatibility with
 already running 0.1 clients; new asks never enter Digest. Windows workspace tests and all-target lint pass,
 including 36 simultaneous Inbox asks, repeated bound-owner P0s, ordering and an upgrade with unseen asks.
-Per-owner toast batching, Not needed and mute are the remaining parts of the third feedback item.
+Not needed and persistent owner mute are implemented on asks, Agents and owner settings. Not needed
+works for every ask kind, approves no option, is counted per owner and revokes outstanding answer tokens.
+Mute survives re-registration, suppresses new toasts and orders that owner's asks below unmuted asks.
+Core regression tests and all-target lint pass; the new controls still need live GUI verification.
+Per-owner toast batching is the remaining implementation part of the third feedback item.

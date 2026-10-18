@@ -596,6 +596,14 @@ fn answer_text(answer: &Answer) -> String {
 pub fn codex_text(ask_id: &str, title: &str, answer: &Answer) -> String {
     let what = answer_text(answer);
     match answer.via {
+        AnswerVia::NotNeeded => format!(
+            "Agentbolt: Artem marked your ask {ask_id} ({title:?}) Not needed. You should not have asked this question. No option was approved; this grants no permission.{}",
+            answer
+                .note
+                .as_deref()
+                .map(|n| format!(" Note: {n}"))
+                .unwrap_or_default()
+        ),
         AnswerVia::Defaulted => format!(
             "Agentbolt: your ask {ask_id} ({title:?}) reached its deadline and took its default: {what}. A default \
              carries no authority from Artem; act under your own rules."

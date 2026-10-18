@@ -89,6 +89,9 @@ pub struct AskInput {
 pub struct Ask {
     pub id: String,
     pub owner: String,
+    /// Current owner preference; muted asks remain visible at the bottom of the Inbox.
+    #[serde(default)]
+    pub muted: bool,
     pub asking_session: Option<String>,
     /// Immutable host context, kept after the live agent's handle expires.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -113,6 +116,8 @@ pub enum AnswerVia {
     Toast,
     /// Applied at the deadline. Carries no Artem authority.
     Defaulted,
+    /// The Desk dismissed the question as unnecessary. No option was approved.
+    NotNeeded,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -147,6 +152,8 @@ pub struct Agent {
     pub owner: String,
     /// True when the owner was not bound by config or approved on the Desk.
     pub provisional: bool,
+    #[serde(default)]
+    pub muted: bool,
     pub client: String,
     pub session_ref: Option<String>,
     pub cwd: Option<String>,
@@ -168,6 +175,12 @@ pub struct Owner {
     /// The relay owner may call `desk_relay` (configured on the Desk; Compass: "compass-reception").
     #[serde(default)]
     pub relay: bool,
+    /// Persistent across this owner's sessions, until the Desk unmutes it.
+    #[serde(default)]
+    pub muted: bool,
+    /// Derived from durable answers; never accepted as a writable counter.
+    #[serde(default)]
+    pub not_needed_count: u32,
 }
 
 /// Desk settings, stored by the daemon.
