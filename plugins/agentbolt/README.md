@@ -1,7 +1,8 @@
 # Agentbolt for Claude Code
 
-This plugin adds the local Agentbolt MCP connection and a skill for decisions such as “check with me before
-you publish.” Install the Windows Agentbolt ZIP first. Load this directory with
+This plugin adds the local Agentbolt MCP connection, a skill for decisions such as “check with me before
+you publish,” and a skill for authorized agent handoffs and work-overlap checks. Claude's connection permits
+ten-minute answer waits. Install the Windows Agentbolt ZIP first. Load this directory with
 `claude --plugin-dir ./plugins/agentbolt` from the repository, or extract the plugin ZIP and pass its folder.
 Select the installed `agentbolt.exe` when Claude prompts for configuration. Use the normal `main` channel
 for your own Desk; development tests must use a separate installation and channel.
@@ -11,6 +12,9 @@ Agentbolt connection in each client; if you already registered it manually, avoi
 in the same session. Existing client configuration is not changed automatically.
 
 ## Evaluate
+
+The existing evaluation covers the original decision skill. The expanded coordination skill and tool catalog
+still need evaluation after all planned feature implementation; earlier results do not cover those additions.
 
 Use Claude Code 2.1.302 or later (the version validated here). From the repository:
 

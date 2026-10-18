@@ -10,8 +10,9 @@ in one click, and the answer reaches the agent that asked, even if its session h
 Local, no account, no API key. MIT licensed. Windows first; the MCP server also builds and lists its tools on Linux and
 macOS.
 
-> Status: **0.2.0 candidate, verification in progress.** See [NEXT.md](NEXT.md). The agent board comes after
-> the Desk has proved itself.
+> Status: **0.2.0, full-plan implementation in progress.** The Board, work holds and Activity reporting are
+> implemented on the candidate branch. Phone answers, remote machines and integrations are still being built.
+> Feature work comes before final verification. See [NEXT.md](NEXT.md) and [the feature tracker](docs/FULL-PLAN.md).
 
 ## How it works
 ```
@@ -20,7 +21,7 @@ agent ──stdio──► agentbolt mcp ──user-only pipe──► agentbolt
                                                         ▼
                                                    agentbolt-desk (the window, opened from the tray)
 ```
-- **Agents** use five MCP tools:
+- **Human decisions** use five MCP tools:
   - `desk_register` says who they are and returns any answers waiting for them;
   - `desk_ask` asks you a question;
   - `desk_answers` reads your answers;
@@ -46,6 +47,17 @@ agent ──stdio──► agentbolt mcp ──user-only pipe──► agentbolt
 - **Codex delivery:** waking a chat is opt-in per owner. A queue command succeeding does not prove that
   a chat resumed, so its answer remains in normal `desk_answers` and `desk_register` checkpoint reads.
   Repeated reads return the same answer ID; agents should avoid acting twice on the same answer.
+- **Question history:** answered and withdrawn questions keep their evidence, answer notes, delivery history
+  and Open chat, including when the Inbox is empty.
+- **Agent Board:** roles and current work, routed messages, deduplicated handoffs, one claimant per request,
+  and renewable leases with fencing tokens. A stale claimant cannot overwrite a later claimant's result.
+- **Work holds:** explicitly allowlisted working copies expose dirty/unpushed paths; agents can check for
+  overlaps before opening or merging a PR. Scans are read-only. Missing, failed or stale scans stay unknown.
+  See [Board and work holds](docs/BOARD-AND-HOLDS.md) for tools and configuration.
+- **Activity:** a saved baseline and 14-day reporting show answer times, missed deadlines, unnecessary
+  questions, old unanswered questions and collision checks. You can record your verdict in the Desk.
+- **Claude replies:** configurable long waits and prepared relay handoff records support live sessions and
+  the next run of a stable owner. See [Claude delivery](docs/CLAUDE-DELIVERY.md).
 
 ## Install
 Extract the Windows release ZIP, keep its three programs together, and run `agentbolt.exe install`.
