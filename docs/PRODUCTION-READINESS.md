@@ -287,3 +287,36 @@ timeout. Previously visible windows must reopen in their original sessions. The 
 fixture must exchange MCP requests after replacement, not merely keep an idle stdio process open.
 The full installer/rollback and mixed-version tests, per-user scheduler names with verified legacy-task
 migration, and a security review of the completed lifecycle integration remain release gates.
+
+## Installer integration: visible Desk and live MCP continuity
+
+The installer now retains verified process handles and lifecycle connections before touching binaries,
+serializes maintenance per user/channel, renews saved pauses after copying, and waits for the actual old
+daemon processes after stopping the task. It refuses an older Desk without the handshake before mutation.
+A file-replacement journal restores earlier programs on pre-start failures. Once the new daemon can write
+the database, failures leave the complete new installation repairable instead of rolling old programs back
+under a migrated database. Fault-path coverage is still required.
+
+An acknowledged standalone Desk can launch its replacement in its own Windows session after giving up its
+singleton. A visible daemon-owned warm Desk has a short-lived visibility marker consumed by the replacement.
+Task Scheduler RunEx restores the daemon in its original session. The installer checks the new visible Desk
+through its verified lifecycle endpoint; uninstall closes standalone Desks as well as daemon-owned ones.
+
+Two release integration runs passed on fresh channels, with no registration/data/install-folder leftovers:
+
+- `insttest-1572813f95034`: **9.49 s**, warm Desk and daemon in Anode session 4. Retained choice/note drafts,
+  visible replacement, post-upgrade MCP registration, retained ask, answer through the new sibling Desk,
+  answer retrieval through the held-open MCP process, and uninstall while both clients remained open.
+- `insttest-19d5c1f8ab690`: **10.09 s**, standalone visible Desk in session 4 and daemon in session 1.
+  Same assertions, with a real pre-isolation CLI copied from the pinned `b96ddc3` source for the MCP process.
+  Only the fresh fixture channel ran; the ongoing 72-hour installation was untouched.
+
+MCP assertions parse the complete JSON text from `content` and compare it with `structuredContent` before
+using the result. Transient reconnect errors are bounded and retried. Windows all-target clippy, IPC/Desk
+unit checks and the release workspace build passed before these runs. Scheduler isolation, fault injection
+and a final security review remain. Microsoft's [RunEx session contract](https://learn.microsoft.com/en-us/windows/win32/api/taskschd/nf-taskschd-iregisteredtask-runex)
+informed the session-preserving launch.
+
+Artem answered signing ask `ask_c4f58d78a5f04db5` through the Desk at **2026-10-18T20:33:49Z**:
+“Signing can be deferred beyond 0.2.” The candidate will be explicitly unsigned; signing is no longer a
+0.2 release gate, and no signed-build validation is claimed.

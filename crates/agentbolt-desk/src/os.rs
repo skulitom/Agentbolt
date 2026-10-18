@@ -6,6 +6,11 @@
 use agentbolt_core::channel::Names;
 
 #[cfg(windows)]
+pub type WindowInstance = agentbolt_ipc::windows_util::InstanceLock;
+#[cfg(not(windows))]
+pub type WindowInstance = ();
+
+#[cfg(windows)]
 mod imp {
     use std::os::windows::process::CommandExt;
     use std::path::Path;

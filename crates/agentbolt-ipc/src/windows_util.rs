@@ -3,7 +3,7 @@
 use std::fs::File;
 use std::io;
 use std::os::windows::ffi::OsStringExt;
-use std::os::windows::io::FromRawHandle;
+use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::{Path, PathBuf};
 
 use agentbolt_core::channel::Names;
@@ -47,6 +47,97 @@ pub fn explorer() -> io::Result<PathBuf> {
     Ok(os_directory(false)?.join("explorer.exe"))
 }
 
+pub fn current_user_sid() -> io::Result<String> {
+    crate::win::current_user_sid()
+}
+
+/// A retained process handle avoids confusing a reused pid with the process prepared for upgrade.
+pub struct RunningImage {
+    pub pid: u32,
+    pub session: u32,
+    pub image: PathBuf,
+    handle: OwnedHandle,
+}
+
+impl RunningImage {
+    pub fn exited(&self) -> io::Result<bool> {
+        use windows::Win32::Foundation::{HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT};
+        let state = unsafe {
+            windows::Win32::System::Threading::WaitForSingleObject(
+                HANDLE(self.handle.as_raw_handle()),
+                0,
+            )
+        };
+        match state {
+            WAIT_OBJECT_0 => Ok(true),
+            WAIT_TIMEOUT => Ok(false),
+            _ => Err(io::Error::last_os_error()),
+        }
+    }
+}
+
+/// Only exact, verified executable images, across this user's accessible Windows sessions.
+/// No command-line, process-name-only or pid-only match grants authority to affect a process.
+pub fn running_images(expected: &[PathBuf]) -> io::Result<Vec<RunningImage>> {
+    use windows::Win32::Foundation::{ERROR_NO_MORE_FILES, HANDLE};
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
+        TH32CS_SNAPPROCESS,
+    };
+    use windows::Win32::System::RemoteDesktop::ProcessIdToSessionId;
+    use windows::Win32::System::Threading::{
+        OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+    };
+    let raw =
+        unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }.map_err(io::Error::other)?;
+    let snapshot = unsafe { OwnedHandle::from_raw_handle(raw.0) };
+    let snapshot = HANDLE(snapshot.as_raw_handle());
+    let mut entry = PROCESSENTRY32W {
+        dwSize: size_of::<PROCESSENTRY32W>() as u32,
+        ..Default::default()
+    };
+    let check = crate::PeerCheck::Image(expected.to_vec());
+    let mut step = unsafe { Process32FirstW(snapshot, &mut entry) };
+    let mut found = Vec::new();
+    loop {
+        match step {
+            Err(e) if e.code() == ERROR_NO_MORE_FILES.to_hresult() => break,
+            Err(e) => return Err(io::Error::other(e)),
+            Ok(()) => {}
+        }
+        let pid = entry.th32ProcessID;
+        if let Some(image) = crate::process_image(pid)
+            && check.accepts(Some(&image))
+        {
+            // Query again after opening the handle: it now pins the process identity for all later waits.
+            if let Ok(raw) = unsafe {
+                OpenProcess(
+                    PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
+                    false,
+                    pid,
+                )
+            } {
+                let handle = unsafe { OwnedHandle::from_raw_handle(raw.0) };
+                if crate::process_image(pid)
+                    .as_deref()
+                    .is_some_and(|p| check.accepts(Some(p)))
+                {
+                    let mut session = 0;
+                    unsafe { ProcessIdToSessionId(pid, &mut session) }.map_err(io::Error::other)?;
+                    found.push(RunningImage {
+                        pid,
+                        session,
+                        image,
+                        handle,
+                    });
+                }
+            }
+        }
+        step = unsafe { Process32NextW(snapshot, &mut entry) };
+    }
+    Ok(found)
+}
+
 /// A private file held open without sharing writes. Delete-on-close avoids a close/delete race with
 /// a new holder. The explicit DACL also protects discovery if parent ACLs are more permissive.
 pub(crate) fn private_file(path: &Path, share: FILE_SHARE_MODE) -> io::Result<File> {
@@ -77,6 +168,20 @@ pub struct InstanceLock {
 
 impl InstanceLock {
     pub fn acquire(names: &Names, scope: &str) -> io::Result<Option<Self>> {
+        Self::acquire_in(names.data_dir().map_err(io::Error::other)?, scope)
+    }
+
+    /// Outside the data folder so uninstall --purge can hold the lock throughout deletion.
+    pub fn maintenance(names: &Names) -> io::Result<Option<Self>> {
+        Self::acquire_in(
+            agentbolt_core::channel::env_dir("LOCALAPPDATA")
+                .map_err(io::Error::other)?
+                .join("Agentbolt-maintenance"),
+            &names.channel,
+        )
+    }
+
+    fn acquire_in(directory: PathBuf, scope: &str) -> io::Result<Option<Self>> {
         if scope.is_empty()
             || !scope
                 .bytes()
@@ -84,7 +189,6 @@ impl InstanceLock {
         {
             return Err(io::Error::other("invalid instance lock scope"));
         }
-        let directory = names.data_dir().map_err(io::Error::other)?;
         std::fs::create_dir_all(&directory)?;
         match private_file(&directory.join(format!("{scope}.lock")), FILE_SHARE_MODE(0)) {
             Ok(file) => Ok(Some(Self {
@@ -107,6 +211,19 @@ impl Drop for InstanceLock {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn process_discovery_matches_an_image_and_retains_its_identity() {
+        let me = std::env::current_exe().unwrap();
+        let found = running_images(std::slice::from_ref(&me)).unwrap();
+        let process = found.iter().find(|p| p.pid == std::process::id()).unwrap();
+        assert!(!process.exited().unwrap());
+        assert!(crate::PeerCheck::Image(vec![me.clone()]).accepts(Some(&process.image)));
+        assert!(
+            running_images(&[me.with_file_name("not-an-agentbolt-test.exe")])
+                .unwrap()
+                .is_empty()
+        );
+    }
     #[test]
     fn system_programs_are_absolute_and_do_not_use_the_application_folder() {
         for path in [schtasks().unwrap(), explorer().unwrap()] {

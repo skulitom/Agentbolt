@@ -72,12 +72,13 @@ mod imp {
     pub fn prepare(
         cc: &eframe::CreationContext<'_>,
         warm: bool,
+        restore_visible: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let RawWindowHandle::Win32(raw) = cc.window_handle()?.as_raw() else {
             return Err("the Desk has no Windows handle".into());
         };
         let hwnd = HWND(raw.hwnd.get() as *mut _);
-        HIDDEN.store(warm, Ordering::SeqCst);
+        HIDDEN.store(warm && !restore_visible, Ordering::SeqCst);
         WINDOW.store(raw.hwnd.get(), Ordering::SeqCst);
         if !unsafe { SetWindowSubclass(hwnd, Some(subclass), 1, usize::from(warm)) }.as_bool() {
             return Err("couldn't initialize the Desk window controller".into());
@@ -137,6 +138,7 @@ pub fn exit_for_upgrade() {}
 pub fn prepare(
     _cc: &eframe::CreationContext<'_>,
     _warm: bool,
+    _restore_visible: bool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     Ok(())
 }

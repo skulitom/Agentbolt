@@ -7,6 +7,8 @@
 pub mod cli;
 pub mod daemon;
 pub mod install;
+#[cfg(windows)]
+mod install_upgrade;
 pub mod server;
 pub mod tools;
 

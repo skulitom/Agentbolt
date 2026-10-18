@@ -89,15 +89,18 @@ remain to do alongside open-Desk upgrade coordination.
   permission checks. Actual active/idle/finished-host delivery checks remain above.
 - **Done — batch answering and owner proposals:** live GUI/MCP fixtures verify edited batches, atomic answers,
   proposal rejection/approval, preserved state and refusal of cross-owner claims.
-- **In progress — open-Desk upgrade:** durable drafts pass crash/reopen checks. A lifecycle handshake now pauses
-  editing and drains earlier operations; installer integration, graceful reopen and mixed-version validation remain.
+- **Implemented — open-Desk upgrade:** the installer prepares every verified installed Desk before replacing
+  files, waits for actual old processes and reopens visible windows in their original sessions. Live warm-Desk
+  and cross-session tests preserve drafts and exchange MCP requests through an already-open old client.
+  Fault/rollback coverage and the final security review remain.
 - **Done — handler-key check:** the Desk displays it and the daemon rechecks registration before every toast.
   A live registration-change/repair check remains.
 - **Done — formatting:** isolated commit `729fc82`; format and lint checks pass.
 - **Pending — Windows scheduler isolation:** qualify task names per user and migrate only a verified legacy task.
 
 ## Release work
-- Code signing for the three exes (unsigned builds trigger SmartScreen).
+- **Deferred by Artem (Desk answer, 2026-10-18 20:33 UTC):** code signing may wait until after 0.2.
+  Label the 0.2 candidate unsigned; do not claim signed-build validation.
 - A release workflow: build on tag, zip, SHA256SUMS, attestations, and `THIRD_PARTY_NOTICES.md` from cargo-about.
 - Distribution: winget and Scoop manifests, an MCP Registry entry (the MCP front-end starts on Linux, so Glama can
   score it), and a Claude Code plugin with an eval (an agent asked "check with me before you publish" uses

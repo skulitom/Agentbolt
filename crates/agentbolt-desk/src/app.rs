@@ -90,17 +90,21 @@ pub fn run(names: Names, warm: bool) -> anyhow::Result<()> {
     } else {
         format!("Agentbolt ({})", names.channel)
     };
-    let Some(_instance) =
+    let Some(instance) =
         crate::os::first_window(&names, &title, !warm).map_err(anyhow::Error::msg)?
     else {
         return Ok(());
     };
     crate::os::trace_window_shown(&title);
+    let instance = std::sync::Arc::new(std::sync::Mutex::new(Some(instance)));
+    let _instance_lifetime = instance.clone();
+    let restore_visible =
+        agentbolt_ipc::desk_control::take_reopen(&names, crate::drafts::session_id());
     let data = names.data_dir().map_err(anyhow::Error::msg)?;
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(title.clone())
-            .with_active(!warm)
+            .with_active(!warm || restore_visible)
             .with_inner_size([900.0, 620.0])
             .with_min_inner_size([640.0, 420.0]),
         centered: true,
@@ -114,7 +118,7 @@ pub fn run(names: Names, warm: bool) -> anyhow::Result<()> {
         &title,
         options,
         Box::new(move |cc| {
-            crate::resident::prepare(cc, warm)?;
+            crate::resident::prepare(cc, warm, restore_visible)?;
             crate::startup::mark("renderer_ready");
             let ctx = cc.egui_ctx.clone();
             let worker = worker::spawn(names.clone(), move || ctx.request_repaint());
@@ -125,6 +129,7 @@ pub fn run(names: Names, warm: bool) -> anyhow::Result<()> {
                 app.worker.tx.clone(),
                 cc.egui_ctx.clone(),
                 warm,
+                instance,
             );
             Ok(Box::new(app))
         }),

@@ -6,12 +6,117 @@
 //! then deletes leftovers directly, even when an assertion fails.
 #![cfg(windows)]
 
+use serde_json::{Value, json};
+use std::io::{BufRead, BufReader, Write};
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Child, Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+struct TestProcess(Child);
+impl Drop for TestProcess {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+struct Mcp {
+    child: Child,
+    input: std::process::ChildStdin,
+    output: std::sync::mpsc::Receiver<String>,
+    id: u64,
+}
+impl Drop for Mcp {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+impl Mcp {
+    fn start(exe: &Path, channel: &str) -> Self {
+        let mut child = Command::new(exe)
+            .args(["mcp", "--channel", channel, "--owner", "installer-fixture"])
+            .env("AGENTBOLT_CHANNEL", channel)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .unwrap();
+        let input = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let (tx, output) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stdout).lines() {
+                if let Ok(line) = line {
+                    if tx.send(line).is_err() {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+        });
+        let mut mcp = Self {
+            child,
+            input,
+            output,
+            id: 0,
+        };
+        mcp.request("initialize", json!({"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"installer-test","version":"0"}}));
+        writeln!(
+            mcp.input,
+            "{}",
+            json!({"jsonrpc":"2.0","method":"notifications/initialized"})
+        )
+        .unwrap();
+        mcp.input.flush().unwrap();
+        mcp
+    }
+    fn request(&mut self, method: &str, params: Value) -> Value {
+        self.id += 1;
+        writeln!(
+            self.input,
+            "{}",
+            json!({"jsonrpc":"2.0","id":self.id,"method":method,"params":params})
+        )
+        .unwrap();
+        self.input.flush().unwrap();
+        loop {
+            let line = self
+                .output
+                .recv_timeout(std::time::Duration::from_secs(15))
+                .expect("MCP response");
+            let value: Value = serde_json::from_str(&line).unwrap();
+            if value["id"] == self.id {
+                assert!(value.get("error").is_none(), "{value}");
+                return value["result"].clone();
+            }
+        }
+    }
+    fn tool(&mut self, name: &str, args: Value) -> Value {
+        let started = std::time::Instant::now();
+        loop {
+            let result = self.request("tools/call", json!({"name":name,"arguments":args}));
+            if result["isError"] == true {
+                assert!(
+                    started.elapsed() < std::time::Duration::from_secs(15),
+                    "MCP failed to reconnect: {result}"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                continue;
+            }
+            let text = result["content"][0]["text"].as_str().unwrap();
+            let mirrored: Value =
+                serde_json::from_str(text.rsplit_once("\n\n").unwrap().1).unwrap();
+            assert_eq!(mirrored, result["structuredContent"]);
+            return mirrored;
+        }
+    }
+}
 
 fn cli() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_agentbolt"))
@@ -322,9 +427,10 @@ fn install_then_uninstall_on_a_throwaway_channel() {
     let n = Names::new();
     let _cleanup = Cleanup(&n);
     let (from, real) = source(&n);
+    let desk_upgrade = real && std::env::var("AGENTBOLT_DESK_UPGRADE_TEST").as_deref() == Ok("1");
     let from_s = from.display().to_string();
     let mut args = vec!["install", "--channel", &n.channel, "--from", &from_s];
-    if !real {
+    if !real || desk_upgrade {
         args.push("--no-start");
     }
     let o = run(&cli(), &args);
@@ -416,6 +522,28 @@ fn install_then_uninstall_on_a_throwaway_channel() {
     );
 
     let installed_cli = n.install.join("agentbolt.exe");
+    let mut test_session = 0;
+    unsafe {
+        windows::Win32::System::RemoteDesktop::ProcessIdToSessionId(
+            std::process::id(),
+            &mut test_session,
+        )
+        .unwrap();
+    }
+    let daemon_session = std::env::var("AGENTBOLT_TEST_DAEMON_SESSION")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(test_session);
+    let core_names = agentbolt_core::channel::Names::for_channel(&n.channel).unwrap();
+    if desk_upgrade {
+        agentbolt::install::start_and_wait_in_session(
+            &core_names,
+            std::time::Duration::from_secs(20),
+            Some(daemon_session),
+        )
+        .unwrap();
+        args.retain(|a| *a != "--no-start");
+    }
     if real {
         // install waited for this already; ask again through the installed copy.
         let s = run(&installed_cli, &["status", "--channel", &n.channel]);
@@ -432,20 +560,93 @@ fn install_then_uninstall_on_a_throwaway_channel() {
 
     // An upgrade while an agent session runs `agentbolt mcp` from the install folder (always, on Artem's PC): the
     // running exe can't be overwritten, so install renames it aside, and the daemon comes back up.
-    let mut session = Command::new(&installed_cli)
-        .args(["mcp", "--channel", &n.channel])
-        .env_remove("AGENTBOLT_CHANNEL")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .creation_flags(CREATE_NO_WINDOW)
-        .spawn()
+    if let Ok(legacy_cli) = std::env::var("AGENTBOLT_LEGACY_MCP_EXE") {
+        std::fs::copy(legacy_cli, &installed_cli).unwrap();
+    }
+    let mut session = Mcp::start(&installed_cli, &n.channel);
+    let mut ask_id = None;
+    let mut draft_path = None;
+    let mut _desk_launcher = None;
+    if real {
+        let registered = session.tool("desk_register", json!({}));
+        let asked = session.tool("desk_ask", json!({"handle":registered["handle"],"kind":"choose", "title":"Upgrade keeps this ask", "body":"Synthetic installer fixture; leave this unanswered until after upgrade.", "options":["Yes","No"],"default":"No","deadline":(time::OffsetDateTime::now_utc()+time::Duration::days(1)).format(&time::format_description::well_known::Rfc3339).unwrap(),"reversible":true,"priority":"P2"}));
+        ask_id = Some(asked["id"].as_str().unwrap().to_string());
+    }
+    if desk_upgrade {
+        // Stop this fixture before writing its seed drafts; the next real Desk loads them at startup.
+        let processes = agentbolt_ipc::windows_util::running_images(&[
+            n.install.join("agentbolt-daemon.exe"),
+            n.install.join("agentbolt-desk.exe"),
+        ])
         .unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(500));
-    assert!(
-        session.try_wait().unwrap().is_none(),
-        "the held `agentbolt mcp` is running"
-    );
+        assert!(schtasks(&["/End", "/TN", &n.task]).status.success());
+        let started = std::time::Instant::now();
+        while processes.iter().any(|p| !p.exited().unwrap()) {
+            assert!(started.elapsed() < std::time::Duration::from_secs(10));
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        let id = ask_id.as_ref().unwrap();
+        let path = n.data.join(format!("desk-drafts-{test_session}.json"));
+        std::fs::write(&path, serde_json::to_vec(&json!({"version":1,"state":{"drafts":{id:{"choice":"Yes","note":"Survives installer upgrade","text":"","text_filled":false,"fields":null}},"selected":id,"batch":[id]}})).unwrap()).unwrap();
+        draft_path = Some(path);
+        agentbolt::install::start_and_wait_in_session(
+            &core_names,
+            std::time::Duration::from_secs(20),
+            Some(daemon_session),
+        )
+        .unwrap();
+        _desk_launcher = Some(TestProcess(
+            Command::new(n.install.join("agentbolt-desk.exe"))
+                .args(["--channel", &n.channel])
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn()
+                .unwrap(),
+        ));
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let started = std::time::Instant::now();
+        loop {
+            let mut visible = false;
+            for p in
+                agentbolt_ipc::windows_util::running_images(&[n.install.join("agentbolt-desk.exe")])
+                    .unwrap()
+            {
+                if p.session != test_session {
+                    continue;
+                }
+                visible = rt
+                    .block_on(async {
+                        let mut c = agentbolt_ipc::Client::connect_to(
+                            &agentbolt_ipc::desk_control::endpoint(&core_names, p.pid),
+                            agentbolt_ipc::Pipe::Mcp,
+                            &[n.install.join("agentbolt-desk.exe")],
+                        )
+                        .await
+                        .ok()?;
+                        Some(
+                            c.call(&agentbolt_ipc::desk_control::Op::Inspect)
+                                .await
+                                .ok()?["visible"]
+                                == true,
+                        )
+                    })
+                    .unwrap_or(false);
+                if visible {
+                    break;
+                }
+            }
+            if visible {
+                break;
+            }
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(20),
+                "fixture Desk did not open"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
     let o = run(&cli(), &args);
     assert!(
         o.status.success(),
@@ -479,12 +680,47 @@ fn install_then_uninstall_on_a_throwaway_channel() {
             "the daemon isn't back after the reinstall: {}",
             text(&s)
         );
+        let registered = session.tool("desk_register", json!({}));
+        let id = ask_id.as_ref().unwrap();
+        assert!(
+            registered["open_asks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|a| a["id"] == *id)
+        );
+        if let Some(path) = &draft_path {
+            let saved: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+            assert_eq!(saved["state"]["drafts"][id]["choice"], "Yes");
+            assert_eq!(
+                saved["state"]["drafts"][id]["note"],
+                "Survives installer upgrade"
+            );
+        }
+        let answer = run(
+            &n.install.join("agentbolt-desk.exe"),
+            &["--channel", &n.channel, "--answer", id, "--choice", "Yes"],
+        );
+        assert!(
+            answer.status.success(),
+            "new Desk answer failed: {}",
+            text(&answer)
+        );
+        let answers = session.tool(
+            "desk_answers",
+            json!({"handle":registered["handle"],"ids":[id]}),
+        );
+        assert_eq!(answers["answers"][0]["answer"]["choice"], "Yes");
+        eprintln!(
+            "MCP reconnect, retained ask and new Desk answer verified; visible Desk test={desk_upgrade}, Desk session={test_session}, daemon session={daemon_session}, channel {}",
+            n.channel
+        );
     }
 
     // Uninstall with the session still open: the running exe is parked in %TEMP%, the folder still goes.
     let o = run(&cli(), &["uninstall", "--channel", &n.channel, "--purge"]);
-    let _ = session.kill();
-    let _ = session.wait();
+    let _ = session.child.kill();
+    let _ = session.child.wait();
     assert!(o.status.success(), "uninstall failed: {}", text(&o));
     assert!(
         text(&o).contains("claude mcp remove"),

@@ -343,10 +343,44 @@ mod win {
         old: Option<std::path::PathBuf>,
     }
 
+    struct Swaps(Vec<Swapped>);
+    impl Swaps {
+        fn rollback(self) -> anyhow::Result<()> {
+            let mut errors = Vec::new();
+            for s in self.0.iter().rev() {
+                let result = (|| -> std::io::Result<()> {
+                    if s.dst.exists() && std::fs::remove_file(&s.dst).is_err() {
+                        // A host may already have opened the new MCP executable. Park that image
+                        // before restoring the old one; never terminate the host's session.
+                        let name = s.dst.file_name().unwrap().to_string_lossy();
+                        std::fs::rename(
+                            &s.dst,
+                            s.dst
+                                .with_file_name(old_name(&name, &format!("failed-{}", stamp()))),
+                        )?;
+                    }
+                    if let Some(old) = &s.old {
+                        std::fs::rename(old, &s.dst)?;
+                    }
+                    Ok(())
+                })();
+                if let Err(e) = result {
+                    errors.push(format!("{}: {e}", s.dst.display()));
+                }
+            }
+            anyhow::ensure!(
+                errors.is_empty(),
+                "Could not restore all old programs: {}",
+                errors.join("; ")
+            );
+            Ok(())
+        }
+    }
+
     /// Copy the three programs into `dir`. Each program already there is first renamed aside (Windows allows that
     /// for a running exe, which an open agent session's `agentbolt mcp` always is) and the new one copied to its
     /// name. On any failure everything is put back as it was, so the old programs keep working.
-    fn swap_in(from: &Path, dir: &Path) -> anyhow::Result<()> {
+    fn swap_in(from: &Path, dir: &Path) -> anyhow::Result<Swaps> {
         let stamp = stamp();
         let mut done: Vec<Swapped> = Vec::new();
         let result = (|| -> anyhow::Result<()> {
@@ -372,41 +406,13 @@ mod win {
             }
             Ok(())
         })();
-        if result.is_err() {
-            for s in done.iter().rev() {
-                let _ = std::fs::remove_file(&s.dst);
-                if let Some(old) = &s.old {
-                    let _ = std::fs::rename(old, &s.dst);
-                }
-            }
+        if let Err(error) = result {
+            Swaps(done)
+                .rollback()
+                .context(format!("Replacement failed: {error}"))?;
+            return Err(error.context("the old programs were restored"));
         }
-        result
-    }
-
-    /// Wait until no daemon serves this channel's MCP pipe (after `schtasks /End`), up to `wait`.
-    fn wait_until_stopped(names: &Names, wait: Duration) -> bool {
-        let Ok(rt) = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        else {
-            return false;
-        };
-        let deadline = Instant::now() + wait;
-        loop {
-            let gone = rt.block_on(async {
-                matches!(
-                    agentbolt_ipc::Client::connect(names, agentbolt_ipc::Pipe::Mcp).await,
-                    Err(agentbolt_ipc::IpcError::NotRunning(_))
-                )
-            });
-            if gone {
-                return true;
-            }
-            if Instant::now() >= deadline {
-                return false;
-            }
-            std::thread::sleep(Duration::from_millis(200));
-        }
+        Ok(Swaps(done))
     }
 
     pub fn install(names: &Names, from: &Path, start: bool) -> anyhow::Result<()> {
@@ -421,77 +427,112 @@ mod win {
         // Every path first, so a missing LOCALAPPDATA or APPDATA stops here with nothing changed.
         let dir = install_dir(names)?;
         let lnk = shortcut_path(names)?;
+        let _install_lock = agentbolt_ipc::windows_util::InstanceLock::maintenance(names)?
+            .ok_or_else(|| anyhow::anyhow!("Another installer is working on this channel"))?;
+        let mut upgrade = crate::install_upgrade::Upgrade::prepare(names, &dir)?;
+        let old_task_xml = schtasks(&["/Query", "/TN", &names.task, "/XML"]).ok();
         std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
         remove_old_copies(&dir);
         let same = |a: &Path, b: &Path| matches!((a.canonicalize(), b.canonicalize()), (Ok(x), Ok(y)) if x == y);
-        let had_task = task_exists(names);
-        if !same(from, &dir) {
+        let had_task = old_task_xml.is_some();
+        let swaps = if !same(from, &dir) {
             // The old daemon keeps running while the programs are swapped, so a failed copy leaves it working.
-            if let Err(e) = swap_in(from, &dir) {
-                if had_task {
-                    // IgnoreNew: a no-op while the old daemon still runs; it starts it if anything had stopped it.
-                    let _ = schtasks(&["/Run", "/TN", &names.task]);
-                }
-                return Err(e.context("the old programs were put back"));
-            }
+            let swaps = swap_in(from, &dir)?;
             println!("Copied the three programs to {}", dir.display());
+            Some(swaps)
         } else {
             println!(
                 "Installing from the install folder {} itself; nothing to copy",
                 dir.display()
             );
-        }
-        if had_task {
-            // Stop the old daemon so the task starts the new one below.
-            let _ = schtasks(&["/End", "/TN", &names.task]);
-            if !wait_until_stopped(names, Duration::from_secs(10)) {
-                println!("The old daemon hasn't stopped yet; carrying on");
+            None
+        };
+        let before_start = (|| -> anyhow::Result<()> {
+            upgrade.renew()?;
+            upgrade.request_visible_warm_restore()?;
+            if had_task {
+                // Stop the old daemon so the task starts the new one below.
+                let _ = schtasks(&["/End", "/TN", &names.task]);
             }
+            upgrade.wait_for_daemons()?;
+
+            reg::set_string(&aumid_key(names), Some("DisplayName"), &display_name(names))?;
+            let proto = protocol_key(names);
+            reg::set_string(&proto, None, &format!("URL:{}", display_name(names)))?;
+            reg::set_string(&proto, Some("URL Protocol"), "")?;
+            reg::set_string(
+                &format!("{proto}\\shell\\open\\command"),
+                None,
+                &protocol_command(&dir, &names.channel),
+            )?;
+            println!(
+                "Registered the notification sender {} and the {}:// handler",
+                names.aumid, names.protocol
+            );
+            shortcut::create(
+                &lnk,
+                &dir.join(DESK_EXE),
+                &shortcut_args(names),
+                &dir,
+                &names.aumid,
+            )?;
+            println!("Created the Start-menu shortcut {}", lnk.display());
+
+            let xml = task_xml(
+                &current_user()?,
+                &dir.join(DAEMON_EXE),
+                &names.channel,
+                &dir,
+            );
+            let file = write_task_file(&xml, &names.channel)?;
+            let created = schtasks(&[
+                "/Create",
+                "/TN",
+                &names.task,
+                "/XML",
+                &file.display().to_string(),
+                "/F",
+            ]);
+            let _ = std::fs::remove_file(&file);
+            created
+                .map_err(|e| anyhow::anyhow!("creating the sign-in task '{}': {e}", names.task))?;
+            println!("Created the sign-in task '{}'", names.task);
+            Ok(())
+        })();
+        if let Err(error) = before_start {
+            if let Some(swaps) = swaps {
+                swaps.rollback()?;
+            }
+            if let Some(xml) = old_task_xml {
+                let file = write_task_file(&xml, &names.channel)?;
+                let restored = schtasks(&[
+                    "/Create",
+                    "/TN",
+                    &names.task,
+                    "/XML",
+                    &file.display().to_string(),
+                    "/F",
+                ]);
+                let _ = std::fs::remove_file(file);
+                restored
+                    .map_err(anyhow::Error::msg)
+                    .context("restoring the earlier sign-in task")?;
+                let _ = run_task_in_session(names, upgrade.daemon_session());
+            }
+            return Err(error.context(
+                "Upgrade stopped; old programs were restored and Desk pauses will be cancelled",
+            ));
         }
-
-        reg::set_string(&aumid_key(names), Some("DisplayName"), &display_name(names))?;
-        let proto = protocol_key(names);
-        reg::set_string(&proto, None, &format!("URL:{}", display_name(names)))?;
-        reg::set_string(&proto, Some("URL Protocol"), "")?;
-        reg::set_string(
-            &format!("{proto}\\shell\\open\\command"),
-            None,
-            &protocol_command(&dir, &names.channel),
-        )?;
-        println!(
-            "Registered the notification sender {} and the {}:// handler",
-            names.aumid, names.protocol
-        );
-        shortcut::create(
-            &lnk,
-            &dir.join(DESK_EXE),
-            &shortcut_args(names),
-            &dir,
-            &names.aumid,
-        )?;
-        println!("Created the Start-menu shortcut {}", lnk.display());
-
-        let xml = task_xml(
-            &current_user()?,
-            &dir.join(DAEMON_EXE),
-            &names.channel,
-            &dir,
-        );
-        let file = write_task_file(&xml, &names.channel)?;
-        let created = schtasks(&[
-            "/Create",
-            "/TN",
-            &names.task,
-            "/XML",
-            &file.display().to_string(),
-            "/F",
-        ]);
-        let _ = std::fs::remove_file(&file);
-        created.map_err(|e| anyhow::anyhow!("creating the sign-in task '{}': {e}", names.task))?;
-        println!("Created the sign-in task '{}'", names.task);
-
+        // Once the new daemon may have migrated or written the database, do not roll its files back
+        // underneath it. Report start failure while leaving the complete new installation repairable.
         if start {
-            start_and_wait(names, Duration::from_secs(20))?;
+            let started =
+                start_and_wait_in_session(names, Duration::from_secs(20), upgrade.daemon_session());
+            let reopened = upgrade.finish(true);
+            started?;
+            reopened?;
+        } else {
+            upgrade.finish(false)?;
         }
         Ok(())
     }
@@ -522,8 +563,56 @@ mod win {
 
     /// `schtasks /Run`, then wait for the daemon to answer `status` over the MCP pipe.
     pub fn start_and_wait(names: &Names, wait: Duration) -> anyhow::Result<()> {
-        schtasks(&["/Run", "/TN", &names.task])
-            .map_err(|e| anyhow::anyhow!("starting '{}': {e}", names.task))?;
+        start_and_wait_in_session(names, wait, None)
+    }
+
+    fn run_task_in_session(names: &Names, session: Option<u32>) -> anyhow::Result<()> {
+        let Some(session) = session else {
+            return schtasks(&["/Run", "/TN", &names.task])
+                .map(|_| ())
+                .map_err(anyhow::Error::msg);
+        };
+        use windows::Win32::System::Com::{
+            CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
+            CoUninitialize,
+        };
+        use windows::Win32::System::TaskScheduler::{
+            ITaskService, TASK_RUN_USE_SESSION_ID, TaskScheduler,
+        };
+        use windows::Win32::System::Variant::VARIANT;
+        use windows::core::BSTR;
+        unsafe {
+            let initialized = CoInitializeEx(None, COINIT_APARTMENTTHREADED).is_ok();
+            let result = (|| -> anyhow::Result<()> {
+                let service: ITaskService =
+                    CoCreateInstance(&TaskScheduler, None, CLSCTX_INPROC_SERVER)?;
+                let empty = VARIANT::default();
+                service.Connect(&empty, &empty, &empty, &empty)?;
+                let task = service
+                    .GetFolder(&BSTR::from("\\"))?
+                    .GetTask(&BSTR::from(&names.task))?;
+                task.RunEx(
+                    &empty,
+                    TASK_RUN_USE_SESSION_ID.0,
+                    i32::try_from(session)?,
+                    &BSTR::from(agentbolt_ipc::windows_util::current_user_sid()?),
+                )?;
+                Ok(())
+            })();
+            if initialized {
+                CoUninitialize();
+            }
+            result
+        }
+    }
+
+    pub fn start_and_wait_in_session(
+        names: &Names,
+        wait: Duration,
+        session: Option<u32>,
+    ) -> anyhow::Result<()> {
+        run_task_in_session(names, session)
+            .context("starting the sign-in task in its original session")?;
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
@@ -541,7 +630,7 @@ mod win {
             // A daemon started while the old one was still letting go of the store exits; ask again (the task's
             // IgnoreNew makes this a no-op while one runs).
             if last_run.elapsed() >= Duration::from_secs(5) {
-                let _ = schtasks(&["/Run", "/TN", &names.task]);
+                let _ = run_task_in_session(names, session);
                 last_run = Instant::now();
             }
             std::thread::sleep(Duration::from_millis(500));
@@ -602,6 +691,9 @@ mod win {
                 bail!("refusing to remove {}: not an absolute path", p.display());
             }
         }
+        let _install_lock = agentbolt_ipc::windows_util::InstanceLock::maintenance(names)?
+            .ok_or_else(|| anyhow::anyhow!("Another installer is working on this channel"))?;
+        let mut upgrade = crate::install_upgrade::Upgrade::prepare(names, &dir)?;
         remove_uninstall_leftovers();
         if task_exists(names) {
             let _ = schtasks(&["/End", "/TN", &names.task]);
@@ -609,6 +701,8 @@ mod win {
                 .map_err(|e| anyhow::anyhow!("deleting the sign-in task '{}': {e}", names.task))?;
             println!("Deleted the sign-in task '{}'", names.task);
         }
+        upgrade.wait_for_daemons()?;
+        upgrade.finish(false)?;
         for key in [protocol_key(names), aumid_key(names)] {
             if reg::delete_tree(&key)? {
                 println!("Removed HKCU\\{key}");

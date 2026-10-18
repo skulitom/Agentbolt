@@ -87,6 +87,8 @@ pub fn gate(draft_error: Option<String>) -> Gate {
 }
 
 struct Control {
+    names: Names,
+    instance: Arc<Mutex<Option<crate::os::WindowInstance>>>,
     gate: Gate,
     worker: UnboundedSender<Req>,
     ctx: eframe::egui::Context,
@@ -97,6 +99,14 @@ impl Handler for Control {
     async fn handle(&self, _client: &ClientInfo, value: Value) -> Result<Value, String> {
         let op: Op = serde_json::from_value(value).map_err(|e| e.to_string())?;
         match op {
+            Op::Inspect => serde_json::to_value(Prepared {
+                lifecycle_version: 1,
+                pid: std::process::id(),
+                session: crate::drafts::session_id(),
+                visible: crate::resident::visible(),
+                warm: self.warm,
+            })
+            .map_err(|e| e.to_string()),
             Op::Prepare { transaction } => {
                 // The UI holds this lock for every logic/render mutation and draft save. Once
                 // paused, it cannot enqueue another answer or change a draft behind our snapshot.
@@ -127,6 +137,7 @@ impl Handler for Control {
                 }
                 state.quiescent = true;
                 serde_json::to_value(Prepared {
+                    lifecycle_version: 1,
                     pid: std::process::id(),
                     session: crate::drafts::session_id(),
                     visible: crate::resident::visible(),
@@ -156,6 +167,45 @@ impl Handler for Control {
                 });
                 Ok(json!({"closing": true}))
             }
+            Op::Reopen { transaction } => {
+                self.gate
+                    .lock()
+                    .map_err(|e| e.to_string())?
+                    .close(&transaction)?;
+                let executable = std::env::current_exe()
+                    .map_err(|e| e.to_string())?
+                    .with_file_name(format!("agentbolt-desk{}", std::env::consts::EXE_SUFFIX));
+                if self.warm {
+                    agentbolt_ipc::desk_control::request_reopen(
+                        &self.names,
+                        crate::drafts::session_id(),
+                    )
+                    .map_err(|e| e.to_string())?;
+                }
+                // No further edits or writes are possible. Relinquish the per-session singleton so
+                // the new binary can claim it, instead of merely activating this obsolete window.
+                self.instance.lock().map_err(|e| e.to_string())?.take();
+                let mut cmd = std::process::Command::new(executable);
+                cmd.args(["--channel", &self.names.channel]);
+                if self.warm {
+                    cmd.arg("--warm");
+                }
+                match cmd.spawn() {
+                    Ok(child) => {
+                        let pid = child.id();
+                        tokio::spawn(async {
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+                            crate::resident::exit_for_upgrade();
+                        });
+                        Ok(json!({"reopened_pid":pid}))
+                    }
+                    Err(error) => {
+                        // Remain quiescent with saved drafts. The installer can retry Reopen; a
+                        // failed launch must not silently resume an obsolete answering process.
+                        Err(format!("The saved Desk could not reopen: {error}"))
+                    }
+                }
+            }
         }
     }
 }
@@ -166,6 +216,7 @@ pub fn serve(
     worker: UnboundedSender<Req>,
     ctx: eframe::egui::Context,
     warm: bool,
+    instance: Arc<Mutex<Option<crate::os::WindowInstance>>>,
 ) {
     std::thread::Builder::new()
         .name("desk-upgrade".into())
@@ -186,6 +237,8 @@ pub fn serve(
                 ) {
                     let _ = server
                         .serve(Arc::new(Control {
+                            names,
+                            instance,
                             gate,
                             worker,
                             ctx,
