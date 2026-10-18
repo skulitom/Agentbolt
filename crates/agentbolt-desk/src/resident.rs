@@ -10,9 +10,10 @@ mod imp {
     use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, LRESULT, WPARAM};
     use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
     use windows::Win32::UI::WindowsAndMessaging::{
-        GWL_STYLE, GetPropW, IsWindowVisible, PostMessageW, STYLESTRUCT, SW_HIDE, SW_RESTORE,
-        SWP_SHOWWINDOW, SetForegroundWindow, SetPropW, ShowWindow, WINDOWPOS, WM_APP, WM_CLOSE,
-        WM_STYLECHANGING, WM_WINDOWPOSCHANGING, WS_VISIBLE,
+        AllowSetForegroundWindow, GWL_STYLE, GetPropW, GetWindowThreadProcessId, IsWindowVisible,
+        PostMessageW, STYLESTRUCT, SW_HIDE, SW_RESTORE, SWP_SHOWWINDOW, SetForegroundWindow,
+        SetPropW, ShowWindow, WINDOWPOS, WM_APP, WM_CLOSE, WM_STYLECHANGING, WM_WINDOWPOSCHANGING,
+        WS_VISIBLE,
     };
     use windows::core::w;
 
@@ -33,7 +34,12 @@ mod imp {
             HIDDEN.store(false, Ordering::SeqCst);
             unsafe {
                 let _ = ShowWindow(hwnd, SW_RESTORE);
-                let _ = SetForegroundWindow(hwnd);
+                let focused = SetForegroundWindow(hwnd).as_bool();
+                crate::startup::record(if focused {
+                    "activation_focused"
+                } else {
+                    "activation_background"
+                });
             }
             return LRESULT(0);
         }
@@ -88,6 +94,15 @@ mod imp {
     pub fn show(hwnd: HWND) -> bool {
         if unsafe { GetPropW(hwnd, w!("AgentboltDeskReady")) }.is_invalid() {
             return false;
+        }
+        // A launcher opened by the user's click may grant its foreground permission to the warm
+        // process. Do not use ASFW_ANY or attempt to steal focus when Windows denies the grant.
+        unsafe {
+            let mut pid = 0;
+            GetWindowThreadProcessId(hwnd, Some(&mut pid));
+            if pid != 0 {
+                let _ = AllowSetForegroundWindow(pid);
+            }
         }
         // Posting to the window's thread works while hidden, without relying on a render callback.
         unsafe { PostMessageW(Some(hwnd), SHOW, WPARAM(0), LPARAM(0)).is_ok() }

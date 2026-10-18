@@ -193,7 +193,9 @@ fn warm_desk_reopens_fast_without_showing_unseen_asks() {
         {
             assert!(
                 start.elapsed() < Duration::from_secs(5),
-                "Inbox did not refresh"
+                "Inbox did not refresh; foreground={:?}; trace={:?}",
+                unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() },
+                trace_events(&trace)
             );
             std::thread::sleep(Duration::from_millis(2));
         }
