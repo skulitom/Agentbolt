@@ -16,6 +16,8 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 #[derive(Debug)]
 pub enum Req {
+    /// A barrier after all prior operations; closes the connection before the daemon is upgraded.
+    Quiesce(tokio::sync::oneshot::Sender<()>),
     AnswerBatch(Vec<DeskAnswer>),
     /// The Inbox; marks its asks shown. Only while the window is seen.
     List,
@@ -147,6 +149,11 @@ async fn run(
             error: e.to_string(),
         };
         let resp = match req {
+            Req::Quiesce(done) => {
+                conn.client = None;
+                let _ = done.send(());
+                continue;
+            }
             Req::AnswerBatch(answers) => {
                 let ids = answers.iter().map(|a| a.ask_id.clone()).collect();
                 let result = match conn.call(&DeskOp::AnswerBatch { answers }, false).await {

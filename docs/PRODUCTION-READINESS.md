@@ -256,3 +256,34 @@ coordination and a full mixed-version installer/MCP exchange remain open.
 
 References: [Rust command resolution](https://doc.rust-lang.org/std/process/struct.Command.html#platform-specific-behavior)
 and [Microsoft's single-instance mutex guidance](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-createmutexw).
+
+## Desk lifecycle preparation for upgrades
+
+The Desk now exposes a separate per-process lifecycle listener, with only Prepare, Cancel and Close.
+It uses private discovery and the same user-only transport; the installer must verify the Desk image
+before connecting and keep that connection across executable renaming. No lifecycle operation accepts
+an answer, reads the Inbox or weakens the daemon's sibling-Desk identity check.
+
+Preparation acquires the UI's frame lock, pauses editing/polling, refuses unsaved-draft errors, then waits
+behind every queued worker operation and closes the old daemon connection. The acknowledgement includes
+the exact pid, Windows session, visibility and warm state. Cancellation belongs to its transaction;
+abandoned pauses expire after two minutes. A committed Close cannot be cancelled or expire back into
+editing, and posts a native close even when a warm Desk is hidden. Loading/reopening still sends nothing.
+
+The release `lifecycle_handshake_preserves_offline_drafts_and_closes_warm_windows` fixture passed in Anode
+session 4 in **1.58 seconds**, channel `gui-upgrade-111624`: visible and warm windows, refusal of premature
+and wrong-transaction Close, wrong/right cancellation, acknowledged graceful exit, retained choice, note,
+reply, numeric form and batch selection. This fixture deliberately has no daemon, proving an offline
+Desk can still preserve drafts for an upgrade. Its data folder and legacy Roaming preference folder are
+absent after cleanup. Eighteen Desk tests, eighteen Windows IPC tests, workspace all-target clippy and
+format checks pass; thirteen Linux IPC tests and core/MCP clippy pass.
+
+**Installer integration is still pending.** Before touching files it must enumerate only verified Desk
+processes in this channel's installation, prepare all of them and retain their connections and process
+handles. An older Desk with no handshake must cause a clear pre-mutation refusal; it cannot be assumed
+to have no drafts merely because it is hidden. Copy failures must cancel preparation. Stopping must wait
+for the actual old processes, including legacy pipe users, and fail instead of "carrying on" after a
+timeout. Previously visible windows must reopen in their original sessions. The existing installer
+fixture must exchange MCP requests after replacement, not merely keep an idle stdio process open.
+The full installer/rollback and mixed-version tests, per-user scheduler names with verified legacy-task
+migration, and a security review of the completed lifecycle integration remain release gates.

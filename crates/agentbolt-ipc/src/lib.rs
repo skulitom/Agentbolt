@@ -30,6 +30,7 @@ use serde_json::Value;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
 pub use agentbolt_core::service::ClientInfo;
+pub mod desk_control;
 
 #[cfg(unix)]
 mod unix;

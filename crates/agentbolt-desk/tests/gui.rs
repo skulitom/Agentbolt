@@ -26,6 +26,169 @@ impl Drop for Data {
     }
 }
 
+#[test]
+#[ignore = "requires Anode: starts two real Desk windows; no manual input needed"]
+fn lifecycle_handshake_preserves_offline_drafts_and_closes_warm_windows() {
+    use agentbolt_ipc::desk_control::{Op, Prepared, endpoint};
+    use windows::Win32::System::RemoteDesktop::ProcessIdToSessionId;
+    use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, IsWindowVisible};
+    use windows::core::HSTRING;
+    let channel = format!("gui-upgrade-{}", std::process::id());
+    let names = Names::for_channel(&channel).unwrap();
+    assert!(!names.is_main());
+    let data = Data(names.data_dir().unwrap());
+    assert!(!data.0.exists());
+    std::fs::create_dir_all(&data.0).unwrap();
+    let mut session = 0;
+    unsafe {
+        ProcessIdToSessionId(std::process::id(), &mut session).unwrap();
+    }
+    let saved = data.0.join(format!("desk-drafts-{session}.json"));
+    let draft = json!({"choice":"Yes", "note":"Saved while offline", "text":"Edited reply", "text_filled":true,
+        "fields":{"quantity":{"Text":"7"}}});
+    std::fs::write(
+        &saved,
+        serde_json::to_vec(&json!({"version":1,"state":{
+            "drafts":{"offline-ask":draft},"selected":"offline-ask","batch":["offline-ask"]
+        }}))
+        .unwrap(),
+    )
+    .unwrap();
+    let desk = PathBuf::from(env!("CARGO_BIN_EXE_agentbolt-desk"));
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let transaction = "a".repeat(32);
+    let other = "b".repeat(32);
+    for warm in [false, true] {
+        let mut cmd = Command::new(&desk);
+        cmd.args(["--channel", &channel])
+            .env("AGENTBOLT_CHANNEL", &channel);
+        if warm {
+            cmd.arg("--warm");
+        }
+        let mut child = Process(cmd.spawn().unwrap());
+        let control_names = endpoint(&names, child.0.id());
+        rt.block_on(async {
+            let start = Instant::now();
+            let mut control = loop {
+                if let Ok(c) =
+                    Client::connect_to(&control_names, Pipe::Mcp, std::slice::from_ref(&desk)).await
+                {
+                    break c;
+                }
+                assert!(
+                    start.elapsed() < Duration::from_secs(20),
+                    "no lifecycle listener"
+                );
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            };
+            if !warm {
+                loop {
+                    if unsafe {
+                        FindWindowW(None, &HSTRING::from(format!("Agentbolt ({channel})")))
+                    }
+                    .is_ok_and(|hwnd| unsafe { IsWindowVisible(hwnd) }.as_bool())
+                    {
+                        break;
+                    }
+                    assert!(
+                        start.elapsed() < Duration::from_secs(20),
+                        "Desk did not become visible"
+                    );
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+            }
+            assert!(
+                control
+                    .call(&Op::Close {
+                        transaction: transaction.clone()
+                    })
+                    .await
+                    .is_err()
+            );
+            let prepared: Prepared = serde_json::from_value(
+                control
+                    .call(&Op::Prepare {
+                        transaction: transaction.clone(),
+                    })
+                    .await
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(prepared.pid, child.0.id());
+            assert_eq!(prepared.session, session);
+            assert_eq!(prepared.warm, warm);
+            assert_eq!(prepared.visible, !warm);
+            assert!(
+                control
+                    .call(&Op::Close {
+                        transaction: other.clone()
+                    })
+                    .await
+                    .is_err()
+            );
+            assert_eq!(
+                control
+                    .call(&Op::Cancel {
+                        transaction: other.clone()
+                    })
+                    .await
+                    .unwrap()["resumed"],
+                false
+            );
+            assert_eq!(
+                control
+                    .call(&Op::Cancel {
+                        transaction: transaction.clone()
+                    })
+                    .await
+                    .unwrap()["resumed"],
+                true
+            );
+            assert!(
+                control
+                    .call(&Op::Close {
+                        transaction: transaction.clone()
+                    })
+                    .await
+                    .is_err()
+            );
+            control
+                .call(&Op::Prepare {
+                    transaction: transaction.clone(),
+                })
+                .await
+                .unwrap();
+            control
+                .call(&Op::Close {
+                    transaction: transaction.clone(),
+                })
+                .await
+                .unwrap();
+        });
+        let start = Instant::now();
+        loop {
+            if let Some(exit) = child.0.try_wait().unwrap() {
+                assert!(exit.success());
+                break;
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(10),
+                "prepared Desk did not close"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let restored: Value = serde_json::from_slice(&std::fs::read(&saved).unwrap()).unwrap();
+        assert_eq!(restored["state"]["drafts"]["offline-ask"], draft);
+        assert_eq!(restored["state"]["batch"], json!(["offline-ask"]));
+        println!(
+            "Lifecycle pause, cancellation, native close and retained drafts passed: warm={warm}, channel {channel}"
+        );
+    }
+}
+
 struct Mcp {
     _process: Process,
     input: std::process::ChildStdin,

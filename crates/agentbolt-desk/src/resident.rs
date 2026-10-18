@@ -21,6 +21,7 @@ mod imp {
     const SHOW: u32 = WM_APP + 0x41;
     static HIDDEN: AtomicBool = AtomicBool::new(false);
     static WINDOW: AtomicIsize = AtomicIsize::new(0);
+    static UPGRADING: AtomicBool = AtomicBool::new(false);
 
     unsafe extern "system" fn subclass(
         hwnd: HWND,
@@ -43,7 +44,7 @@ mod imp {
             }
             return LRESULT(0);
         }
-        if resident != 0 && msg == WM_CLOSE {
+        if resident != 0 && msg == WM_CLOSE && !UPGRADING.load(Ordering::SeqCst) {
             HIDDEN.store(true, Ordering::SeqCst);
             unsafe {
                 let _ = ShowWindow(hwnd, SW_HIDE);
@@ -114,10 +115,23 @@ mod imp {
             && !HIDDEN.load(Ordering::SeqCst)
             && unsafe { IsWindowVisible(HWND(hwnd as *mut _)) }.as_bool()
     }
+
+    pub fn exit_for_upgrade() {
+        UPGRADING.store(true, Ordering::SeqCst);
+        let hwnd = WINDOW.load(Ordering::SeqCst);
+        if hwnd != 0 {
+            unsafe {
+                let _ = PostMessageW(Some(HWND(hwnd as *mut _)), WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+        }
+    }
 }
 
 #[cfg(windows)]
-pub use imp::{prepare, show, visible};
+pub use imp::{exit_for_upgrade, prepare, show, visible};
+
+#[cfg(not(windows))]
+pub fn exit_for_upgrade() {}
 
 #[cfg(not(windows))]
 pub fn prepare(

@@ -47,6 +47,7 @@ struct SettingsDraft {
 }
 
 pub struct DeskApp {
+    upgrade: crate::upgrade::Gate,
     names: Names,
     worker: Worker,
     tab: Tab,
@@ -117,7 +118,15 @@ pub fn run(names: Names, warm: bool) -> anyhow::Result<()> {
             crate::startup::mark("renderer_ready");
             let ctx = cc.egui_ctx.clone();
             let worker = worker::spawn(names.clone(), move || ctx.request_repaint());
-            Ok(Box::new(DeskApp::new(names, worker)))
+            let app = DeskApp::new(names.clone(), worker);
+            crate::upgrade::serve(
+                names,
+                app.upgrade.clone(),
+                app.worker.tx.clone(),
+                cc.egui_ctx.clone(),
+                warm,
+            );
+            Ok(Box::new(app))
         }),
     )
     .map_err(|e| anyhow::anyhow!("the Desk window failed: {e}"))
@@ -132,6 +141,7 @@ impl DeskApp {
         );
         let draft_error = draft_store.load_error().map(str::to_owned);
         Self {
+            upgrade: crate::upgrade::gate(draft_error.clone()),
             names,
             worker,
             tab: Tab::Inbox,
@@ -1137,11 +1147,28 @@ fn answer_controls(ui: &mut egui::Ui, ask: &Ask, draft: &mut Draft) -> Option<Re
 
 impl eframe::App for DeskApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let gate = self.upgrade.clone();
+        let mut upgrade = gate.lock().unwrap();
+        if upgrade.paused() {
+            ctx.request_repaint_after(Duration::from_secs(1));
+            return;
+        }
         self.drain();
         self.poll(ctx);
+        // Draining an already-sent answer may clear a draft before the next UI frame.
+        upgrade.draft_error = self.save_drafts().err();
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let gate = self.upgrade.clone();
+        let mut upgrade = gate.lock().unwrap();
+        if upgrade.paused() {
+            egui::CentralPanel::default().show(ui, |ui| {
+                ui.label("Agentbolt is updating. Your unsent drafts are saved.");
+            });
+            ui.ctx().request_repaint_after(Duration::from_secs(1));
+            return;
+        }
         crate::startup::mark("first_ui");
         egui::Panel::top("tabs").show(ui, |ui| {
             ui.add_space(4.0);
@@ -1211,5 +1238,6 @@ impl eframe::App for DeskApp {
             });
             crate::startup::mark("first_ui_complete");
         }
+        upgrade.draft_error = self.draft_error.clone();
     }
 }
