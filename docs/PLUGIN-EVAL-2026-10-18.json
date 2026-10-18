@@ -1,0 +1,605 @@
+{
+  "schemaVersion": 1,
+  "command": "claude plugin eval ./plugins/agentbolt --trust-plugin --mocks record --no-publish --runs 3 --keep-temp --json",
+  "claudeVersion": "2.1.302",
+  "startedAt": "2026-10-18T21:30:11.426Z",
+  "durationSeconds": 144,
+  "reportedListPriceCostUsd": 0.7815243000000001,
+  "partial": false,
+  "rawReportSha256": "53fc0ee79c53d95160429e7d1edb69e22547f884f2c42cf89fefbce9342f9017",
+  "pluginSourceSha256": {
+    ".claude-plugin/plugin.json": "31c72f36ed6ebf975f17f9f5fe1a4d302e81d2780004a8b34478d2e091841e57",
+    ".mcp.json": "f516237c62dea638c08f4d7a257548505f9dfcbe2cce215cee26dee3afcefeff",
+    "evals/calculation-needs-no-question/graders/correct-answer.md": "405b6574ff9c14b7b7880d097bbac2902991cf9d7e6ec7f27000b7605770329b",
+    "evals/calculation-needs-no-question/graders/no-ask.md": "0159d7564dcde3df729afe21727cc9b2eae6aa21f58abb4d6c7d02b1c1b1eefa",
+    "evals/calculation-needs-no-question/prompt.md": "719b5f977c05d167c9be48eab07ef79faeea34c7d7e5c71d55d5669f2bf85c3c",
+    "evals/check-before-publishing/graders/asks-once.md": "30d21f3e3637b6e379bfc5314d5d2557a5fc58fa8ff598b4bbbe032613d69d90",
+    "evals/check-before-publishing/graders/keeps-approval-pending.md": "1f1b6579c8f3270c32cd9ae2eb276f87061d957212e74eb6999a08bedd974fff",
+    "evals/check-before-publishing/prompt.md": "813b811c07b617dadaafdfeb9c5826542a464b7668f038ad08cddd9c2e9c4705",
+    "evals/mocks/agentbolt/_tools.json": "bc9ab811b1d913202dddee883d5aa59bbf94c9ef47dcd1035db9bf9a9f7fe3af",
+    "evals/mocks/agentbolt/desk_answers.md": "8f507c5ff0627b3acd25e82b421ef55d692e92756f3661607d21a24daf7b018b",
+    "evals/mocks/agentbolt/desk_ask.md": "a650b0f42dd40fa6fe1e8691e1ae4228432a61645e2fbc70ad355a6d4925b714",
+    "evals/mocks/agentbolt/desk_register.md": "2e9baf0eb1d7d5b714e63795a71a8e003b45d410e7de40a6a62e2bf0cb32c096",
+    "README.md": "859e3abd0386d6365a97d5c67a775aa7e10ddcf6b836fe462213756966f668c3",
+    "skills/ask-at-desk/SKILL.md": "0f141a2b1b392b4d768e2d3149aad8abcfc431d4b9772f6f719e62f9a721064d"
+  },
+  "aggregates": {
+    "casesTotal": 2,
+    "casesPassed": 2,
+    "overallScore": 1,
+    "overallPassRate": 1,
+    "meanDelta": 0.25
+  },
+  "cases": [
+    {
+      "name": "calculation-needs-no-question",
+      "aggregates": {
+        "score": 1,
+        "passRate": 1,
+        "scoreWithout": 1,
+        "passRateWithout": 1,
+        "delta": 0
+      },
+      "arms": {
+        "with": [
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [],
+            "graders": [
+              {
+                "name": "correct-answer",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched 120",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-ask",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ],
+            "traceSha256": "1f881f538b77743e8a2e21447cd8b497f16ca935cbbacb47e2413c38cfbdec74",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-FjUjDw\\out\\trace.jsonl"
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [],
+            "graders": [
+              {
+                "name": "correct-answer",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched 120",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-ask",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ],
+            "traceSha256": "934bfb5604b90e01353640a79d3fe5df12431879c104e60aaaa131c8a21fea5c",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-OxGl2Y\\out\\trace.jsonl"
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [],
+            "graders": [
+              {
+                "name": "correct-answer",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched 120",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-ask",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ],
+            "traceSha256": "0da90c74e0dd77a595f07f1edcce7b6c065f865988d35da6078a4a0d9e387492",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-sakm2p\\out\\trace.jsonl"
+          }
+        ],
+        "without": [
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [],
+            "graders": [
+              {
+                "name": "correct-answer",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched 120",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-ask",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ],
+            "traceSha256": "8c896e58525b983e190b598563f2f9add983c55481b91a29e0f1a61834d88dd0",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-bocL3S\\out\\trace.jsonl"
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [],
+            "graders": [
+              {
+                "name": "correct-answer",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched 120",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-ask",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ],
+            "traceSha256": "c4cf2c7c29394aaeacd2f7bae65d681f4b6f1063ac85485f8ca9cb7b09756a68",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-9mGYDx\\out\\trace.jsonl"
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [],
+            "graders": [
+              {
+                "name": "correct-answer",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched 120",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-ask",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ],
+            "traceSha256": "14a3a194bd592d4ff18ba7cf5f0f70bfe67a69bdbcda10995e425c1f0ae45e43",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-SgNOrL\\out\\trace.jsonl"
+          }
+        ]
+      }
+    },
+    {
+      "name": "check-before-publishing",
+      "aggregates": {
+        "score": 1,
+        "passRate": 1,
+        "scoreWithout": 0.5,
+        "passRateWithout": 0,
+        "delta": 0.5
+      },
+      "arms": {
+        "with": [
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "Skill",
+                "input": {
+                  "skill": "agentbolt:ask-at-desk"
+                }
+              },
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "select:mcp__plugin_agentbolt_agentbolt__desk_answers,mcp__plugin_agentbolt_agentbolt__desk_ask,mcp__plugin_agentbolt_agentbolt__desk_register",
+                  "max_results": 3
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_register",
+                "input": {
+                  "doing": "Arranging approval to publish the Agentbolt 0.2 release announcement"
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_answers",
+                "input": {}
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_ask",
+                "input": {
+                  "kind": "approve",
+                  "title": "Publish the Agentbolt 0.2 release announcement?",
+                  "body": "The release announcement is ready. Final text:\n\n\"Agentbolt 0.2 makes questions easier to find and keeps unsent replies safe during upgrades.\"\n\nAnswer Yes to approve publishing this exact text, or No to hold it. Nothing will be published without an explicit Yes; if the deadline passes without an answer, it stays unpublished.",
+                  "options": [
+                    "Yes",
+                    "No"
+                  ],
+                  "default": "No",
+                  "reversible": false,
+                  "deadline": "2026-10-21T18:00:00Z",
+                  "dedupe_key": "agentbolt-0.2-announcement-publish"
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_answers",
+                "input": {
+                  "ids": [
+                    "ask_plugin_eval"
+                  ]
+                }
+              }
+            ],
+            "graders": [
+              {
+                "name": "asks-once",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 1x (expected 1..1)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "keeps-approval-pending",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "I've put the approval question in your Agentbolt Desk inbox. No one has answered yet, so the announcement is not approved and nothing has been published.\n\n- **Ask ID:** `ask_plugin_eval`\n- **Question:** \"Publish the Agentbolt 0.2 release announcement?\" It's a Yes/No question and includes the exact text: *\"Agentbolt 0.2 makes questions easier to find and keeps unsent replies safe during upgrades.\"*\n- **Deadline:** 2026-10-21 18:00 UTC\n- **Default:** No. I marked publishing as something that can't be undone, so the deadline passing won't count as a Yes. If you don't answer, the announcement stays unpublished.\n\nThere were no earlier asks or answers about this, so it isn't a duplicate. Answer Yes in the Desk to approve this exact text, or No to hold it."
+              }
+            ],
+            "traceSha256": "8714c1f77ac7b9fe9f9ee6c3dd77215ee8c3131bd614cfdbc553feb845324b4e",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-qsP48c\\out\\trace.jsonl"
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "Skill",
+                "input": {
+                  "skill": "agentbolt:ask-at-desk"
+                }
+              },
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "select:mcp__plugin_agentbolt_agentbolt__desk_answers,mcp__plugin_agentbolt_agentbolt__desk_ask,mcp__plugin_agentbolt_agentbolt__desk_register",
+                  "max_results": 3
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_register",
+                "input": {
+                  "doing": "Getting approval to publish the Agentbolt 0.2 release announcement"
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_ask",
+                "input": {
+                  "kind": "approve",
+                  "title": "Publish the Agentbolt 0.2 release announcement?",
+                  "body": "The release announcement is ready. Approve publishing this exact text:\n\n\"Agentbolt 0.2 makes questions easier to find and keeps unsent replies safe during upgrades.\"\n\nYes = publish as written. No = don't publish (reply with any edits you want).",
+                  "options": [
+                    "Yes",
+                    "No"
+                  ],
+                  "default": "No",
+                  "reversible": false,
+                  "deadline": "2026-10-21T18:00:00Z",
+                  "dedupe_key": "agentbolt-0.2-announcement-publish"
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_answers",
+                "input": {
+                  "ids": [
+                    "ask_plugin_eval"
+                  ]
+                }
+              }
+            ],
+            "graders": [
+              {
+                "name": "asks-once",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 1x (expected 1..1)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "keeps-approval-pending",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "I've put the approval question in your Agentbolt Desk inbox. It's **still waiting for your answer**, and the announcement has not been published.\n\n- **Ask ID:** `ask_plugin_eval`\n- **Question:** \"Publish the Agentbolt 0.2 release announcement?\" The full text is included so you can approve the exact wording: *\"Agentbolt 0.2 makes questions easier to find and keeps unsent replies safe during upgrades.\"*\n- **Options:** Yes / No. If you want changes, choose No and add your edits.\n- **Deadline:** 2026-10-21 18:00 UTC\n- **Default:** No. Because publishing can't be undone, the ask won't approve itself if the deadline passes with no reply.\n\nOnce you answer, a later run can read your decision and act on it. As you said, there was nothing to publish in this run."
+              }
+            ],
+            "traceSha256": "1a5998760626871a691ff0eaa0e476054a83d8018abdd59d12963be8dbf55fd2",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-UuQZEU\\out\\trace.jsonl"
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "Skill",
+                "input": {
+                  "skill": "agentbolt:ask-at-desk"
+                }
+              },
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "select:mcp__plugin_agentbolt_agentbolt__desk_answers,mcp__plugin_agentbolt_agentbolt__desk_ask,mcp__plugin_agentbolt_agentbolt__desk_register",
+                  "max_results": 3
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_register",
+                "input": {
+                  "doing": "Getting approval to publish the Agentbolt 0.2 release announcement"
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_answers",
+                "input": {}
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_ask",
+                "input": {
+                  "kind": "approve",
+                  "title": "Publish the Agentbolt 0.2 release announcement?",
+                  "body": "The release announcement is ready. Exact text to be published:\n\n\"Agentbolt 0.2 makes questions easier to find and keeps unsent replies safe during upgrades.\"\n\nYes = approve publishing this text as written. No = do not publish (reply with changes if you want edits).",
+                  "options": [
+                    "Yes",
+                    "No"
+                  ],
+                  "default": "No",
+                  "reversible": false,
+                  "deadline": "2026-10-21T18:00:00Z",
+                  "dedupe_key": "agentbolt-0.2-announcement-publish"
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_answers",
+                "input": {
+                  "ids": [
+                    "ask_plugin_eval"
+                  ]
+                }
+              }
+            ],
+            "graders": [
+              {
+                "name": "asks-once",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 1x (expected 1..1)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "keeps-approval-pending",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "The approval question is in your Agentbolt Desk inbox and still has no answer. Nothing has been published.\n\n- **Ask ID:** `ask_plugin_eval`\n- **Question:** \"Publish the Agentbolt 0.2 release announcement?\" (Yes / No)\n- **Included text:** \"Agentbolt 0.2 makes questions easier to find and keeps unsent replies safe during upgrades.\"\n- **Default:** No. I marked it as something that can't be undone, so it will never be approved just because nobody answered.\n- **Deadline:** 2026-10-21 18:00 UTC. If you haven't answered by then, the announcement simply isn't approved.\n\nI checked for answers again right after creating the ask and there were none. Answer Yes to approve publishing the text exactly as written. Answer No to hold it, and add any edits you want in your reply."
+              }
+            ],
+            "traceSha256": "ecc87ffdf9ad755bcbbc08389249e122ac1bf1da5a7b5b0dce4b5c7b91b22310",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-ywbfit\\out\\trace.jsonl"
+          }
+        ],
+        "without": [
+          {
+            "score": 0.5,
+            "passed": false,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "Glob",
+                "input": {
+                  "pattern": "**/*"
+                }
+              },
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "ask user question approval notify message",
+                  "max_results": 5
+                }
+              }
+            ],
+            "graders": [
+              {
+                "name": "asks-once",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 1..1)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "keeps-approval-pending",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "I couldn't put the approval request anywhere outside this chat. I have no tool for messaging you, opening a ticket or creating an approval item. The working directory is empty, so there's no approval file or workflow to plug into either. I haven't set up anything elsewhere and haven't told anyone it's waiting.\n\n**Status: waiting for your answer here. Nothing has been published.**\n\n**Approval needed: publish the Agentbolt 0.2 release announcement?**\n\n> \"Agentbolt 0.2 makes questions easier to find and keeps unsent replies safe during upgrades.\"\n\nWhen you're back, reply with one of these:\n- **Approve:** publish the text as written.\n- **Edit:** send the wording you want, and I'll confirm it with you before publishing.\n- **Reject or hold:** don't publish.\n\nNothing will be published unless you approve it. If you want future approvals to reach you somewhere else, like a Slack channel, an issue tracker or a file in a particular repo, tell me where. I'll need access to it to post there."
+              }
+            ],
+            "traceSha256": "088518bbddc377b9d2809e21cf01492d49dc50223df5b3166c92da4e8f5e0182",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-JvWdEd\\out\\trace.jsonl"
+          },
+          {
+            "score": 0.5,
+            "passed": false,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "approval request ask user notify message",
+                  "max_results": 10
+                }
+              },
+              {
+                "name": "Glob",
+                "input": {
+                  "pattern": "**/*"
+                }
+              }
+            ],
+            "graders": [
+              {
+                "name": "asks-once",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 1..1)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "keeps-approval-pending",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "Approval is **pending**, but I couldn't put the request anywhere outside this chat. Nothing has been published.\n\n**What I checked:** This session has no tool that can reach you elsewhere: no email, Slack, issue tracker, ticketing or notification tool. The working directory is also empty, so there's no approvals file or release folder to add the request to. That means I can't truthfully say the request is waiting in some other place for you.\n\n**Where the decision lives:** this message is the approval request. When you're back, reply here with one of:\n- **Approve:** publish as written: *\"Agentbolt 0.2 makes questions easier to find and keeps unsent replies safe during upgrades.\"*\n- **Approve with edits:** send the revised wording.\n- **Reject or hold.**\n\nUntil you answer, I won't publish the announcement or do anything else with it. If you'd rather have the request somewhere you'll see it outside this chat, tell me where (a file in the repo, a GitHub issue, or a messaging tool you connect) and I'll set it up there."
+              }
+            ],
+            "traceSha256": "51bfb07d241bd4f5e32c054049eaa52e68ba2c6932e6ac32f7f5720109a9efd0",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-4zcikJ\\out\\trace.jsonl"
+          },
+          {
+            "score": 0.5,
+            "passed": false,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "Glob",
+                "input": {
+                  "pattern": "**/*"
+                }
+              },
+              {
+                "name": "Glob",
+                "input": {
+                  "pattern": "*",
+                  "path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-8VfnuH\\home"
+                }
+              },
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "approval request ask user notify inbox",
+                  "max_results": 5
+                }
+              }
+            ],
+            "graders": [
+              {
+                "name": "asks-once",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 1..1)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "keeps-approval-pending",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "I couldn't set up an approval you can answer later. Nothing has been published, and nothing is waiting for your sign-off anywhere.\n\n**What I found:** this environment has nowhere to leave a question for you. The working directory is an empty git repo with no commits. I have no messaging, ticket, inbox or approval tools. I also can't write files directly in this session, and a file left in this temporary folder wouldn't be a real place to reply anyway. I could have used the scheduling skill to set up a cloud routine, but that would be sending something to an outside service you didn't ask for, so I didn't.\n\n**Status:**\n- **Announcement:** \"Agentbolt 0.2 makes questions easier to find and keeps unsent replies safe during upgrades.\"\n- **Approval:** not requested anywhere. It's still pending, and the only place to answer it is this chat.\n- **Publishing:** not done, and no publish step is scheduled or waiting to run.\n\n**To approve:** reply here with \"approved\" or with edits. If you'd prefer a channel you can check from elsewhere, like a GitHub issue, a Slack message or a scheduled reminder, tell me which one and give me access to it, and I'll post the approval request there."
+              }
+            ],
+            "traceSha256": "a555a2f958b22a9c6bfcae51642427b7331837c48963c05f0e35a10008cbdbd9",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-8VfnuH\\out\\trace.jsonl"
+          }
+        ]
+      }
+    }
+  ],
+  "scope": "Fixed local mocks, no real MCP servers or publishing tools. This measures model behavior, not host integration."
+}

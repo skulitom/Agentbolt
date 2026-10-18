@@ -839,6 +839,9 @@ impl DeskApp {
                                 a.owner.clone()
                             };
                             ui.vertical(|ui| {
+                                // A grid's first-frame width otherwise follows the short header,
+                                // wrapping a session UUID into a ten-line owner cell.
+                                ui.set_min_width(280.0);
                                 ui.label(owner);
                                 if let Some(proposed) = &a.requested_owner {
                                     ui.weak(format!("Proposes: {proposed} (review in Settings)"));

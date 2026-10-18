@@ -45,6 +45,26 @@ fn require_release() {
     assert!(!cfg!(debug_assertions), "measure the release build");
 }
 
+fn desk_binary() -> PathBuf {
+    let path = std::env::var_os("AGENTBOLT_STARTUP_TEST_EXE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_agentbolt-desk")));
+    assert!(
+        path.is_absolute() && path.is_file(),
+        "absolute Desk binary required"
+    );
+    assert!(path.with_file_name("agentbolt-daemon.exe").is_file());
+    path
+}
+
+fn test_channel(prefix: &str) -> String {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    format!("{prefix}-{}-{nonce:x}", std::process::id())
+}
+
 #[test]
 #[ignore = "manual: release build, in Anode; verifies preload, repeated reopen, default-clock safety and daemon crash cleanup"]
 fn warm_desk_reopens_fast_without_showing_unseen_asks() {
@@ -53,16 +73,23 @@ fn warm_desk_reopens_fast_without_showing_unseen_asks() {
     use windows::Win32::Foundation::{LPARAM, WPARAM};
     use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE};
     require_release();
-    let channel = format!("warm-{}", std::process::id());
+    let channel = test_channel("warm");
     let names = Names::for_channel(&channel).unwrap();
     assert!(!names.is_main());
-    let data = Data(names.data_dir().unwrap());
+    let data_path = names.data_dir().unwrap();
+    assert!(!data_path.exists(), "refuse a pre-existing test channel");
+    let data = Data(data_path);
     std::fs::create_dir_all(&data.0).unwrap();
     let trace = data.0.join("trace.json");
-    let desk = PathBuf::from(env!("CARGO_BIN_EXE_agentbolt-desk"));
+    let desk = desk_binary();
+    let measure_idle = std::env::var("AGENTBOLT_MEASURE_IDLE").as_deref() == Ok("1");
+    let mut daemon_command = Command::new(desk.with_file_name("agentbolt-daemon.exe"));
+    daemon_command.args(["--channel", &channel]);
+    if measure_idle {
+        daemon_command.arg("--supervise");
+    }
     let daemon = Process(
-        Command::new(desk.with_file_name("agentbolt-daemon.exe"))
-            .args(["--channel", &channel])
+        daemon_command
             .env("AGENTBOLT_CHANNEL", &channel)
             .env("AGENTBOLT_STARTUP_LOG", &trace)
             .stdin(Stdio::null())
@@ -76,13 +103,16 @@ fn warm_desk_reopens_fast_without_showing_unseen_asks() {
         .build()
         .unwrap();
     let mut client = rt.block_on(async {
+        let expected = [desk.with_file_name("agentbolt-daemon.exe")];
+        let mut last_error = String::new();
         for _ in 0..100 {
-            if let Ok(c) = Client::connect(&names, Pipe::Mcp).await {
-                return c;
+            match Client::connect_to(&names, Pipe::Mcp, &expected).await {
+                Ok(c) => return c,
+                Err(e) => last_error = e.to_string(),
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
-        panic!("daemon did not start");
+        panic!("daemon did not start: {last_error}");
     });
     let reg: RegisterResult = serde_json::from_value(
         rt.block_on(client.call(&McpOp::Register {
@@ -121,7 +151,7 @@ fn warm_desk_reopens_fast_without_showing_unseen_asks() {
     unsafe {
         GetWindowThreadProcessId(hwnd, Some(&mut warm_pid));
     }
-    if std::env::var("AGENTBOLT_MEASURE_IDLE").as_deref() == Ok("1") {
+    if measure_idle {
         idle_cpu(&desk, &daemon.0, warm_pid, hwnd);
     }
     let mut samples = Vec::new();
@@ -234,7 +264,7 @@ fn warm_desk_reopens_fast_without_showing_unseen_asks() {
     let report = desk.parent().unwrap().join("warm-startup-results.json");
     std::fs::write(&report, serde_json::to_vec_pretty(&samples).unwrap()).unwrap();
     drop(client);
-    drop(daemon); // simulate a crash, so the kernel job must also reap the warm window
+    drop(daemon); // the worker/supervisor's kernel job must also reap its children
     let stopping = Instant::now();
     while unsafe { FindWindowW(None, &title) }.is_ok() {
         assert!(
@@ -263,9 +293,10 @@ fn idle_cpu(
     warm_pid: u32,
     hwnd: windows::Win32::Foundation::HWND,
 ) {
-    use windows::Win32::Foundation::{CloseHandle, FILETIME, HANDLE};
+    use windows::Win32::Foundation::{CloseHandle, FILETIME, HANDLE, WAIT_TIMEOUT};
     use windows::Win32::System::Threading::{
-        GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+        WaitForSingleObject,
     };
     struct Handle(HANDLE);
     impl Drop for Handle {
@@ -288,15 +319,40 @@ fn idle_cpu(
         let ticks = |t: FILETIME| (u64::from(t.dwHighDateTime) << 32) | u64::from(t.dwLowDateTime);
         ticks(kernel) + ticks(user)
     }
-    let daemon_handle = Handle(
-        unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, daemon.id()) }.unwrap(),
+    let images =
+        agentbolt_ipc::windows_util::running_images(&[desk.with_file_name("agentbolt-daemon.exe")])
+            .unwrap();
+    assert_eq!(
+        images.len(),
+        2,
+        "run the idle probe with no other copy of this binary running"
     );
-    let desk_handle =
-        Handle(unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, warm_pid) }.unwrap());
-    let before = [cpu(&daemon_handle), cpu(&desk_handle)];
+    assert!(images.iter().any(|p| p.pid == daemon.id()));
+    let worker_pid = images.iter().find(|p| p.pid != daemon.id()).unwrap().pid;
+    let pids = [daemon.id(), worker_pid, warm_pid];
+    let handles = pids.map(|pid| {
+        Handle(
+            unsafe {
+                OpenProcess(
+                    PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
+                    false,
+                    pid,
+                )
+            }
+            .unwrap(),
+        )
+    });
+    let before = handles.each_ref().map(cpu);
     let start = Instant::now();
-    println!("Measuring daemon + hidden Desk CPU for 600 seconds...");
+    println!("Measuring supervisor + daemon + hidden Desk CPU for 600 seconds; PIDs {pids:?}...");
     while start.elapsed() < Duration::from_secs(600) {
+        for handle in &handles {
+            assert_eq!(
+                unsafe { WaitForSingleObject(handle.0, 0) },
+                WAIT_TIMEOUT,
+                "a measured process exited; restarted processes cannot count as continuous idle time"
+            );
+        }
         assert!(
             !unsafe { IsWindowVisible(hwnd) }.as_bool(),
             "idle Desk became visible"
@@ -304,30 +360,30 @@ fn idle_cpu(
         std::thread::sleep(Duration::from_secs(1));
     }
     let wall = start.elapsed().as_secs_f64();
-    let after = [cpu(&daemon_handle), cpu(&desk_handle)];
+    let after = handles.each_ref().map(cpu);
     let percent = |i: usize| (after[i] - before[i]) as f64 / 10_000_000.0 / wall * 100.0;
-    let report = serde_json::json!({"duration_seconds":wall,"daemon_percent_one_core":percent(0),"desk_percent_one_core":percent(1),"combined_percent_one_core":percent(0)+percent(1)});
+    let combined = percent(0) + percent(1) + percent(2);
+    let report = serde_json::json!({"duration_seconds":wall,"pids":pids,"desk_binary":desk,"supervisor_percent_one_core":percent(0),"daemon_percent_one_core":percent(1),"desk_percent_one_core":percent(2),"combined_percent_one_core":combined});
     println!("{report}");
     std::fs::write(
         desk.parent().unwrap().join("idle-cpu-results.json"),
         serde_json::to_vec_pretty(&report).unwrap(),
     )
     .unwrap();
-    assert!(
-        percent(0) + percent(1) < 0.5,
-        "idle CPU exceeds 0.5% of one core"
-    );
+    assert!(combined < 0.5, "idle CPU exceeds 0.5% of one core");
 }
 
 #[test]
 #[ignore = "manual: release build in the Anode desktop; cargo test -p agentbolt-desk --release --test startup -- --ignored --nocapture"]
 fn cold_startup_measurement() {
     require_release();
-    let channel = format!("startup-{}", std::process::id());
+    let channel = test_channel("startup");
     let names = Names::for_channel(&channel).unwrap();
     assert!(!names.is_main());
-    let _data = Data(names.data_dir().unwrap());
-    let desk = PathBuf::from(env!("CARGO_BIN_EXE_agentbolt-desk"));
+    let data_path = names.data_dir().unwrap();
+    assert!(!data_path.exists(), "refuse a pre-existing test channel");
+    let _data = Data(data_path);
+    let desk = desk_binary();
     let daemon = desk.with_file_name("agentbolt-daemon.exe");
     let mut daemon = Process(
         Command::new(daemon)
@@ -344,8 +400,9 @@ fn cold_startup_measurement() {
         .build()
         .unwrap();
     rt.block_on(async {
+        let expected = [desk.with_file_name("agentbolt-daemon.exe")];
         for _ in 0..100 {
-            if let Ok(mut c) = Client::connect(&names, Pipe::Mcp).await {
+            if let Ok(mut c) = Client::connect_to(&names, Pipe::Mcp, &expected).await {
                 c.call(&McpOp::Status).await.unwrap();
                 return;
             }

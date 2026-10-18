@@ -409,3 +409,102 @@ Local archive/schema validation, package-manager execution and Linux archive gen
 at this checkpoint. The hosted workflow and attestations have not run; no tag, release or distribution
 submission has been created. Signing remains explicitly deferred by Artem. Readiness still requires the
 live host/toast checks, final idle probe and a new uninterrupted 72-hour run.
+
+### Packaged release validation
+
+Candidate source **`e7e1ff0bfc55a4aa9d4e355af90ac7cf29ce1bbf`** was packaged on both native targets with
+locked dependencies. Review files are under `target/candidate-current/` (ignored, not published):
+
+| Archive | Bytes | SHA-256 |
+|---|---:|---|
+| `windows-x64/agentbolt-0.2.0-windows-x64.zip` | 8,019,716 | `9faaf0728ec4be3600e23a3325ecc52b15bf4dcf5db91ffd4800785623953af8` |
+| `linux-x64/agentbolt-0.2.0-linux-x64.zip` | 1,184,949 | `36303a87f7d2a8958e9c331bcd8a779eafc1658889e09c0162a6f377ebd0753c` |
+
+An independent archive reader checked every checksum, the ZIP CRCs, flat filenames, per-binary hashes,
+PE/ELF x64 architecture, Linux executable permissions, version/revision metadata and nonempty notices.
+Python jsonschema and PowerShell Test-Json both accepted all three generated manifests against their official
+schemas. Winget 1.29.380 reports **Manifest validation succeeded**, with no warnings after adding its schema
+header. Actionlint 1.7.12 accepts the release workflow. Both targets' cargo-about notices generated with
+`--locked --fail`; Linux emits expected warnings for unused Windows clarification entries.
+
+The actual extracted Windows installer passed **3 live tests in 26.91 s** in Anode session 4. Channel
+`insttest-9db826da15a8` preserved an open old MCP client and visible warm Desk drafts, restored every original
+binary after a forced third-file copy failure, then upgraded and delivered a new Desk answer. Channel
+`insttest-9db830856940` covered scheduler migration, foreign-task preservation, scoped decoys, the startup fence
+and changed-task rollback. Both fixtures uninstalled/purged successfully, including Installed Apps entries.
+
+The extracted Linux binary reports 0.2.0, initializes MCP and lists all five tools without `outputSchema`.
+This check starts no daemon and makes no ask. Its temporary extraction was removed.
+
+The generated Scoop hooks were executed verbatim against the extracted Windows ZIP in an isolated harness,
+channel `scoophook-1792358142697`, **5.88 s**. The install hook completed, update's pre-uninstall hook left the
+daemon running, and uninstall removed the programs/registrations while retaining a data sentinel. Explicit
+test cleanup then purged that data. Scoop itself is not installed; this is hook execution evidence, not a
+claim that a live public bucket/download was exercised. All these new fixtures were cleaned successfully.
+
+### Claude plugin behavior
+
+The 0.2.0 plugin carries a configurable installed-binary path and channel, the five real MCP tool schemas,
+and a narrowly triggered decision skill. Strict Claude validation and the skill validator pass. The release
+packager includes only tracked plugin sources, plus the license, in a separate version-matched ZIP.
+
+Claude Code **2.1.302** ran the final mocked evaluation at **2026-10-18 21:30:11 UTC**, taking **144 s**:
+two cases, three repetitions each, with and without the plugin (12 runs total). All six with-plugin runs
+passed. Each publishing run made exactly one irreversible `desk_ask` and left approval pending; all three
+calculation runs returned 120 minutes with no question. The publishing score was 1.0 versus 0.5 without the
+plugin; calculation scored 1.0 in both arms. The comparison measures the whole plugin, including tool access.
+The CLI reported $0.7815243 in list-price cost, not a statement of the account's actual bill.
+
+An earlier run exposed an inaccurate explanation that an irreversible ask defaults to No at its deadline.
+The skill now states that irreversible asks never default, and the semantic grader checks this distinction.
+Fixed mocks report no human answer without inventing a pending-ID list. The final traces confirm the correction.
+No real MCP server or publishing tool was granted; reports were kept local with `--no-publish`.
+`docs/PLUGIN-EVAL-2026-10-18.json` records evaluated source hashes, actual tool inputs, grader results and trace
+hashes. This does not substitute for the remaining live Desktop-host checks.
+
+Automatic approval review rejected removal of the previous evaluation's 12 temporary roots with “blocked by
+policy”; that command did not execute. Those `claude-eval-*` roots listed in `target/plugin-eval-reviewed.json`
+remain. No alternate deletion was attempted. The final run's retained traces are also kept for review.
+
+### Live notification registration and session limitation
+
+The extracted Windows candidate ran on installed channel `toast-1792359272773` in Anode session 4.
+A real MCP ask reached the Inbox, but Windows rejected toast emission with **0x803E0105, notification
+platform unavailable**. Anode also reported no isolated audio endpoint. Therefore toast appearance,
+audible silence and actual notification-button/body activation remain unverified in a normal session.
+The Windows XML parser and core single-use/wrong-option token tests remain separate evidence.
+
+Changing this fixture's actual handler command in the daemon's Windows session made the Desk display
+“Notification actions need repair”; restoring the saved command cleared the warning on the next refresh.
+The shell host and Anode initially observed different values for that HKCU path, so the effective mutation
+and repair were both performed and observed inside Anode. Logs are retained in `target/toast-fixture.log`.
+The normal installer removed the fixture's programs, data, task, shortcut and registrations in Anode.
+Automatic approval review rejected removal of the remaining test-only registration in the shell host's
+registry view with “blocked by policy”; `HKCU\Software\Classes\agentbolt-toast-1792359272773` remains in
+that view with its original command restored. No alternate removal was attempted.
+
+The independent static security pass over the plugin, archive path validation and startup-test changes
+found no actionable issue. It did not execute live tests.
+
+### Final-candidate idle and real Codex observations
+
+The extracted `e7e1ff0` Desk, daemon and supervisor remained alive throughout **600.182 s** with the Desk
+hidden. Combined CPU was **0.317612% of one core** (Desk 0.257734%, daemon 0.059878%, supervisor 0%).
+Five subsequent reopen cycles took **13.020–16.047 ms** for the visible window and **30.189–58.925 ms**
+for the Inbox. Unseen-ask/default-clock and crash-cleanup assertions passed. The test now verifies actual
+candidate process identities and measures all three retained process handles, rather than silently treating
+an exited process as zero CPU. Its first invocation exposed a test-path mismatch, fixed before this passing run.
+
+Real Codex Desktop 0.163.0-alpha.10.2 supplies `_meta.threadId`, lists all five tools without `outputSchema`,
+and exposes both result branches. Native CLI 0.160.0 invoked by the daemon successfully delivered to an idle
+loaded chat and queued the next turn of an active chat. Original and resumed turn records preserve the same
+sandbox and approval policy. Completed unloaded and archived cases have limits described in
+`LIVE-CLIENT-CHECKS.md`; neither is counted as an automatic-wake pass. The test chats were archived, the local
+MCP override removed and the test installation successfully purged.
+
+The GUI inspection also found long provisional session names wrapping into ten-line rows on Agents.
+Giving that column a useful minimum width fixes the cause while retaining horizontal scrolling for small
+windows. Because this changes the Desk binary, the final archive needs its own repeated idle/reopen check.
+
+`NATIVE-SCENARIO-AUDIT.md` maps the old verification scenarios to current evidence and remaining GUI checks.
+The added twelve answer/cancel races pass on Windows and Linux, including durable reopen and repeat reads.

@@ -68,18 +68,27 @@ covered by live regression fixtures. The follow-up review found no remaining act
 ## M1 checks not yet run
 1. **Clients:** Claude Desktop and Codex list the tools, then ask and answer live; only Claude Code has run live. Test
    both result branches (`content` text and `structuredContent`) in each client.
+   The exact synthetic-chat plan is in `docs/LIVE-CLIENT-CHECKS.md`. Desk ask `ask_8f5aedf0b2f55197` requests
+   explicit authorization to create/message those temporary app chats, as the chat tools require.
+   Artem authorized these tests at 21:32 UTC on 2026-10-18. Codex's real metadata, tools and both result branches
+   pass; Claude Desktop and visible Open chat navigation remain unverified. See the checklist's results.
 2. **Codex delivery:** `codex queue --thread --message` (CLI 0.160) on an active, an idle and a finished thread, run
    from the daemon. Confirm the resumed turn's sandbox and approval policy equal the original's. Until confirmed, only
-   owners marked codex-interactive on the Desk get it.
+   owners marked codex-interactive on the Desk get it. Active and loaded-idle cases now pass, with matching
+   original/resumed policies. A completed unloaded chat did not resume despite queue exit 0; an archived chat
+   rejected the command. Both answers remained durable. Keep the opt-in restriction and documented limitation.
 3. **The sign-in task:** `/Run` from Anode and recovery from a killed worker pass. The isolated 72-hour
    `PT0S` probe started 2026-10-18 19:53 UTC but was interrupted by a logged tray Quit at 20:45 UTC.
    It does not count as a pass; a fresh uninterrupted run on the final candidate is required. The stopped
    fixture remains installed because automatic approval review rejected its cleanup (“blocked by policy”).
    See `docs/SOAK-2026-10-18.json`; do not restart or count later uptime toward that interrupted run.
-4. **Idle CPU:** the earlier warm build passed at 0.276% of one core over ten minutes. Repeat on the final
-   candidate, including the supervisor and new lifecycle listener, with the Desk closed.
+4. **Idle CPU:** the extracted `e7e1ff0` candidate passed at 0.318% of one core over 600 seconds, including
+   supervisor, daemon and hidden Desk. Five subsequent reopen cycles took 13–16 ms window / 30–59 ms Inbox.
+   Repeat after the final Agents-row layout fix so the evidence matches the final Desk binary.
 5. **Toasts live:** they appear silently. A button answers through the `agentbolt://` handler with its single-use
    token, a used or wrong-option token is refused, and the body click opens the Desk.
+   Anode session 4 rejects toast emission with Windows error 0x803E0105 (notification platform unavailable)
+   and has no isolated audio endpoint. A normal-session check remains necessary; this is not a pass.
 6. **The native remake's scenarios** (`native/verification.md` on the `legacy-native-2026-10-18` tag), run against
    Agentbolt.
 
@@ -98,7 +107,7 @@ covered by live regression fixtures. The follow-up review found no remaining act
   Third-file copy failure restores all original files without stopping existing processes. An older Desk
   without lifecycle support is refused before mutation. Startup and changed-task rollback races are covered.
 - **Done — handler-key check:** the Desk displays it and the daemon rechecks registration before every toast.
-  A live registration-change/repair check remains.
+  A live installed fixture now verifies the warning appears after a changed command and clears after repair.
 - **Done — formatting:** isolated commit `729fc82`; format and lint checks pass.
 - **Done — Windows scheduler isolation:** task names include the token's user SID. Start, stop, delete and
   migration verify the account, executable, arguments and working folder; changed task snapshots are refused.
@@ -106,12 +115,18 @@ covered by live regression fixtures. The follow-up review found no remaining act
 ## Release work
 - **Deferred by Artem (Desk answer, 2026-10-18 20:33 UTC):** code signing may wait until after 0.2.
   Label the 0.2 candidate unsigned; do not claim signed-build validation.
-- **Prepared — release tooling:** version 0.2.0, Installed Apps registration, a locked-build ZIP packager,
-  checksums, cargo-about notices and a tag/manual workflow that creates a draft only. Local package/schema
-  verification is underway; hosted execution and attestations are unverified. Nothing has been tagged or published.
-- Distribution: winget and Scoop manifests, an MCP Registry entry (the MCP front-end starts on Linux, so Glama can
-  score it), and a Claude Code plugin with an eval (an agent asked "check with me before you publish" uses
-  `desk_ask`).
+- **Prepared and locally verified — release tooling:** version 0.2.0, Installed Apps registration, a locked-build
+  ZIP packager, checksums, cargo-about notices and a tag/manual workflow that creates a draft only. Both ZIPs,
+  official schemas, winget validation and workflow lint pass. The extracted Windows ZIP passes live install,
+  upgrade, rollback, held-MCP and uninstall tests; the Linux ZIP starts and lists the five MCP tools.
+  Hosted execution and attestations remain unverified. Nothing has been tagged or published.
+- **Prepared — distribution manifests:** winget, Scoop and an MCP Registry custom-installation entry. Scoop's
+  hooks pass a live isolated install/update/uninstall harness; Scoop itself and hosted downloads have not run.
+  Public Registry acceptance and Glama scoring remain unmeasured, pending an authorized public release.
+- **Done — Claude Code plugin and behavioral eval:** strict validation passes. Three repeated publishing
+  runs each call `desk_ask` exactly once with `reversible: false` and report pending approval; three routine
+  calculation runs answer directly with no ask. Fixed mocks keep tests off the real Desk. The no-plugin
+  comparison and full evidence are in `docs/PLUGIN-EVAL-2026-10-18.json`. The release includes a plugin ZIP.
 - **Done — independent security review:** the original two medium Windows findings and two subsequent upgrade
   rollback findings were fixed and tested. Follow-up review of lifecycle, task migration, rollback and uninstall
   found no remaining actionable issue. Review later changes if they affect these boundaries.

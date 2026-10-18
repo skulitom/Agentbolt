@@ -1,0 +1,552 @@
+{
+  "recordedUtc": "2026-10-18T21:50:09.452643+00:00",
+  "channel": "client-1792359530619",
+  "sourceCommit": "e7e1ff0bfc55a4aa9d4e355af90ac7cf29ce1bbf",
+  "method": "Byte-preserving relay observes actual host JSON-RPC; no metadata injection. Answers written only through installed Desk.",
+  "policyContexts": {
+    "01a150f4-8196-7d10-b568-45a91dadf717": [
+      {
+        "turn_id": "01a150f4-8643-75a1-8639-05c44e5c0f1f",
+        "cwd": "C:\\DEV\\Agentbolt",
+        "approval_policy": "never",
+        "sandbox_policy": {
+          "type": "danger-full-access"
+        }
+      },
+      {
+        "turn_id": "01a150f6-963c-7bd1-ba1a-2fb9e17950c0",
+        "cwd": "C:\\DEV\\Agentbolt",
+        "approval_policy": "never",
+        "sandbox_policy": {
+          "type": "danger-full-access"
+        }
+      }
+    ],
+    "01a150f5-2f16-74e2-a5c9-43c336a1c0ad": [
+      {
+        "turn_id": "01a150f5-338b-7043-9acd-4fb71e2b3266",
+        "cwd": "C:\\DEV\\Agentbolt",
+        "approval_policy": "never",
+        "sandbox_policy": {
+          "type": "danger-full-access"
+        }
+      },
+      {
+        "turn_id": "01a150f7-7bbc-7e21-8de8-364f43eae790",
+        "cwd": "C:\\DEV\\Agentbolt",
+        "approval_policy": "never",
+        "sandbox_policy": {
+          "type": "danger-full-access"
+        }
+      }
+    ],
+    "01a150f6-4211-7602-9871-3dcc165675cc": [
+      {
+        "turn_id": "01a150f6-472b-7671-a24a-f2e87a71c279",
+        "cwd": "C:\\DEV\\Agentbolt",
+        "approval_policy": "never",
+        "sandbox_policy": {
+          "type": "danger-full-access"
+        }
+      },
+      {
+        "turn_id": "01a150fa-6c74-74b1-ab8c-ef97b11b3e3e",
+        "cwd": "C:\\DEV\\Agentbolt",
+        "approval_policy": "never",
+        "sandbox_policy": {
+          "type": "danger-full-access"
+        }
+      }
+    ]
+  },
+  "traces": [
+    {
+      "trace": "mcp-106988.jsonl",
+      "sha256": "7fb8f4a104f9cf5a37710007f96c90f3faa722cdb484461d2b54c3c0aaa69b1b",
+      "clients": [
+        {
+          "name": "codex-mcp-client",
+          "title": "Codex",
+          "version": "0.163.0-alpha.10.2"
+        }
+      ],
+      "catalogs": [
+        {
+          "names": [
+            "desk_register",
+            "desk_ask",
+            "desk_answers",
+            "desk_cancel",
+            "desk_relay"
+          ],
+          "outputSchemaCount": 0
+        }
+      ],
+      "calls": [
+        {
+          "id": 2,
+          "name": "desk_answers",
+          "threadId": "01a150f4-8196-7d10-b568-45a91dadf717",
+          "sessionId": "01a150f4-8196-7d10-b568-45a91dadf717",
+          "at": "2026-10-18T21:39:31.976044+00:00",
+          "textPresent": true,
+          "structuredPresent": true,
+          "isError": false,
+          "answers": []
+        },
+        {
+          "id": 3,
+          "name": "desk_ask",
+          "threadId": "01a150f4-8196-7d10-b568-45a91dadf717",
+          "sessionId": "01a150f4-8196-7d10-b568-45a91dadf717",
+          "at": "2026-10-18T21:39:35.554287+00:00",
+          "textPresent": true,
+          "structuredPresent": true,
+          "isError": false
+        },
+        {
+          "id": 4,
+          "name": "desk_answers",
+          "threadId": "01a150f4-8196-7d10-b568-45a91dadf717",
+          "sessionId": "01a150f4-8196-7d10-b568-45a91dadf717",
+          "at": "2026-10-18T21:41:45.752659+00:00",
+          "textPresent": true,
+          "structuredPresent": true,
+          "isError": false,
+          "answers": [
+            {
+              "answer": {
+                "answered_at": "2026-10-18T21:41:38.869Z",
+                "ask_id": "ask_52cadad952bd7d60",
+                "choice": "Test B",
+                "deliveries": [
+                  {
+                    "at": "2026-10-18T21:41:39.482Z",
+                    "detail": "codex queue exited 0",
+                    "ok": true,
+                    "to": "01a150f4-8196-7d10-b568-45a91dadf717"
+                  }
+                ],
+                "note": "Synthetic Agentbolt test answer — no real-world authorization.",
+                "via": "desk"
+              },
+              "asking_client": "codex-mcp-client",
+              "asking_cwd": "C:\\DEV\\Agentbolt",
+              "asking_session": "01a150f4-8196-7d10-b568-45a91dadf717",
+              "body": "Synthetic Agentbolt test answer — no real-world authorization. This tests receipt only.",
+              "created_at": "2026-10-18T21:39:35.554Z",
+              "deadline": "2026-10-20T18:00:00+01:00",
+              "dedupe_key": "live-client-idle-1018",
+              "default": "Test A",
+              "evidence": [],
+              "fields": [],
+              "id": "ask_52cadad952bd7d60",
+              "kind": "choose",
+              "muted": false,
+              "options": [
+                "Test A",
+                "Test B"
+              ],
+              "owner": "session:01a150f4-8196-7d10-b568-45a91dadf717",
+              "priority": "P2",
+              "reversible": false,
+              "shown_at": "2026-10-18T21:40:09.808Z",
+              "status": "answered",
+              "title": "Synthetic Agentbolt check — idle: choose Test A or Test B."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "trace": "mcp-107960.jsonl",
+      "sha256": "fd8cf2f1a51ad45992964587edbe86fcd06954af1ebdef1e159778d545f45b00",
+      "clients": [
+        {
+          "name": "codex-mcp-client",
+          "title": "Codex",
+          "version": "0.163.0-alpha.10.2"
+        }
+      ],
+      "catalogs": [
+        {
+          "names": [
+            "desk_register",
+            "desk_ask",
+            "desk_answers",
+            "desk_cancel",
+            "desk_relay"
+          ],
+          "outputSchemaCount": 0
+        }
+      ],
+      "calls": [
+        {
+          "id": 2,
+          "name": "desk_answers",
+          "threadId": "01a150f5-2f16-74e2-a5c9-43c336a1c0ad",
+          "sessionId": "01a150f5-2f16-74e2-a5c9-43c336a1c0ad",
+          "at": "2026-10-18T21:42:44.271456+00:00",
+          "textPresent": true,
+          "structuredPresent": true,
+          "isError": false,
+          "answers": [
+            {
+              "answer": {
+                "answered_at": "2026-10-18T21:41:39.135Z",
+                "ask_id": "ask_fdf361ca3f4d1dab",
+                "choice": "Test B",
+                "deliveries": [
+                  {
+                    "at": "2026-10-18T21:41:39.555Z",
+                    "detail": "codex queue failed (exit code: 1)",
+                    "ok": false,
+                    "to": "01a150f5-2f16-74e2-a5c9-43c336a1c0ad"
+                  }
+                ],
+                "note": "Synthetic Agentbolt test answer — no real-world authorization.",
+                "via": "desk"
+              },
+              "asking_client": "codex-mcp-client",
+              "asking_cwd": "C:\\DEV\\Agentbolt",
+              "asking_session": "01a150f5-2f16-74e2-a5c9-43c336a1c0ad",
+              "body": "Synthetic Agentbolt test answer — no real-world authorization. This tests receipt only.",
+              "created_at": "2026-10-18T21:40:26.669Z",
+              "deadline": "2026-10-20T18:00:00+01:00",
+              "dedupe_key": "live-client-finished-1018",
+              "default": "Test A",
+              "evidence": [],
+              "fields": [],
+              "id": "ask_fdf361ca3f4d1dab",
+              "kind": "choose",
+              "muted": false,
+              "options": [
+                "Test A",
+                "Test B"
+              ],
+              "owner": "session:01a150f5-2f16-74e2-a5c9-43c336a1c0ad",
+              "priority": "P2",
+              "reversible": false,
+              "shown_at": "2026-10-18T21:40:28.134Z",
+              "status": "answered",
+              "title": "Synthetic Agentbolt check — finished: choose Test A or Test B."
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "name": "desk_ask",
+          "threadId": "01a150f5-2f16-74e2-a5c9-43c336a1c0ad",
+          "sessionId": "01a150f5-2f16-74e2-a5c9-43c336a1c0ad",
+          "at": "2026-10-18T21:42:48.657300+00:00",
+          "textPresent": true,
+          "structuredPresent": true,
+          "isError": false
+        },
+        {
+          "id": 4,
+          "name": "desk_answers",
+          "threadId": "01a150f5-2f16-74e2-a5c9-43c336a1c0ad",
+          "sessionId": "01a150f5-2f16-74e2-a5c9-43c336a1c0ad",
+          "at": "2026-10-18T21:42:51.633932+00:00",
+          "textPresent": true,
+          "structuredPresent": true,
+          "isError": false,
+          "answers": []
+        }
+      ]
+    },
+    {
+      "trace": "mcp-114040.jsonl",
+      "sha256": "293500000af954086c24922dbf8801ea53e2f03fd23824a2c8de07ebab66c8c2",
+      "clients": [
+        {
+          "name": "codex-mcp-client",
+          "title": "Codex",
+          "version": "0.163.0-alpha.10.2"
+        }
+      ],
+      "catalogs": [
+        {
+          "names": [
+            "desk_register",
+            "desk_ask",
+            "desk_answers",
+            "desk_cancel",
+            "desk_relay"
+          ],
+          "outputSchemaCount": 0
+        }
+      ],
+      "calls": [
+        {
+          "id": 2,
+          "name": "desk_answers",
+          "threadId": "01a150f5-2f16-74e2-a5c9-43c336a1c0ad",
+          "sessionId": "01a150f5-2f16-74e2-a5c9-43c336a1c0ad",
+          "at": "2026-10-18T21:40:19.834849+00:00",
+          "textPresent": true,
+          "structuredPresent": true,
+          "isError": false,
+          "answers": []
+        },
+        {
+          "id": 3,
+          "name": "desk_ask",
+          "threadId": "01a150f5-2f16-74e2-a5c9-43c336a1c0ad",
+          "sessionId": "01a150f5-2f16-74e2-a5c9-43c336a1c0ad",
+          "at": "2026-10-18T21:40:26.668233+00:00",
+          "textPresent": true,
+          "structuredPresent": true,
+          "isError": false
+        },
+        {
+          "id": 4,
+          "name": "desk_answers",
+          "threadId": "01a150f5-2f16-74e2-a5c9-43c336a1c0ad",
+          "sessionId": "01a150f5-2f16-74e2-a5c9-43c336a1c0ad",
+          "at": "2026-10-18T21:40:31.540003+00:00",
+          "textPresent": true,
+          "structuredPresent": true,
+          "isError": false,
+          "answers": []
+        }
+      ]
+    },
+    {
+      "trace": "mcp-120072.jsonl",
+      "sha256": "8fed73e54dbbfc6e6fd11548d64bb7899c954e82ef2e5495c2cfdc36243a298c",
+      "clients": [
+        {
+          "name": "codex-mcp-client",
+          "title": "Codex",
+          "version": "0.163.0-alpha.10.2"
+        }
+      ],
+      "catalogs": [
+        {
+          "names": [
+            "desk_register",
+            "desk_ask",
+            "desk_answers",
+            "desk_cancel",
+            "desk_relay"
+          ],
+          "outputSchemaCount": 0
+        }
+      ],
+      "calls": [
+        {
+          "id": 2,
+          "name": "desk_answers",
+          "threadId": "01a150f5-2f16-74e2-a5c9-43c336a1c0ad",
+          "sessionId": "01a150f5-2f16-74e2-a5c9-43c336a1c0ad",
+          "at": "2026-10-18T21:48:12.690832+00:00",
+          "textPresent": true,
+          "structuredPresent": true,
+          "isError": false,
+          "answers": [
+            {
+              "answer": {
+                "answered_at": "2026-10-18T21:43:05.385Z",
+                "ask_id": "ask_7cc4f18dc2198b4a",
+                "choice": "Test B",
+                "deliveries": [
+                  {
+                    "at": "2026-10-18T21:43:05.798Z",
+                    "detail": "codex queue exited 0",
+                    "ok": true,
+                    "to": "01a150f5-2f16-74e2-a5c9-43c336a1c0ad"
+                  }
+                ],
+                "note": "Synthetic Agentbolt test answer — no real-world authorization.",
+                "via": "desk"
+              },
+              "asking_client": "codex-mcp-client",
+              "asking_cwd": "C:\\DEV\\Agentbolt",
+              "asking_session": "01a150f5-2f16-74e2-a5c9-43c336a1c0ad",
+              "body": "Synthetic Agentbolt test answer — no real-world authorization. This tests receipt only.",
+              "created_at": "2026-10-18T21:42:48.658Z",
+              "deadline": "2026-10-20T18:00:00+01:00",
+              "dedupe_key": "live-client-unloaded-1018",
+              "default": "Test A",
+              "evidence": [],
+              "fields": [],
+              "id": "ask_7cc4f18dc2198b4a",
+              "kind": "choose",
+              "muted": false,
+              "options": [
+                "Test A",
+                "Test B"
+              ],
+              "owner": "session:01a150f5-2f16-74e2-a5c9-43c336a1c0ad",
+              "priority": "P2",
+              "reversible": false,
+              "shown_at": "2026-10-18T21:42:50.007Z",
+              "status": "answered",
+              "title": "Synthetic Agentbolt check — unloaded: choose Test A or Test B."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "trace": "mcp-29520.jsonl",
+      "sha256": "09a7c982d69b84be6b0037322204d2423f7c16f03c9c66933f4cfe429ce1dc71",
+      "clients": [
+        {
+          "name": "codex-mcp-client",
+          "title": "Codex",
+          "version": "0.163.0-alpha.10.2"
+        }
+      ],
+      "catalogs": [
+        {
+          "names": [
+            "desk_register",
+            "desk_ask",
+            "desk_answers",
+            "desk_cancel",
+            "desk_relay"
+          ],
+          "outputSchemaCount": 0
+        }
+      ],
+      "calls": [
+        {
+          "id": 2,
+          "name": "desk_answers",
+          "threadId": "01a150f6-4211-7602-9871-3dcc165675cc",
+          "sessionId": "01a150f6-4211-7602-9871-3dcc165675cc",
+          "at": "2026-10-18T21:41:30.580257+00:00",
+          "textPresent": true,
+          "structuredPresent": true,
+          "isError": false,
+          "answers": []
+        },
+        {
+          "id": 3,
+          "name": "desk_ask",
+          "threadId": "01a150f6-4211-7602-9871-3dcc165675cc",
+          "sessionId": "01a150f6-4211-7602-9871-3dcc165675cc",
+          "at": "2026-10-18T21:41:34.449387+00:00",
+          "textPresent": true,
+          "structuredPresent": true,
+          "isError": false
+        },
+        {
+          "id": 4,
+          "name": "desk_answers",
+          "threadId": "01a150f6-4211-7602-9871-3dcc165675cc",
+          "sessionId": "01a150f6-4211-7602-9871-3dcc165675cc",
+          "at": "2026-10-18T21:45:35.518409+00:00",
+          "textPresent": true,
+          "structuredPresent": true,
+          "isError": false,
+          "answers": [
+            {
+              "answer": {
+                "answered_at": "2026-10-18T21:42:08.005Z",
+                "ask_id": "ask_fa016b5ad3ccde5f",
+                "choice": "Test B",
+                "deliveries": [
+                  {
+                    "at": "2026-10-18T21:42:08.418Z",
+                    "detail": "codex queue exited 0",
+                    "ok": true,
+                    "to": "01a150f6-4211-7602-9871-3dcc165675cc"
+                  }
+                ],
+                "note": "Synthetic Agentbolt test answer — no real-world authorization.",
+                "via": "desk"
+              },
+              "asking_client": "codex-mcp-client",
+              "asking_cwd": "C:\\DEV\\Agentbolt",
+              "asking_session": "01a150f6-4211-7602-9871-3dcc165675cc",
+              "body": "Synthetic Agentbolt test answer — no real-world authorization. This tests receipt only.",
+              "created_at": "2026-10-18T21:41:34.451Z",
+              "deadline": "2026-10-20T18:00:00+01:00",
+              "dedupe_key": "live-client-active-1018",
+              "default": "Test A",
+              "evidence": [],
+              "fields": [],
+              "id": "ask_fa016b5ad3ccde5f",
+              "kind": "choose",
+              "muted": false,
+              "options": [
+                "Test A",
+                "Test B"
+              ],
+              "owner": "session:01a150f6-4211-7602-9871-3dcc165675cc",
+              "priority": "P2",
+              "reversible": false,
+              "shown_at": "2026-10-18T21:41:35.608Z",
+              "status": "answered",
+              "title": "Synthetic Agentbolt check — active: choose Test A or Test B."
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "name": "desk_answers",
+          "threadId": "01a150f6-4211-7602-9871-3dcc165675cc",
+          "sessionId": "01a150f6-4211-7602-9871-3dcc165675cc",
+          "at": "2026-10-18T21:46:05.786861+00:00",
+          "textPresent": true,
+          "structuredPresent": true,
+          "isError": false,
+          "answers": [
+            {
+              "answer": {
+                "answered_at": "2026-10-18T21:42:08.005Z",
+                "ask_id": "ask_fa016b5ad3ccde5f",
+                "choice": "Test B",
+                "deliveries": [
+                  {
+                    "at": "2026-10-18T21:42:08.418Z",
+                    "detail": "codex queue exited 0",
+                    "ok": true,
+                    "to": "01a150f6-4211-7602-9871-3dcc165675cc"
+                  }
+                ],
+                "note": "Synthetic Agentbolt test answer — no real-world authorization.",
+                "via": "desk"
+              },
+              "asking_client": "codex-mcp-client",
+              "asking_cwd": "C:\\DEV\\Agentbolt",
+              "asking_session": "01a150f6-4211-7602-9871-3dcc165675cc",
+              "body": "Synthetic Agentbolt test answer — no real-world authorization. This tests receipt only.",
+              "created_at": "2026-10-18T21:41:34.451Z",
+              "deadline": "2026-10-20T18:00:00+01:00",
+              "dedupe_key": "live-client-active-1018",
+              "default": "Test A",
+              "evidence": [],
+              "fields": [],
+              "id": "ask_fa016b5ad3ccde5f",
+              "kind": "choose",
+              "muted": false,
+              "options": [
+                "Test A",
+                "Test B"
+              ],
+              "owner": "session:01a150f6-4211-7602-9871-3dcc165675cc",
+              "priority": "P2",
+              "reversible": false,
+              "shown_at": "2026-10-18T21:41:35.608Z",
+              "status": "answered",
+              "title": "Synthetic Agentbolt check — active: choose Test A or Test B."
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "results": {
+    "idleLoaded": "passed: automatic next turn read exact Desk answer",
+    "active": "passed: next turn after active turn completed read exact Desk answer",
+    "finishedUnloaded": "not passed: queue exit 0 but no automatic turn for over five minutes",
+    "archived": "queue exit 1; durable answer retained",
+    "openChat": "unverified visible destination",
+    "cleanup": "three chats archived; project MCP override removed; installed test channel uninstalled and purged"
+  }
+}

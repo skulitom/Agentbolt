@@ -2058,6 +2058,70 @@ fn the_database_file_is_exclusive_and_keeps_its_secret() {
 }
 
 #[test]
+fn twelve_answer_cancel_races_have_one_durable_terminal_result() {
+    let dir = std::env::temp_dir().join(format!(
+        "agentbolt-answer-race-{}",
+        crate::tokens::random_hex(6)
+    ));
+    let path = dir.join("agentbolt.db");
+    let outcomes = {
+        let t = T::with(StoreService::open(&path).unwrap());
+        let handle = t.register("race-owner");
+        (0..12)
+            .map(|i| {
+                let ask = t.ask(&handle, t.input(&format!("Race {i}")));
+                let barrier = std::sync::Barrier::new(2);
+                let (answer, cancel) = std::thread::scope(|scope| {
+                    let answer = scope.spawn(|| {
+                        barrier.wait();
+                        t.answer(&ask.id, "Yes")
+                    });
+                    let cancel = scope.spawn(|| {
+                        barrier.wait();
+                        t.cancel(&handle, &ask.id)
+                    });
+                    (answer.join().unwrap(), cancel.join().unwrap())
+                });
+                assert_ne!(answer.is_ok(), cancel.is_ok(), "exactly one wins");
+                let status = t.ask_status(&ask.id);
+                assert_eq!(
+                    status,
+                    if answer.is_ok() {
+                        AskStatus::Answered
+                    } else {
+                        AskStatus::Cancelled
+                    }
+                );
+                let result = serde_json::to_value(t.answers(&handle, &[&ask.id])).unwrap();
+                for _ in 0..3 {
+                    assert_eq!(
+                        serde_json::to_value(t.answers(&handle, &[&ask.id])).unwrap(),
+                        result,
+                        "reads never consume or change a terminal result"
+                    );
+                }
+                assert!(t.status().chain_ok);
+                (ask.id, status, result)
+            })
+            .collect::<Vec<_>>()
+    };
+    {
+        let t = T::with(StoreService::open(&path).unwrap());
+        let handle = t.register("race-owner");
+        for (id, status, result) in outcomes {
+            assert_eq!(t.ask_status(&id), status);
+            assert_eq!(
+                serde_json::to_value(t.answers(&handle, &[&id])).unwrap(),
+                result
+            );
+            assert!(t.answer(&id, "No").is_err());
+        }
+        assert!(t.status().chain_ok);
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn the_service_is_send_and_sync() {
     fn assert_send_sync<S: Service + Send + Sync + 'static>() {}
     assert_send_sync::<StoreService>();

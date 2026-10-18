@@ -26,6 +26,12 @@ To run the real installer fixture against an extracted Windows ZIP, set `AGENTBO
 isolated desktop's session number. Run the `installer` integration test inside that desktop. It creates
 its own fresh channel and verifies installation, upgrade, an open MCP exchange and cleanup.
 
+For the final ten-minute idle/reopen check inside the isolated desktop, set `AGENTBOLT_MEASURE_IDLE=1`
+and `AGENTBOLT_STARTUP_TEST_EXE` to the extracted ZIP's absolute `agentbolt-desk.exe` path, then run
+`cargo test --locked -p agentbolt-desk --release --test startup warm_desk_reopens_fast_without_showing_unseen_asks -- --ignored --nocapture --test-threads=1`.
+The probe measures supervisor, daemon and hidden Desk together, fails if any process exits, and then checks
+five reopen cycles and unseen-question safety. Run no other copy of that extracted daemon during the probe.
+
 For Linux, generate notices with `--target x86_64-unknown-linux-gnu`, then use
 `package linux-x64` with the same remaining arguments. Linux binaries retain executable permission in the ZIP.
 Notices cover the workspace's selected target, including the packaging tools, rather than understating licenses.
@@ -37,6 +43,10 @@ Keep the release-note path in the workflow aligned with the version. The workflo
 part of preparing 0.2; do not claim a successful hosted build until one is observed.
 
 ## Distribution
+
+The Windows packager also includes the version-matched Claude plugin ZIP, with its skill, MCP configuration,
+isolated eval suite and MIT license. Only committed plugin files enter that archive. Validate it and run its
+evals as described in `plugins/agentbolt/README.md` before calling it ready.
 
 The packager emits a winget singleton manifest, a Scoop manifest and an MCP Registry entry. Checksums always
 come from the ZIP it just wrote. The winget Installed Apps product code is `Skulitom.Agentbolt`, matching the

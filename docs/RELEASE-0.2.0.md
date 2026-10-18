@@ -13,6 +13,12 @@ Owner-name proposals require approval in the Desk. A supervisor restarts a faile
 pipe discovery are isolated by Windows account. Upgrades preserve open MCP clients and reopen visible Desks
 in their original Windows sessions. Windows Installed Apps can detect and remove the installation.
 
+Codex answer wake remains explicitly opt-in per owner. Live checks confirm receipt in active and idle loaded
+chats with their original sandbox and approval policy. An unloaded chat did not automatically resume on the
+tested Codex version even though its queue command succeeded. Answers remain in the Desk for the agent to
+read when the chat is resumed. Archived chats reject the queue command. See the live-client evidence before
+relying on unattended wake for a particular host version.
+
 ## Install or upgrade on Windows x64
 
 1. Download the Windows ZIP and `SHA256SUMS` from the same release. Compare the ZIP with

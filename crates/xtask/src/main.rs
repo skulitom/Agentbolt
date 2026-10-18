@@ -97,6 +97,29 @@ fn main() -> Result<()> {
     artifacts.insert(archive_name.clone(), zip_bytes);
     artifacts.insert("server.json".into(), pretty(&registry_manifest())?);
     if target == "windows-x64" {
+        let plugin_manifest: Value = serde_json::from_slice(&fs::read(
+            root.join("plugins/agentbolt/.claude-plugin/plugin.json"),
+        )?)?;
+        ensure!(
+            plugin_manifest["version"] == VERSION,
+            "plugin version must match the release"
+        );
+        let mut plugin_files = BTreeMap::new();
+        for path in git(&root, &["ls-files", "--", "plugins/agentbolt"])?.lines() {
+            let name = path
+                .strip_prefix("plugins/agentbolt/")
+                .context("unexpected plugin path")?;
+            plugin_files.insert(name.to_owned(), fs::read(root.join(path))?);
+        }
+        ensure!(
+            plugin_files.contains_key(".claude-plugin/plugin.json"),
+            "plugin sources must be committed before packaging"
+        );
+        plugin_files.insert("LICENSE".into(), fs::read(root.join("LICENSE"))?);
+        artifacts.insert(
+            format!("agentbolt-{VERSION}-claude-plugin.zip"),
+            archive(&plugin_files, &[])?,
+        );
         let url = format!("{REPO}/releases/download/v{VERSION}/{archive_name}");
         artifacts.insert(
             "scoop/agentbolt.json".into(),
@@ -210,8 +233,11 @@ fn archive(files: &BTreeMap<String, Vec<u8>>, executables: &[&str]) -> Result<Ve
     let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     for (name, bytes) in files {
         ensure!(
-            !name.contains(['/', '\\', ':']) && name != "." && name != "..",
-            "archive entries must be flat file names"
+            !name.contains(['\\', ':'])
+                && name
+                    .split('/')
+                    .all(|part| !part.is_empty() && part != "." && part != ".."),
+            "archive entries must be safe relative paths"
         );
         let options = SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated)
@@ -315,6 +341,33 @@ mod tests {
             assert_eq!(bytes, expected);
         }
         assert!(archive(&BTreeMap::from([("../outside".into(), vec![])]), &[]).is_err());
+        for name in [
+            "/absolute",
+            "C:/absolute",
+            "a/../outside",
+            "a//file",
+            "a\\file",
+            ".",
+            "a/.",
+        ] {
+            assert!(
+                archive(&BTreeMap::from([(name.into(), vec![])]), &[]).is_err(),
+                "{name}"
+            );
+        }
+        let nested = archive(
+            &BTreeMap::from([("skills/ask/SKILL.md".into(), b"skill".to_vec())]),
+            &[],
+        )
+        .unwrap();
+        assert_eq!(
+            zip::ZipArchive::new(std::io::Cursor::new(nested))
+                .unwrap()
+                .by_name("skills/ask/SKILL.md")
+                .unwrap()
+                .size(),
+            5
+        );
     }
 
     #[test]
