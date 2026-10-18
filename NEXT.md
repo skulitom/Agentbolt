@@ -3,6 +3,11 @@
 The design and milestones are in Compass's `work/2026-10-18-agentbolt/PLAN.md` (v4). 0.1 is M0 plus most of M1. This
 list is what's left before a public release. Do the first section first.
 
+**0.2 work in progress:** isolated formatting commit `729fc82`; measured warm Desk startup now passes
+five Anode reopen cycles (11–13 ms window, 27–58 ms Inbox), including hidden-ask safety and crash cleanup.
+See [the verification log](docs/PRODUCTION-READINESS.md) for commands, baseline and remaining evidence.
+The release is not yet ready; the rest of this checklist remains open unless explicitly recorded there.
+
 ## From Artem's first use (2026-10-18; PLAN.md v4, "Status, and Artem's feedback")
 1. **The Desk opens fast.** His words: "It took a while for the window to load."
    - Instrument process start, window shown, first frame and the first `List` answer.

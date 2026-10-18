@@ -132,8 +132,10 @@ pub fn run(
     }
     let tray: TrayIcon = builder.build().map_err(|e| format!("tray icon: {e}"))?;
     info!("tray icon shown");
+    let mut warm_desk = crate::warm::WarmDesk::new(names.clone());
 
     loop {
+        warm_desk.tick();
         unsafe {
             MsgWaitForMultipleObjects(None, false, 200, QS_ALLINPUT);
             while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {

@@ -78,12 +78,10 @@ mod imp {
 
     /// One Desk window per channel: a second launch brings the first window forward and exits.
     /// The mutex handle is never closed, so it lasts as long as the process.
-    pub fn first_window(mutex: &str, title: &str) -> bool {
+    pub fn first_window(mutex: &str, title: &str, activate: bool) -> bool {
         use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError};
         use windows::Win32::System::Threading::CreateMutexW;
-        use windows::Win32::UI::WindowsAndMessaging::{
-            FindWindowW, SW_RESTORE, SetForegroundWindow, ShowWindow,
-        };
+        use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
         let name = HSTRING::from(format!("Local\\{mutex}"));
         let Ok(handle) = (unsafe { CreateMutexW(None, false, &name) }) else {
             return true;
@@ -92,10 +90,15 @@ mod imp {
             let _ = handle; // a raw HANDLE: never closed here, so the mutex lives as long as the window
             return true;
         }
-        if let Ok(hwnd) = unsafe { FindWindowW(None, &HSTRING::from(title)) } {
-            unsafe {
-                let _ = ShowWindow(hwnd, SW_RESTORE);
-                let _ = SetForegroundWindow(hwnd);
+        if activate {
+            let start = std::time::Instant::now();
+            while start.elapsed() < std::time::Duration::from_secs(10) {
+                if let Ok(hwnd) = unsafe { FindWindowW(None, &HSTRING::from(title)) }
+                    && crate::resident::show(hwnd)
+                {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
             }
         }
         false
@@ -131,12 +134,45 @@ mod imp {
         eprintln!("{title}: {text}");
     }
 
-    pub fn first_window(_mutex: &str, _title: &str) -> bool {
+    pub fn first_window(_mutex: &str, _title: &str, _activate: bool) -> bool {
         true
     }
 }
 
 pub use imp::{first_window, message, open_url, show_in_explorer};
+
+/// Observe actual Win32 visibility, independently of egui's requested viewport visibility.
+pub fn trace_window_shown(title: &str) {
+    if !crate::startup::enabled() {
+        return;
+    }
+    #[cfg(windows)]
+    {
+        let title = title.to_owned();
+        std::thread::spawn(move || {
+            use windows::Win32::UI::WindowsAndMessaging::{
+                FindWindowW, GetWindowThreadProcessId, IsWindowVisible,
+            };
+            use windows::core::HSTRING;
+            let start = std::time::Instant::now();
+            while start.elapsed() < std::time::Duration::from_secs(30) {
+                if let Ok(hwnd) = unsafe { FindWindowW(None, &HSTRING::from(&title)) } {
+                    let mut pid = 0;
+                    unsafe {
+                        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+                    }
+                    if pid == std::process::id() && unsafe { IsWindowVisible(hwnd) }.as_bool() {
+                        crate::startup::mark("window_shown");
+                        break;
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+        });
+    }
+    #[cfg(not(windows))]
+    let _ = title;
+}
 
 pub fn run_task(names: &Names) -> Result<(), String> {
     imp::run_task(&names.task)

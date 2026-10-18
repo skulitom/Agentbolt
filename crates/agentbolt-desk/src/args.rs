@@ -4,6 +4,8 @@
 pub enum Mode {
     /// Open the Desk window.
     Window,
+    /// Preload invisibly; closing hides it until the daemon exits.
+    Warm,
     /// The URL protocol handler: `<protocol>://answer?t=<token>` or `<protocol>://open`.
     Url(String),
     /// Test channels only: answer one ask through the Desk pipe and exit.
@@ -23,6 +25,7 @@ pub struct Args {
 
 pub const USAGE: &str = "\
 agentbolt-desk [--channel NAME]                                  open the Desk
+agentbolt-desk [--channel NAME] --warm                           preload for the daemon
 agentbolt-desk [--channel NAME] --url <protocol>://answer?t=TOKEN    answer from a notification button
 agentbolt-desk --channel NAME --answer ASK_ID --choice TEXT [--note N] [--values JSON]
                                                                  test channels only: answer and exit";
@@ -30,6 +33,7 @@ agentbolt-desk --channel NAME --answer ASK_ID --choice TEXT [--note N] [--values
 pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
     let items: Vec<String> = args.into_iter().collect();
     let mut i = 0;
+    let mut warm = false;
     let (mut channel, mut url, mut answer, mut choice, mut values, mut note) =
         (None, None, None, None, None, None);
     while i < items.len() {
@@ -50,6 +54,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
             Ok(v)
         };
         match flag.as_str() {
+            "--warm" if inline.is_none() => warm = true,
             "--channel" => channel = Some(value()?),
             "--url" => url = Some(value()?),
             "--answer" => answer = Some(value()?),
@@ -80,6 +85,14 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Args, String> {
             }
             Mode::Window
         }
+    };
+    let mode = if warm {
+        if mode != Mode::Window {
+            return Err("--warm opens only the background window".into());
+        }
+        Mode::Warm
+    } else {
+        mode
     };
     Ok(Args { channel, mode })
 }

@@ -23,6 +23,8 @@ mod toast;
 #[cfg(windows)]
 mod tray;
 #[cfg(windows)]
+mod warm;
+#[cfg(windows)]
 mod winutil;
 
 #[cfg(test)]

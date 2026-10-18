@@ -5,6 +5,8 @@
 mod app;
 mod args;
 mod os;
+mod resident;
+mod startup;
 mod view;
 mod worker;
 
@@ -37,6 +39,7 @@ fn desk_call(names: &Names, op: &DeskOp) -> Result<serde_json::Value, String> {
 }
 
 fn main() {
+    startup::init();
     let parsed = match args::parse(std::env::args().skip(1)) {
         Ok(a) => a,
         Err(e) => {
@@ -55,9 +58,10 @@ fn main() {
         }
     };
     let code = match parsed.mode {
-        Mode::Window => window(names),
+        Mode::Window => window(names, false),
+        Mode::Warm => window(names, true),
         Mode::Url(url) => match view::parse_url(&url, &names.protocol) {
-            Ok(UrlAction::Open) => window(names),
+            Ok(UrlAction::Open) => window(names, false),
             Ok(UrlAction::Answer { token }) => {
                 match desk_call(&names, &DeskOp::AnswerToken { token }) {
                     Ok(_) => 0,
@@ -120,8 +124,8 @@ fn main() {
     std::process::exit(code);
 }
 
-fn window(names: Names) -> i32 {
-    match app::run(names) {
+fn window(names: Names, warm: bool) -> i32 {
+    match app::run(names, warm) {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("{e}");

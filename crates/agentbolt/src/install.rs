@@ -943,17 +943,22 @@ mod tests {
     fn names_per_channel() {
         let main = Names::for_channel("main").unwrap();
         let t = Names::for_channel("t1").unwrap();
-        let main_dir = install_dir(&main).unwrap();
-        assert!(main_dir.is_absolute());
-        assert!(
-            main_dir.ends_with("Programs/Agentbolt") || main_dir.ends_with("Programs\\Agentbolt")
-        );
-        assert!(
-            install_dir(&t)
-                .unwrap()
-                .to_string_lossy()
-                .ends_with("Agentbolt-t1")
-        );
+        // Install paths are Windows-only; Linux still checks channel names and protocol quoting below.
+        #[cfg(windows)]
+        {
+            let main_dir = install_dir(&main).unwrap();
+            assert!(main_dir.is_absolute());
+            assert!(
+                main_dir.ends_with("Programs/Agentbolt")
+                    || main_dir.ends_with("Programs\\Agentbolt")
+            );
+            assert!(
+                install_dir(&t)
+                    .unwrap()
+                    .to_string_lossy()
+                    .ends_with("Agentbolt-t1")
+            );
+        }
         assert_eq!(
             aumid_key(&t),
             "Software\\Classes\\AppUserModelId\\Skulitom.Agentbolt.t1"

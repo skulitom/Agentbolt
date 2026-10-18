@@ -11,25 +11,29 @@ permissions:
 jobs:
   windows:
     runs-on: windows-2025
+    env:
+      AGENTBOLT_CHANNEL: ci-windows
     steps:
       - uses: actions/checkout@v4
       - run: rustup show
+      - name: Formatting
+        run: cargo fmt --all -- --check
       - name: Test (all crates)
         run: cargo test --workspace --locked
-        env:
-          AGENTBOLT_CHANNEL: ci
       - name: Clippy
-        run: cargo clippy --workspace --locked -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   linux:
     runs-on: ubuntu-24.04
+    env:
+      AGENTBOLT_CHANNEL: ci-linux
     steps:
       - uses: actions/checkout@v4
       - run: rustup show
-      - name: Core tests and the repo guard
-        run: cargo test -p agentbolt-core --locked
-      - name: The MCP front-end builds and lists its tools on Linux (Glama; Anode B-049)
-        run: cargo test -p agentbolt --locked --test mcp_stdio
+      - name: Core, repo guard and the complete MCP front-end suite
+        run: cargo test -p agentbolt-core -p agentbolt --locked
+      - name: Clippy
+        run: cargo clippy -p agentbolt-core -p agentbolt --all-targets --locked -- -D warnings
 
   licenses:
     runs-on: ubuntu-24.04

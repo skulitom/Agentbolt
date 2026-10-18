@@ -87,26 +87,31 @@ pub struct DeskApp {
 }
 
 /// Open the window and run until it closes.
-pub fn run(names: Names) -> anyhow::Result<()> {
+pub fn run(names: Names, warm: bool) -> anyhow::Result<()> {
     let title = if names.is_main() {
         "Agentbolt".to_string()
     } else {
         format!("Agentbolt ({})", names.channel)
     };
-    if !crate::os::first_window(&format!("{}-desk", names.mutex), &title) {
+    if !crate::os::first_window(&format!("{}-desk", names.mutex), &title, !warm) {
         return Ok(());
     }
+    crate::os::trace_window_shown(&title);
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(title.clone())
+            .with_active(!warm)
             .with_inner_size([900.0, 620.0])
             .with_min_inner_size([640.0, 420.0]),
         ..Default::default()
     };
+    crate::startup::mark("native_start");
     eframe::run_native(
         &title,
         options,
         Box::new(move |cc| {
+            crate::resident::prepare(cc, warm)?;
+            crate::startup::mark("renderer_ready");
             let ctx = cc.egui_ctx.clone();
             let worker = worker::spawn(names.clone(), move || ctx.request_repaint());
             Ok(Box::new(DeskApp::new(names, worker)))
@@ -162,6 +167,8 @@ impl DeskApp {
         while let Ok(resp) = self.worker.rx.try_recv() {
             match resp {
                 Resp::List(mut r) => {
+                    crate::startup::mark("inbox_received");
+                    crate::startup::record("inbox_refreshed");
                     self.list_inflight = false;
                     self.conn = Conn::Up;
                     view::sort_asks(&mut r.inbox);
@@ -287,7 +294,7 @@ impl DeskApp {
         let focused = ctx.input(|i| i.viewport().focused.unwrap_or(i.focused));
         // Listing the Inbox marks its asks shown (their default clocks start), so list only while he can see the
         // window; otherwise refresh the counts. Coming back to the window lists at once.
-        let kind = view::poll_kind(focused, minimized);
+        let kind = view::poll_kind(focused && crate::resident::visible(), minimized);
         let seen = kind == view::Poll::List;
         if seen && !self.was_seen {
             self.last_list = None;
@@ -925,10 +932,13 @@ fn answer_controls(ui: &mut egui::Ui, ask: &Ask, draft: &mut Draft) -> Option<Re
 }
 
 impl eframe::App for DeskApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let ctx = ui.ctx().clone();
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.drain();
-        self.poll(&ctx);
+        self.poll(ctx);
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        crate::startup::mark("first_ui");
         egui::Panel::top("tabs").show(ui, |ui| {
             ui.add_space(4.0);
             self.top_bar(ui);
@@ -964,5 +974,15 @@ impl eframe::App for DeskApp {
             Tab::Agents => self.agents_tab(ui),
             Tab::Settings => self.settings_tab(ui),
         });
+        if crate::startup::enabled() {
+            // Runs after egui has built the font atlas and submitted the UI shapes to the painter.
+            ui.painter().add(egui::PaintCallback {
+                rect: ui.max_rect(),
+                callback: std::sync::Arc::new(eframe::egui_glow::CallbackFn::new(|_, _| {
+                    crate::startup::mark("first_frame_painted");
+                })),
+            });
+            crate::startup::mark("first_ui_complete");
+        }
     }
 }

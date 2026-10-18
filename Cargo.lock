@@ -170,6 +170,7 @@ dependencies = [
  "agentbolt-ipc",
  "anyhow",
  "eframe",
+ "raw-window-handle",
  "serde",
  "serde_json",
  "time",
