@@ -3,6 +3,16 @@
 //! on Linux (PLAN.md: the MCP front-end must start on Linux for Glama, Anode B-049).
 
 pub mod channel;
+pub mod events;
 pub mod model;
 pub mod protocol;
+pub mod rules;
 pub mod service;
+pub mod service_impl;
+pub mod store;
+pub mod tokens;
+
+pub use service_impl::StoreService;
+
+#[cfg(test)]
+mod service_tests;

@@ -1,0 +1,497 @@
+//! The SQLite store: connection setup, schema and migrations, and row mapping.
+//!
+//! The daemon is the only writer: the file is opened with `PRAGMA locking_mode=EXCLUSIVE` and WAL, and the
+//! exclusive lock is taken at open, so a second daemon (or any other process) can't open the same database.
+//! Functions here take a `&Connection` so callers can run several of them inside one transaction. The rules
+//! (budget, owners, dedupe, defaults) live in `rules` and `service_impl`.
+
+use std::path::Path;
+use std::time::Duration;
+
+use rusqlite::types::Type;
+use rusqlite::{Connection, OptionalExtension, Params, Row, params};
+use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
+
+use crate::model::{Agent, Answer, AnswerVia, AskInput, AskStatus, Delivery, Owner, Settings};
+use crate::rules;
+
+/// Each entry upgrades the schema by one version (`PRAGMA user_version`). Never edit a released entry; append.
+const MIGRATIONS: &[&str] = &[r#"
+CREATE TABLE meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+) WITHOUT ROWID;
+
+CREATE TABLE owners (
+    name              TEXT PRIMARY KEY,
+    binding           TEXT NOT NULL,
+    codex_interactive INTEGER NOT NULL DEFAULT 0,
+    relay             INTEGER NOT NULL DEFAULT 0,
+    created_ms        INTEGER NOT NULL
+);
+
+CREATE TABLE agents (
+    handle        TEXT PRIMARY KEY,
+    owner         TEXT NOT NULL,
+    client        TEXT NOT NULL,
+    session_ref   TEXT,
+    cwd           TEXT,
+    machine       TEXT NOT NULL,
+    doing         TEXT,
+    registered_ms INTEGER NOT NULL,
+    last_seen_ms  INTEGER NOT NULL,
+    connection    INTEGER
+);
+CREATE INDEX agents_owner ON agents(owner);
+
+CREATE TABLE asks (
+    id             TEXT PRIMARY KEY,
+    owner          TEXT NOT NULL,
+    asking_session TEXT,
+    input_json     TEXT NOT NULL,
+    priority       TEXT NOT NULL,
+    p0_skip        INTEGER NOT NULL DEFAULT 0,
+    reversible     INTEGER NOT NULL,
+    deadline_ms    INTEGER NOT NULL,
+    status         TEXT NOT NULL,
+    created_ms     INTEGER NOT NULL,
+    inbox_ms       INTEGER,
+    shown_ms       INTEGER,
+    closed_ms      INTEGER
+);
+CREATE INDEX asks_status ON asks(status, deadline_ms);
+CREATE INDEX asks_owner ON asks(owner, status);
+CREATE INDEX asks_inbox ON asks(inbox_ms);
+
+CREATE TABLE answers (
+    ask_id      TEXT PRIMARY KEY REFERENCES asks(id),
+    via         TEXT NOT NULL,
+    choice      TEXT,
+    values_json TEXT,
+    note        TEXT,
+    answered_ms INTEGER NOT NULL
+);
+
+CREATE TABLE deliveries (
+    id     INTEGER PRIMARY KEY AUTOINCREMENT,
+    ask_id TEXT NOT NULL REFERENCES asks(id),
+    target TEXT NOT NULL,
+    at_ms  INTEGER NOT NULL,
+    ok     INTEGER NOT NULL,
+    detail TEXT
+);
+CREATE INDEX deliveries_ask ON deliveries(ask_id);
+
+CREATE TABLE toasts (
+    toast_id    TEXT PRIMARY KEY,
+    ask_id      TEXT NOT NULL REFERENCES asks(id),
+    created_ms  INTEGER NOT NULL,
+    expires_ms  INTEGER NOT NULL,
+    used_ms     INTEGER,
+    used_option INTEGER,
+    revoked_ms  INTEGER
+);
+CREATE INDEX toasts_ask ON toasts(ask_id);
+
+CREATE TABLE events (
+    seq       INTEGER PRIMARY KEY,
+    at        TEXT NOT NULL,
+    kind      TEXT NOT NULL,
+    subject   TEXT NOT NULL,
+    data      TEXT NOT NULL,
+    prev_hash TEXT NOT NULL,
+    hash      TEXT NOT NULL
+);
+CREATE TRIGGER events_no_update BEFORE UPDATE ON events
+BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
+CREATE TRIGGER events_no_delete BEFORE DELETE ON events
+BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
+"#];
+
+pub(crate) fn db_err(e: rusqlite::Error) -> String {
+    format!("database error: {e}")
+}
+
+/// Open (creating if needed) the daemon's database file: parent folders, exclusive lock, WAL, migrations.
+pub fn open_file(path: &Path) -> Result<Connection, String> {
+    if let Some(dir) = path.parent()
+        && !dir.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(dir).map_err(|e| format!("can't create {}: {e}", dir.display()))?;
+    }
+    let busy = |e: rusqlite::Error| {
+        if matches!(e.sqlite_error_code(), Some(rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked))
+        {
+            format!(
+                "{} is held by another process (another Agentbolt daemon?); only one daemon may open it",
+                path.display()
+            )
+        } else {
+            format!("can't open {}: {e}", path.display())
+        }
+    };
+    let mut conn = Connection::open(path).map_err(busy)?;
+    conn.busy_timeout(Duration::from_millis(250)).map_err(busy)?;
+    // Exclusive mode must be set before the first WAL access, so SQLite keeps the WAL index in heap memory
+    // and no other connection can share the file.
+    let _: String = conn.query_row("PRAGMA locking_mode=EXCLUSIVE", [], |r| r.get(0)).map_err(busy)?;
+    let mode: String = conn.query_row("PRAGMA journal_mode=WAL", [], |r| r.get(0)).map_err(busy)?;
+    if !mode.eq_ignore_ascii_case("wal") {
+        return Err(format!("{} refused WAL mode (got {mode})", path.display()));
+    }
+    conn.execute_batch("PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;").map_err(busy)?;
+    // Take the exclusive lock now (it is held until the connection closes), so a second daemon fails at open.
+    conn.execute_batch("BEGIN EXCLUSIVE; COMMIT;").map_err(busy)?;
+    migrate(&mut conn)?;
+    Ok(conn)
+}
+
+/// An in-memory database with the same schema (tests).
+pub fn open_memory() -> Result<Connection, String> {
+    let mut conn = Connection::open_in_memory().map_err(db_err)?;
+    conn.execute_batch("PRAGMA foreign_keys=ON;").map_err(db_err)?;
+    migrate(&mut conn)?;
+    Ok(conn)
+}
+
+fn migrate(conn: &mut Connection) -> Result<(), String> {
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).map_err(db_err)?;
+    let known = MIGRATIONS.len() as i64;
+    if version > known {
+        return Err(format!(
+            "the database is schema version {version}, newer than this Agentbolt understands ({known}); update Agentbolt"
+        ));
+    }
+    for (i, sql) in MIGRATIONS.iter().enumerate().skip(version as usize) {
+        let tx = conn.transaction().map_err(db_err)?;
+        tx.execute_batch(sql).map_err(db_err)?;
+        tx.execute_batch(&format!("PRAGMA user_version = {}", i + 1)).map_err(db_err)?;
+        tx.commit().map_err(db_err)?;
+    }
+    Ok(())
+}
+
+// ---- time ----
+
+pub fn to_ms(t: OffsetDateTime) -> i64 {
+    (t.unix_timestamp_nanos() / 1_000_000) as i64
+}
+
+pub fn from_ms(ms: i64) -> OffsetDateTime {
+    OffsetDateTime::from_unix_timestamp_nanos(ms as i128 * 1_000_000).unwrap_or(OffsetDateTime::UNIX_EPOCH)
+}
+
+/// RFC 3339 in UTC, e.g. `2026-10-18T10:00:00Z`.
+pub fn fmt_ms(ms: i64) -> String {
+    from_ms(ms).format(&Rfc3339).unwrap_or_else(|_| ms.to_string())
+}
+
+// ---- enums as text ----
+
+pub(crate) fn status_str(s: AskStatus) -> &'static str {
+    match s {
+        AskStatus::Open => "open",
+        AskStatus::Digest => "digest",
+        AskStatus::Answered => "answered",
+        AskStatus::Defaulted => "defaulted",
+        AskStatus::Cancelled => "cancelled",
+    }
+}
+
+fn parse_status(s: &str) -> Option<AskStatus> {
+    Some(match s {
+        "open" => AskStatus::Open,
+        "digest" => AskStatus::Digest,
+        "answered" => AskStatus::Answered,
+        "defaulted" => AskStatus::Defaulted,
+        "cancelled" => AskStatus::Cancelled,
+        _ => return None,
+    })
+}
+
+pub(crate) fn via_str(v: AnswerVia) -> &'static str {
+    match v {
+        AnswerVia::Desk => "desk",
+        AnswerVia::Toast => "toast",
+        AnswerVia::Defaulted => "defaulted",
+    }
+}
+
+fn parse_via(s: &str) -> Option<AnswerVia> {
+    Some(match s {
+        "desk" => AnswerVia::Desk,
+        "toast" => AnswerVia::Toast,
+        "defaulted" => AnswerVia::Defaulted,
+        _ => return None,
+    })
+}
+
+fn bad(idx: usize, what: &str) -> rusqlite::Error {
+    rusqlite::Error::FromSqlConversionFailure(idx, Type::Text, format!("unexpected {what}").into())
+}
+
+// ---- asks ----
+
+/// An ask as stored, with the columns the rules need.
+#[derive(Debug, Clone)]
+pub(crate) struct AskRow {
+    pub id: String,
+    pub owner: String,
+    pub asking_session: Option<String>,
+    pub input: AskInput,
+    pub status: AskStatus,
+    pub created_ms: i64,
+    pub shown_ms: Option<i64>,
+    pub deadline_ms: i64,
+}
+
+const ASK_COLS: &str = "id, owner, asking_session, input_json, status, created_ms, shown_ms, deadline_ms";
+
+fn map_ask(r: &Row<'_>) -> rusqlite::Result<AskRow> {
+    let input_json: String = r.get(3)?;
+    let input: AskInput = serde_json::from_str(&input_json)
+        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(3, Type::Text, Box::new(e)))?;
+    let status: String = r.get(4)?;
+    Ok(AskRow {
+        id: r.get(0)?,
+        owner: r.get(1)?,
+        asking_session: r.get(2)?,
+        input,
+        status: parse_status(&status).ok_or_else(|| bad(4, "ask status"))?,
+        created_ms: r.get(5)?,
+        shown_ms: r.get(6)?,
+        deadline_ms: r.get(7)?,
+    })
+}
+
+/// Asks matching `clause` (a WHERE body, optionally followed by ORDER BY / LIMIT; it may refer to `asks`).
+pub(crate) fn ask_rows<P: Params>(conn: &Connection, clause: &str, params: P) -> rusqlite::Result<Vec<AskRow>> {
+    let mut stmt = conn.prepare(&format!("SELECT {ASK_COLS} FROM asks WHERE {clause}"))?;
+    let rows = stmt.query_map(params, map_ask)?;
+    rows.collect()
+}
+
+pub(crate) fn ask_row(conn: &Connection, id: &str) -> rusqlite::Result<Option<AskRow>> {
+    conn.query_row(&format!("SELECT {ASK_COLS} FROM asks WHERE id = ?1"), [id], map_ask).optional()
+}
+
+pub(crate) struct NewAsk<'a> {
+    pub id: &'a str,
+    pub owner: &'a str,
+    pub asking_session: Option<&'a str>,
+    pub input: &'a AskInput,
+    pub p0_skip: bool,
+    pub deadline_ms: i64,
+    pub status: AskStatus,
+    pub created_ms: i64,
+    pub inbox_ms: Option<i64>,
+}
+
+pub(crate) fn insert_ask(conn: &Connection, a: &NewAsk<'_>) -> rusqlite::Result<()> {
+    let input_json = serde_json::to_string(a.input).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+    let priority = rules::priority_str(a.input.priority);
+    conn.execute(
+        "INSERT INTO asks (id, owner, asking_session, input_json, priority, p0_skip, reversible, deadline_ms, status,
+                           created_ms, inbox_ms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        params![
+            a.id,
+            a.owner,
+            a.asking_session,
+            input_json,
+            priority,
+            a.p0_skip,
+            a.input.reversible,
+            a.deadline_ms,
+            status_str(a.status),
+            a.created_ms,
+            a.inbox_ms
+        ],
+    )?;
+    Ok(())
+}
+
+pub(crate) fn answer_for(conn: &Connection, ask_id: &str) -> rusqlite::Result<Option<Answer>> {
+    let row = conn
+        .query_row(
+            "SELECT via, choice, values_json, note, answered_ms FROM answers WHERE ask_id = ?1",
+            [ask_id],
+            |r| {
+                let via: String = r.get(0)?;
+                let values: Option<String> = r.get(2)?;
+                let values = match values {
+                    Some(v) => Some(
+                        serde_json::from_str::<serde_json::Value>(&v)
+                            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(2, Type::Text, Box::new(e)))?,
+                    ),
+                    None => None,
+                };
+                Ok((
+                    parse_via(&via).ok_or_else(|| bad(0, "answer via"))?,
+                    r.get::<_, Option<String>>(1)?,
+                    values,
+                    r.get::<_, Option<String>>(3)?,
+                    r.get::<_, i64>(4)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((via, choice, values, note, answered_ms)) = row else { return Ok(None) };
+    Ok(Some(Answer {
+        ask_id: ask_id.to_string(),
+        via,
+        choice,
+        values,
+        note,
+        answered_at: fmt_ms(answered_ms),
+        deliveries: deliveries_for(conn, ask_id)?,
+    }))
+}
+
+pub(crate) fn deliveries_for(conn: &Connection, ask_id: &str) -> rusqlite::Result<Vec<Delivery>> {
+    let mut stmt = conn.prepare("SELECT target, at_ms, ok, detail FROM deliveries WHERE ask_id = ?1 ORDER BY id")?;
+    let rows = stmt.query_map([ask_id], |r| {
+        Ok(Delivery { to: r.get(0)?, at: fmt_ms(r.get(1)?), ok: r.get(2)?, detail: r.get(3)? })
+    })?;
+    rows.collect()
+}
+
+pub(crate) fn insert_answer(conn: &Connection, a: &Answer, answered_ms: i64) -> rusqlite::Result<()> {
+    let values = a.values.as_ref().map(|v| v.to_string());
+    conn.execute(
+        "INSERT INTO answers (ask_id, via, choice, values_json, note, answered_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![a.ask_id, via_str(a.via), a.choice, values, a.note, answered_ms],
+    )?;
+    Ok(())
+}
+
+pub(crate) fn insert_delivery(
+    conn: &Connection,
+    ask_id: &str,
+    target: &str,
+    at_ms: i64,
+    ok: bool,
+    detail: Option<&str>,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO deliveries (ask_id, target, at_ms, ok, detail) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![ask_id, target, at_ms, ok, detail],
+    )?;
+    Ok(())
+}
+
+pub(crate) fn count<P: Params>(conn: &Connection, sql: &str, params: P) -> rusqlite::Result<u32> {
+    let n: i64 = conn.query_row(sql, params, |r| r.get(0))?;
+    Ok(n.max(0) as u32)
+}
+
+// ---- owners ----
+
+fn map_owner(r: &Row<'_>) -> rusqlite::Result<Owner> {
+    Ok(Owner { name: r.get(0)?, binding: r.get(1)?, codex_interactive: r.get(2)?, relay: r.get(3)? })
+}
+
+pub(crate) fn owner(conn: &Connection, name: &str) -> rusqlite::Result<Option<Owner>> {
+    conn.query_row("SELECT name, binding, codex_interactive, relay FROM owners WHERE name = ?1", [name], map_owner)
+        .optional()
+}
+
+pub(crate) fn owners(conn: &Connection) -> rusqlite::Result<Vec<Owner>> {
+    let mut stmt = conn.prepare("SELECT name, binding, codex_interactive, relay FROM owners ORDER BY name")?;
+    let rows = stmt.query_map([], map_owner)?;
+    rows.collect()
+}
+
+pub(crate) fn upsert_owner(conn: &Connection, o: &Owner, now_ms: i64) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO owners (name, binding, codex_interactive, relay, created_ms) VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(name) DO UPDATE SET binding = excluded.binding, codex_interactive = excluded.codex_interactive,
+                                         relay = excluded.relay",
+        params![o.name, o.binding, o.codex_interactive, o.relay, now_ms],
+    )?;
+    Ok(())
+}
+
+// ---- agents ----
+
+const AGENT_SELECT: &str = "SELECT a.handle, a.owner, COALESCE(o.binding, 'pending'), a.client, a.session_ref, a.cwd,
+                                   a.machine, a.doing, a.registered_ms, a.last_seen_ms
+                            FROM agents a LEFT JOIN owners o ON o.name = a.owner";
+
+fn map_agent(r: &Row<'_>) -> rusqlite::Result<Agent> {
+    let binding: String = r.get(2)?;
+    Ok(Agent {
+        handle: r.get(0)?,
+        owner: r.get(1)?,
+        provisional: binding == "pending",
+        client: r.get(3)?,
+        session_ref: r.get(4)?,
+        cwd: r.get(5)?,
+        machine: r.get(6)?,
+        doing: r.get(7)?,
+        registered_at: fmt_ms(r.get(8)?),
+        last_seen: fmt_ms(r.get(9)?),
+    })
+}
+
+pub(crate) fn agent(conn: &Connection, handle: &str) -> rusqlite::Result<Option<Agent>> {
+    conn.query_row(&format!("{AGENT_SELECT} WHERE a.handle = ?1"), [handle], map_agent).optional()
+}
+
+pub(crate) fn agents(conn: &Connection) -> rusqlite::Result<Vec<Agent>> {
+    let mut stmt = conn.prepare(&format!("{AGENT_SELECT} ORDER BY a.last_seen_ms DESC, a.handle"))?;
+    let rows = stmt.query_map([], map_agent)?;
+    rows.collect()
+}
+
+pub(crate) struct NewAgent<'a> {
+    pub handle: &'a str,
+    pub owner: &'a str,
+    pub client: &'a str,
+    pub session_ref: Option<&'a str>,
+    pub cwd: Option<&'a str>,
+    pub machine: &'a str,
+    pub doing: Option<&'a str>,
+    pub now_ms: i64,
+    pub connection: i64,
+}
+
+pub(crate) fn insert_agent(conn: &Connection, a: &NewAgent<'_>) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO agents (handle, owner, client, session_ref, cwd, machine, doing, registered_ms, last_seen_ms,
+                             connection)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?9)",
+        params![a.handle, a.owner, a.client, a.session_ref, a.cwd, a.machine, a.doing, a.now_ms, a.connection],
+    )?;
+    Ok(())
+}
+
+// ---- meta and settings ----
+
+pub(crate) fn meta(conn: &Connection, key: &str) -> rusqlite::Result<Option<String>> {
+    conn.query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get(0)).optional()
+}
+
+pub(crate) fn set_meta(conn: &Connection, key: &str, value: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![key, value],
+    )?;
+    Ok(())
+}
+
+pub(crate) fn settings(conn: &Connection) -> rusqlite::Result<Settings> {
+    let stored = meta(conn, "settings")?.and_then(|s| serde_json::from_str::<Settings>(&s).ok());
+    Ok(stored.unwrap_or(Settings { daily_budget: rules::DEFAULT_BUDGET, ..Settings::default() }))
+}
+
+pub(crate) fn set_settings(conn: &Connection, s: &Settings) -> rusqlite::Result<()> {
+    let json = serde_json::to_string(s).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+    set_meta(conn, "settings", &json)
+}
+
+/// Minutes east of UTC used for the local day boundary (default 0 = UTC).
+pub(crate) fn utc_offset_minutes(conn: &Connection) -> rusqlite::Result<i32> {
+    Ok(meta(conn, "utc_offset_minutes")?.and_then(|s| s.parse().ok()).unwrap_or(0))
+}

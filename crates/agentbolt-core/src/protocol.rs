@@ -76,6 +76,31 @@ pub struct AskResult {
     pub existing: Option<Ask>,
 }
 
+/// Result of `McpOp::Answers`. Reading never consumes, and silence is never an answer: an ask without an
+/// answer is listed in `waiting`, never in `answers`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AnswersResult {
+    /// Asks with an answer (`status` answered or defaulted, `answer` set). With no `ids`: this owner's answered
+    /// asks with no successful delivery yet (answered in the last 14 days, at most 50).
+    pub answers: Vec<Ask>,
+    /// Ids of this owner's asks still open or in the digest (the requested ones, or all of them with no `ids`).
+    #[serde(default)]
+    pub waiting: Vec<String>,
+    /// Requested ids of this owner's asks that were cancelled.
+    #[serde(default)]
+    pub cancelled: Vec<String>,
+    /// Requested ids that are unknown or belong to another owner.
+    #[serde(default)]
+    pub unknown: Vec<String>,
+}
+
+/// Result of `McpOp::RelayList`: answered asks of other owners with no successful delivery to their asking
+/// session (or, when an ask has none, to its owner) yet. `RelayMark` returns an `AnswerResult`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RelayListResult {
+    pub answers: Vec<Ask>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatusResult {
     pub version: String,
