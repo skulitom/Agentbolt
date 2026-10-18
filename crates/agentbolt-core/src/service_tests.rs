@@ -22,6 +22,62 @@ use crate::{rules, store};
 const START: OffsetDateTime = datetime!(2026-10-19 09:00 UTC);
 
 #[test]
+fn a_batch_is_desk_only_atomic_and_rejects_stale_or_duplicate_items() {
+    use crate::protocol::{BatchAnswerResult, DeskAnswer};
+    let t = T::new();
+    let a = t.register("batch-a");
+    let b = t.register("batch-b");
+    let one = t.ask(&a, t.input("First batch question"));
+    let two = t.ask(&b, t.input("Second batch question"));
+    let item = |id: &str, choice: &str| DeskAnswer {
+        ask_id: id.into(),
+        choice: Some(choice.into()),
+        values: None,
+        note: Some("Reviewed together".into()),
+    };
+    let choice = t.input("fixture").options[0].clone();
+    let batch = |answers| DeskOp::AnswerBatch { answers };
+    assert!(t.desk(batch(vec![])).is_err());
+    assert!(t.desk(batch(vec![item(&one.id, &choice); 33])).is_err());
+    assert!(
+        t.desk(batch(vec![item(&one.id, &choice), item(&one.id, &choice)]))
+            .is_err()
+    );
+    let bad = batch(vec![
+        item(&one.id, &choice),
+        item(&two.id, "invalid option"),
+    ]);
+    assert!(serde_json::from_value::<McpOp>(serde_json::to_value(&bad).unwrap()).is_err());
+    assert!(
+        t.desk(bad)
+            .unwrap_err()
+            .contains("no answers in this batch were saved")
+    );
+    assert_eq!(t.ask_status(&one.id), AskStatus::Open);
+    assert!(t.answers(&a, &[&one.id]).answers.is_empty());
+    let good = batch(vec![item(&one.id, &choice), item(&two.id, &choice)]);
+    let result: BatchAnswerResult = de(t.desk(good.clone()).unwrap().0);
+    assert_eq!(result.answers.len(), 2);
+    assert!(
+        result
+            .answers
+            .iter()
+            .all(|a| a.via == AnswerVia::Desk && a.note.as_deref() == Some("Reviewed together"))
+    );
+    assert!(t.desk(good).is_err());
+    let three = t.ask(&a, t.input("Still waiting after stale batch"));
+    assert!(
+        t.desk(batch(vec![
+            item(&three.id, &choice),
+            item(&one.id, &choice)
+        ]))
+        .is_err()
+    );
+    assert_eq!(t.ask_status(&three.id), AskStatus::Open);
+    assert!(t.status().chain_ok);
+}
+
+#[test]
 fn an_ask_keeps_its_original_chat_after_agents_expire_or_register_elsewhere() {
     let t = T::new();
     let original = "01a1503a-5165-7e62-a9ba-88c35a72cfce";

@@ -159,6 +159,10 @@ pub enum DeskOp {
         values: Option<serde_json::Value>,
         note: Option<String>,
     },
+    /// All answers are validated and committed together; a stale or invalid item writes nothing.
+    AnswerBatch {
+        answers: Vec<DeskAnswer>,
+    },
     /// From the `agentbolt://` handler: a per-button token minted for a toast.
     AnswerToken {
         token: String,
@@ -216,4 +220,19 @@ pub struct OwnersResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnswerResult {
     pub answer: Answer,
+}
+
+pub const MAX_BATCH_ANSWERS: usize = 32;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeskAnswer {
+    pub ask_id: String,
+    pub choice: Option<String>,
+    pub values: Option<serde_json::Value>,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchAnswerResult {
+    pub answers: Vec<Answer>,
 }

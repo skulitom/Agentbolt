@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 use agentbolt_core::channel::Names;
 use agentbolt_core::model::{Agent, AnswerVia, Ask, AskKind, Owner, Priority, Settings};
+use agentbolt_core::protocol::{DeskAnswer, MAX_BATCH_ANSWERS};
 use eframe::egui::{self, Color32, RichText};
 use serde_json::Value;
 
@@ -28,6 +29,7 @@ enum Tab {
 
 #[derive(Default)]
 struct Draft {
+    choice: Option<String>,
     note: String,
     text: String,
     /// The reply box got the ask's default already (once per ask; clearing it doesn't refill it).
@@ -62,6 +64,8 @@ pub struct DeskApp {
     open_count: Option<u32>,
     recent: Vec<Ask>,
     selected_inbox: Option<String>,
+    batch_selection: HashSet<String>,
+    review_batch: bool,
     drafts: HashMap<String, Draft>,
     sending: HashSet<String>,
     agents: Vec<Agent>,
@@ -126,6 +130,8 @@ impl DeskApp {
             open_count: None,
             recent: Vec::new(),
             selected_inbox: None,
+            batch_selection: HashSet::new(),
+            review_batch: false,
             drafts: HashMap::new(),
             sending: HashSet::new(),
             agents: Vec::new(),
@@ -171,6 +177,7 @@ impl DeskApp {
                     self.open_count = Some(self.inbox.len() as u32);
                     self.recent = r.recent;
                     let ids: HashSet<&str> = self.inbox.iter().map(|a| a.id.as_str()).collect();
+                    self.batch_selection.retain(|id| ids.contains(id.as_str()));
                     if self
                         .selected_inbox
                         .as_deref()
@@ -184,6 +191,24 @@ impl DeskApp {
                     self.list_inflight = false;
                     self.conn = Conn::Up;
                     self.open_count = Some(s.open);
+                }
+                Resp::BatchAnswered { ids, result } => {
+                    for id in &ids {
+                        self.sending.remove(id);
+                    }
+                    match result {
+                        Ok(r) => {
+                            for answer in &r.answers {
+                                self.drafts.remove(&answer.ask_id);
+                                self.batch_selection.remove(&answer.ask_id);
+                                self.inbox.retain(|a| a.id != answer.ask_id);
+                            }
+                            self.review_batch = false;
+                            self.note(format!("Sent {} answers", r.answers.len()), false);
+                        }
+                        Err(e) => self.note(format!("Batch wasn't confirmed: {e}. Check recently answered before trying again."), true),
+                    }
+                    self.last_list = None;
                 }
                 Resp::Answered { ask_id, result } => {
                     self.sending.remove(&ask_id);
@@ -359,6 +384,18 @@ impl DeskApp {
     }
 
     fn ask_list(&mut self, ui: &mut egui::Ui) {
+        if !self.batch_selection.is_empty() {
+            if ui
+                .button(format!("Review {} answers", self.batch_selection.len()))
+                .clicked()
+            {
+                self.review_batch = true;
+            }
+            if ui.small_button("Clear selection").clicked() {
+                self.batch_selection.clear();
+                self.review_batch = false;
+            }
+        }
         let asks = self.inbox.clone();
         let now = time::OffsetDateTime::now_utc();
         egui::ScrollArea::vertical()
@@ -373,6 +410,22 @@ impl DeskApp {
                         .show(ui, |ui| {
                             ui.set_width(ui.available_width());
                             ui.horizontal(|ui| {
+                                let mut checked = self.batch_selection.contains(&a.id);
+                                let allowed =
+                                    checked || self.batch_selection.len() < MAX_BATCH_ANSWERS;
+                                if ui
+                                    .add_enabled(
+                                        allowed,
+                                        egui::Checkbox::new(&mut checked, "Select"),
+                                    )
+                                    .changed()
+                                {
+                                    if checked {
+                                        self.batch_selection.insert(a.id.clone());
+                                    } else {
+                                        self.batch_selection.remove(&a.id);
+                                    }
+                                }
                                 priority_tag(ui, a.input.priority);
                                 ui.add(
                                     egui::Label::new(RichText::new(&a.input.title).strong())
@@ -548,15 +601,140 @@ impl DeskApp {
             let list = &self.inbox;
             list.iter().find(|a| &a.id == id).cloned()
         });
-        egui::CentralPanel::default().show(ui, |ui| match ask {
-            Some(ask) => {
-                if let Some(req) = self.details(ui, &ask) {
-                    self.sending.insert(ask.id.clone());
-                    self.send(req);
+        egui::CentralPanel::default().show(ui, |ui| {
+            if self.review_batch {
+                self.batch_review(ui);
+                return;
+            }
+            match ask {
+                Some(ask) => {
+                    if let Some(req) = self.details(ui, &ask) {
+                        self.sending.insert(ask.id.clone());
+                        self.send(req);
+                    }
+                }
+                None => {
+                    ui.weak("Pick an ask on the left.");
                 }
             }
-            None => {
-                ui.weak("Pick an ask on the left.");
+        });
+    }
+
+    fn batch_review(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Review answers");
+        ui.label(
+            "Review each question and answer below. Nothing is sent until you press Send answers.",
+        );
+        if ui.button("Back to individual answers").clicked() {
+            self.review_batch = false;
+        }
+        let asks: Vec<_> = self
+            .inbox
+            .iter()
+            .filter(|a| self.batch_selection.contains(&a.id))
+            .cloned()
+            .collect();
+        let busy = asks.iter().any(|a| self.sending.contains(&a.id));
+        let mut ready = !asks.is_empty() && !busy;
+        let mut answers = Vec::new();
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            ui.add_enabled_ui(!busy, |ui| {
+                for ask in &asks {
+                    ui.push_id(&ask.id, |ui| {
+                        ui.separator();
+                        ui.heading(&ask.input.title);
+                        ui.weak(format!(
+                            "From {} · {}",
+                            ask.owner,
+                            view::relative_deadline(
+                                &ask.input.deadline,
+                                time::OffsetDateTime::now_utc()
+                            )
+                            .0
+                        ));
+                        if !ask.input.reversible {
+                            ui.colored_label(
+                                ui.visuals().warn_fg_color,
+                                "This decision cannot be undone.",
+                            );
+                        }
+                        ui.label(&ask.input.body);
+                        for e in &ask.input.evidence {
+                            ui.label(format!("{}: {}", e.label, e.url));
+                        }
+                        let draft = self.drafts.entry(ask.id.clone()).or_default();
+                        let (choice, values) = match ask.input.kind {
+                            AskKind::Choose | AskKind::Approve => {
+                                let choice = draft.choice.get_or_insert_with(|| {
+                                    ask.input.default.as_str().unwrap_or_default().to_owned()
+                                });
+                                for option in view::options_for(ask) {
+                                    ui.radio_value(
+                                        choice,
+                                        option.clone(),
+                                        view::option_label(ask, &option),
+                                    );
+                                }
+                                (Some(choice.clone()), None)
+                            }
+                            AskKind::Inform => {
+                                ui.label("Answer: Acknowledged");
+                                (None, None)
+                            }
+                            AskKind::Text => {
+                                view::fill_reply_once(
+                                    &mut draft.text,
+                                    &mut draft.text_filled,
+                                    ask.input.default.as_str(),
+                                );
+                                ui.add(
+                                    egui::TextEdit::multiline(&mut draft.text)
+                                        .desired_rows(3)
+                                        .desired_width(f32::INFINITY),
+                                );
+                                (Some(draft.text.clone()), None)
+                            }
+                            AskKind::Form => match form_controls(ui, ask, draft) {
+                                Ok(values) => (None, Some(values)),
+                                Err(e) => {
+                                    ui.colored_label(ui.visuals().warn_fg_color, e);
+                                    ready = false;
+                                    (None, None)
+                                }
+                            },
+                        };
+                        ui.horizontal(|ui| {
+                            ui.label("Note");
+                            ui.text_edit_singleline(&mut draft.note);
+                        });
+                        if let Err(e) = agentbolt_core::rules::check_answer(
+                            &ask.input,
+                            choice.clone(),
+                            values.clone(),
+                        ) {
+                            ui.colored_label(ui.visuals().warn_fg_color, e);
+                            ready = false;
+                        }
+                        answers.push(DeskAnswer {
+                            ask_id: ask.id.clone(),
+                            choice,
+                            values,
+                            note: Some(draft.note.clone()),
+                        });
+                    });
+                }
+            });
+            ui.separator();
+            if ui
+                .add_enabled(
+                    ready,
+                    egui::Button::new(format!("Send answers ({})", answers.len())),
+                )
+                .clicked()
+            {
+                self.sending
+                    .extend(answers.iter().map(|a| a.ask_id.clone()));
+                self.send(Req::AnswerBatch(answers));
             }
         });
     }
@@ -781,6 +959,50 @@ fn evidence_row(
     });
 }
 
+fn form_controls(ui: &mut egui::Ui, ask: &Ask, draft: &mut Draft) -> Result<Value, String> {
+    let inputs = draft
+        .fields
+        .get_or_insert_with(|| view::prefill(&ask.input.fields, &ask.input.default));
+    egui::Grid::new(("form", &ask.id))
+        .num_columns(2)
+        .spacing([12.0, 6.0])
+        .show(ui, |ui| {
+            for f in &ask.input.fields {
+                let label = if f.required {
+                    format!("{} *", f.label)
+                } else {
+                    f.label.clone()
+                };
+                ui.label(label);
+                let input = inputs
+                    .entry(f.id.clone())
+                    .or_insert_with(|| FieldInput::Text(String::new()));
+                match (f.field_type.as_str(), input) {
+                    ("boolean", FieldInput::Bool(b)) => {
+                        ui.checkbox(b, "");
+                    }
+                    ("choice", FieldInput::Text(t)) => {
+                        egui::ComboBox::from_id_salt(("field", &ask.id, &f.id))
+                            .selected_text(t.clone())
+                            .show_ui(ui, |ui| {
+                                for o in f.options.iter().flatten() {
+                                    ui.selectable_value(t, o.clone(), o);
+                                }
+                            });
+                    }
+                    (_, FieldInput::Text(t)) => {
+                        ui.add(egui::TextEdit::singleline(t).desired_width(280.0));
+                    }
+                    (_, FieldInput::Bool(b)) => {
+                        ui.checkbox(b, "");
+                    }
+                }
+                ui.end_row();
+            }
+        });
+    view::form_values(&ask.input.fields, inputs)
+}
+
 /// The buttons, text box or form for one ask. Returns the answer to send (note added by the caller).
 fn answer_controls(ui: &mut egui::Ui, ask: &Ask, draft: &mut Draft) -> Option<Req> {
     let answer = |choice: Option<String>, values: Option<Value>| Req::Answer {
@@ -828,47 +1050,7 @@ fn answer_controls(ui: &mut egui::Ui, ask: &Ask, draft: &mut Draft) -> Option<Re
                 .then(|| answer(Some(draft.text.trim().to_string()), None))
         }
         AskKind::Form => {
-            let inputs = draft
-                .fields
-                .get_or_insert_with(|| view::prefill(&ask.input.fields, &ask.input.default));
-            egui::Grid::new(("form", &ask.id))
-                .num_columns(2)
-                .spacing([12.0, 6.0])
-                .show(ui, |ui| {
-                    for f in &ask.input.fields {
-                        let label = if f.required {
-                            format!("{} *", f.label)
-                        } else {
-                            f.label.clone()
-                        };
-                        ui.label(label);
-                        let input = inputs
-                            .entry(f.id.clone())
-                            .or_insert_with(|| FieldInput::Text(String::new()));
-                        match (f.field_type.as_str(), input) {
-                            ("boolean", FieldInput::Bool(b)) => {
-                                ui.checkbox(b, "");
-                            }
-                            ("choice", FieldInput::Text(t)) => {
-                                egui::ComboBox::from_id_salt(("field", &ask.id, &f.id))
-                                    .selected_text(t.clone())
-                                    .show_ui(ui, |ui| {
-                                        for o in f.options.iter().flatten() {
-                                            ui.selectable_value(t, o.clone(), o);
-                                        }
-                                    });
-                            }
-                            (_, FieldInput::Text(t)) => {
-                                ui.add(egui::TextEdit::singleline(t).desired_width(280.0));
-                            }
-                            (_, FieldInput::Bool(b)) => {
-                                ui.checkbox(b, "");
-                            }
-                        }
-                        ui.end_row();
-                    }
-                });
-            let values = view::form_values(&ask.input.fields, inputs);
+            let values = form_controls(ui, ask, draft);
             if let Err(e) = &values {
                 ui.colored_label(ui.visuals().warn_fg_color, e);
             }

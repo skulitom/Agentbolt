@@ -6,7 +6,8 @@ use std::sync::mpsc;
 use agentbolt_core::channel::Names;
 use agentbolt_core::model::{Owner, Settings};
 use agentbolt_core::protocol::{
-    AgentsResult, AnswerResult, DeskOp, ListResult, OwnersResult, StatusResult,
+    AgentsResult, AnswerResult, BatchAnswerResult, DeskAnswer, DeskOp, ListResult, OwnersResult,
+    StatusResult,
 };
 use agentbolt_ipc::{Client, IpcError, Pipe};
 use serde::de::DeserializeOwned;
@@ -15,6 +16,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 #[derive(Debug)]
 pub enum Req {
+    AnswerBatch(Vec<DeskAnswer>),
     /// The Inbox; marks its asks shown. Only while the window is seen.
     List,
     /// The counts only; marks nothing shown.
@@ -44,6 +46,10 @@ pub enum Req {
 
 #[derive(Debug)]
 pub enum Resp {
+    BatchAnswered {
+        ids: Vec<String>,
+        result: Result<BatchAnswerResult, String>,
+    },
     List(ListResult),
     Status(StatusResult),
     Answered {
@@ -136,6 +142,14 @@ async fn run(
             error: e.to_string(),
         };
         let resp = match req {
+            Req::AnswerBatch(answers) => {
+                let ids = answers.iter().map(|a| a.ask_id.clone()).collect();
+                let result = match conn.call(&DeskOp::AnswerBatch { answers }, false).await {
+                    Ok(v) => serde_json::from_value(v).map_err(|e| e.to_string()),
+                    Err(e) => Err(e.to_string()),
+                };
+                Resp::BatchAnswered { ids, result }
+            }
             Req::List => conn
                 .get(&DeskOp::List)
                 .await

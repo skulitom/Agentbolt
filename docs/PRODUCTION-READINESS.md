@@ -134,3 +134,21 @@ Delivery also requires a validated Codex host thread, rather than any session be
 Codex wake enabled. Permission is checked again immediately before execution, so revoking it on the Desk
 also affects waiting deliveries. Regression tests cover revocation, wrong client type and malformed ids.
 Actual active/idle/finished-thread delivery and sandbox-policy preservation remain unverified.
+
+## Batch answering
+
+The Inbox supports selecting up to 32 asks and reviewing editable choices, replies, forms and notes together.
+The final Send answers action is explicit. The Desk pipe commits the batch atomically; an invalid answer,
+duplicate id or already-closed ask rolls the entire batch back. MCP has no batch-answer operation. Tests
+cover stale batches, duplicate/oversized/empty inputs, rollback and durable per-ask Desk authority. Windows
+workspace tests and lint pass. Live batch-review interaction remains pending.
+
+## Installed crash probe and licenses
+
+An actual release install was started by `schtasks /Run` from Anode session 4. Windows selected the user's
+console session 1 for `InteractiveToken`; pipe status worked. Terminating only the verified test daemon
+with exit code 1 did **not** cause a restart within 95 seconds. This confirms the reported restart gap on
+this PC despite `RestartOnFailure` in the stored task. The test cleanup removed the installation, task,
+registrations, shortcut and data. A dedicated supervisor is the next fix.
+
+`cargo-deny 0.20.2 check licenses` passes (three harmless unused-license-allowance warnings).

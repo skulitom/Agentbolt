@@ -1316,6 +1316,26 @@ impl Service for StoreService {
                 values,
                 note,
             } => self.write_json(now, |c| c.desk_answer(&ask_id, choice, values, note, false)),
+            DeskOp::AnswerBatch { answers } => self.write_json(now, |c| {
+                if answers.is_empty() || answers.len() > crate::protocol::MAX_BATCH_ANSWERS {
+                    return Err("Select between 1 and 32 asks to answer together".into());
+                }
+                let mut ids = std::collections::HashSet::new();
+                if answers.iter().any(|a| !ids.insert(&a.ask_id)) {
+                    return Err("An ask may appear only once in a batch".into());
+                }
+                let answers = answers
+                    .into_iter()
+                    .map(|a| {
+                        c.desk_answer(&a.ask_id, a.choice, a.values, a.note, false)
+                            .map(|r| r.answer)
+                            .map_err(|e| {
+                                format!("{}: {e}; no answers in this batch were saved", a.ask_id)
+                            })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(crate::protocol::BatchAnswerResult { answers })
+            }),
             DeskOp::NotNeeded { ask_id, note } => {
                 self.write_json(now, |c| c.desk_answer(&ask_id, None, None, note, true))
             }
