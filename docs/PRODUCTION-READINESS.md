@@ -1,7 +1,9 @@
 # Agentbolt 0.2 release verification
 
-Work started from `main` at `bcb60f2`, in `C:\DEV\Agentbolt`. The active release scope is the v4
-feedback, remaining M1 checks and release preparation in `NEXT.md`; M2 and later are outside this release.
+Work started from `main` at `bcb60f2`, in `C:\DEV\Agentbolt`. The original scope covered v4 feedback,
+M1 and release preparation. Artem subsequently expanded implementation to the full M2–M7 plan, with
+features first. The results below are historical M0/M1 evidence. Current expanded checks are in
+[EXPANDED-VALIDATION.md](EXPANDED-VALIDATION.md), and the current scope is in `NEXT.md`.
 This is an evidence log, not a statement that the release is ready. No tag or public release has been made.
 
 ## Baseline (2026-10-18)

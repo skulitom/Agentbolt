@@ -12,10 +12,12 @@ use std::{process::Stdio, sync::Mutex, time::Duration};
 use tokio::{
     io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::{Child, ChildStdin, ChildStdout},
+    sync::{Semaphore, SemaphorePermit},
 };
 
 const MAX_REQUEST: usize = 1 << 20;
 const MAX_RESPONSE: usize = 16 << 20;
+const MAX_CONNECTIONS: usize = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
@@ -82,6 +84,12 @@ pub struct Remote {
     config: Config,
     channel: String,
     idle: Mutex<Vec<Connection>>,
+    slots: Semaphore,
+    answer_waits: Semaphore,
+}
+struct Permits<'a> {
+    _slot: SemaphorePermit<'a>,
+    _wait: Option<SemaphorePermit<'a>>,
 }
 struct Connection {
     _child: Child,
@@ -96,7 +104,29 @@ impl Remote {
             config,
             channel,
             idle: Mutex::new(Vec::new()),
+            slots: Semaphore::new(MAX_CONNECTIONS),
+            answer_waits: Semaphore::new(MAX_CONNECTIONS - 1),
         }
+    }
+    fn permits(&self, op: &McpOp) -> Result<Permits<'_>, CallError> {
+        let waiting = matches!(op, McpOp::Answers { wait_ms, .. } | McpOp::AnswersPage { wait_ms, .. } if *wait_ms > 0);
+        let wait = if waiting {
+            Some(self.answer_waits.try_acquire().map_err(|_| CallError::Refused(
+                "Three SSH answer waits are already active. Retry after one finishes, or read with wait_ms: 0.".into()
+            ))?)
+        } else {
+            None
+        };
+        let slot = self.slots.try_acquire().map_err(|_| {
+            CallError::Refused(
+                "All four SSH relay connections are busy. Nothing was submitted; retry shortly."
+                    .into(),
+            )
+        })?;
+        Ok(Permits {
+            _slot: slot,
+            _wait: wait,
+        })
     }
     async fn connect(&self) -> Result<Connection, CallError> {
         let remote_command = self
@@ -174,6 +204,9 @@ impl Remote {
                 "Machine identity belongs to the relay configuration".into(),
             ));
         }
+        // Bound active children, not just the idle pool. One slot is reserved from long answer waits
+        // so a host waiting for decisions can still ask, renew work and read its Board.
+        let _permits = self.permits(&typed)?;
         // Only safe reads are retried automatically. A disconnected write may already have committed.
         let retry = retryable(&typed);
         for attempt in 0..2 {
@@ -185,7 +218,7 @@ impl Remote {
             let result = connection.call(typed.clone()).await;
             if matches!(result, Ok(_) | Err(CallError::Refused(_))) {
                 let mut idle = self.idle.lock().unwrap_or_else(|e| e.into_inner());
-                if idle.len() < 4 {
+                if idle.len() < MAX_CONNECTIONS {
                     idle.push(connection);
                 }
                 return result;
@@ -485,5 +518,44 @@ mod tests {
                 .unwrap_err()
                 .contains("incomplete")
         );
+    }
+
+    #[tokio::test]
+    async fn active_connection_limit_reserves_room_for_work_and_releases_on_cancellation() {
+        let remote = Remote::new(
+            Config {
+                host: "unused.invalid".into(),
+                machine: "test".into(),
+                executable: "agentbolt".into(),
+            },
+            "remote-test".into(),
+        );
+        let waiting = McpOp::AnswersPage {
+            handle: "handle".into(),
+            before: None,
+            wait_ms: 600_000,
+        };
+        let wait1 = remote.permits(&waiting).unwrap();
+        let wait2 = remote.permits(&waiting).unwrap();
+        let wait3 = remote.permits(&waiting).unwrap();
+        // Refusal happens before SSH is started, so this test cannot contact the placeholder host.
+        assert!(matches!(
+            remote.call(&waiting).await,
+            Err(CallError::Refused(_))
+        ));
+        let work = remote.permits(&McpOp::Status).unwrap();
+        assert!(matches!(
+            remote.call(&McpOp::Status).await,
+            Err(CallError::Refused(_))
+        ));
+        drop(wait1);
+        let replacement = remote.permits(&waiting).unwrap();
+        drop((wait2, wait3, work, replacement));
+        let permits = (0..MAX_CONNECTIONS)
+            .map(|_| remote.permits(&McpOp::Status).unwrap())
+            .collect::<Vec<_>>();
+        assert!(remote.permits(&McpOp::Status).is_err());
+        drop(permits);
+        assert!(remote.permits(&waiting).is_ok());
     }
 }

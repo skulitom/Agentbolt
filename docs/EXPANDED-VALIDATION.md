@@ -79,3 +79,38 @@ offline transport, SSH reconnect/uncertain writes, live Claude/plugin evaluation
 remain open. The bounded scanner's behavior on large real repositories still needs measurement.
 No new packages, licensing run, native/live-host check, CPU probe, reliability run or adoption period
 was performed here. Signing remains deferred for 0.2. No publication occurred.
+
+## Transport, platform and lifecycle follow-up
+
+The next pass starts from `4efa083`. The earlier paragraph above describes the first pass only.
+
+| Check | Result |
+|---|---|
+| Windows `cargo test --workspace --locked --quiet`, `AGENTBOLT_CHANNEL=expanded-workspace-1019`, `AGENTBOLT_INSTALL_TEST=0` | Suite passes. GUI/startup/live-toast tests remain ignored, and opt-in installer/scheduler cases were not activated. Core 90, CLI 37, daemon 39 and Desk 19 unit tests pass, together with default protocol/IPC/headless process/guard/packager checks. |
+| WSL Ubuntu, Rust 1.98.1: `cargo test -p agentbolt-core -p agentbolt -p agentbolt-ipc --locked --quiet` | 145 tests pass before the added SSH-capacity test: core 90, guard two, CLI 34, MCP stdio six, IPC 13. |
+| WSL `cargo test -p agentbolt-daemon --bin agentbolt-daemon --locked --quiet` | 32 daemon unit tests pass, including the five new phone HTTP mock checks and five Git scanner cases. |
+| Windows and WSL `cargo test -p agentbolt --lib remote::tests --locked --quiet` | Five SSH boundary/capacity tests pass on each platform. No remote SSH account is contacted. |
+| Windows `cargo clippy --workspace --all-targets --locked -- -D warnings` | Pass. |
+| WSL `cargo clippy -p agentbolt-core -p agentbolt -p agentbolt-ipc -p agentbolt-daemon --all-targets --locked -- -D warnings` | Pass after compiling the Windows-only toast helper only on Windows or in tests. |
+| Anode session 4: `cargo test -p agentbolt-desk --test gui lifecycle_handshake_preserves_offline_drafts_and_closes_warm_windows -- --ignored --nocapture --test-threads=1` | Pass in 2.15 s on debug binaries. Both ordinary and warm Desk preserve offline drafts, reject another transaction's close/cancel and close on their own lifecycle request. Channel `gui-upgrade-114996`; afterward no matching window or channel data directory remains. Lease released. This is not a startup performance measurement. |
+
+Linux builds used `/tmp/agentbolt-expanded-target` and throwaway `expanded-linux-*` channels. HTTP mock
+tests use ephemeral loopback listeners and synthetic credentials; private functions accept that fixture,
+while normal saved phone settings still reject plaintext HTTP. No account or machine configuration changed.
+
+The phone mocks verify anonymous and authenticated checks on both topics, no auth on anonymous probes,
+separate daemon/action credentials, low-priority JSON publications, exact reply cursor use, redirect
+refusal and redacted errors. Wrong topics/IDs, malformed or interrupted responses, reported truncation,
+more than 500 events and bodies over two MiB return errors without a checkpoint. This validates the
+HTTP contract against the [ntfy publishing](https://docs.ntfy.sh/publish/) and
+[subscription](https://docs.ntfy.sh/subscribe/api/) interfaces, not a real service's ACLs or TLS.
+
+The SSH review found that the four-entry idle pool did not bound concurrent child processes. The relay
+now limits active calls to four, with at most three long answer waits. A fourth wait or fifth active call
+is refused before connecting/submitting; releasing or cancelling a call frees capacity. This does not
+replace actual cross-machine authentication, reconnection and uncertain-write validation.
+
+Remaining work includes expanded native tab/paging interaction, final-candidate installer/upgrade and
+performance checks, live Claude/plugin/phone/SSH validation, packaging and a new reliability run.
+The previous junction fixture rejection remains unresolved. No new licensing run or adoption period
+was started; no release was tagged or published.

@@ -298,6 +298,7 @@ pub async fn tick_loop(shared: Arc<Shared>) {
 
 /// The buttons a toast may carry: none unless the channel's `agentbolt://` handler key points to the Desk next to
 /// the daemon (a missing or changed key would send a button's token to whatever program it names).
+#[cfg(any(windows, test))]
 pub fn toast_buttons(buttons: Vec<(String, String)>, handler_ok: bool) -> Vec<(String, String)> {
     if handler_ok { buttons } else { Vec::new() }
 }

@@ -19,7 +19,9 @@ paging, linked Board messages and failed handoff outcomes are implemented. The t
 catalog now comes from the server schema source. Agents/Owners directories, closed-draft reconciliation,
 complete delivery history and fixed-period adoption reporting are implemented too. The
 [feature inventory](docs/FEATURE-INVENTORY.md) maps the full plan to code. Implementation coverage is
-recorded; focused core/CLI/MCP/Git checks pass. Expanded security, Linux, UI and host validation remain open.
+recorded; Windows workspace tests and Linux core/MCP/IPC/daemon checks pass, including phone HTTP mocks.
+All-target Clippy passes on both platforms, and native ordinary/warm Desk lifecycle checks pass in Anode.
+Expanded tab/paging interaction, security and live host validation remain open.
 No phone account, scan, adoption period or live workflow has been activated.
 
 

@@ -7,6 +7,10 @@ use agentbolt_core::phone::{
 use serde_json::{Value, json};
 use std::{process::Stdio, sync::Arc, time::Duration};
 
+#[cfg(test)]
+#[path = "phone_tests.rs"]
+mod tests;
+
 async fn work(shared: &Arc<Shared>, generation: &str, op: Work) -> Result<ResultValue, String> {
     let svc = shared.svc.clone();
     let generation = generation.to_owned();

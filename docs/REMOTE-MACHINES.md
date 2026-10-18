@@ -25,8 +25,10 @@ explicitly configured stable owners may intentionally share their durable answer
 
 Connections use noninteractive authentication, strict host-key verification, no agent/X11/port forwarding,
 bounded frames and timeouts. Safe reads may reconnect and retry. Failed writes can have an unknown outcome:
-read their durable state or reuse their dedupe key before retrying. The pool permits other calls while a
-long answer read waits. Closing the MCP process closes its SSH children; it does not own the remote daemon.
+read their durable state or reuse their dedupe key before retrying. At most four SSH connections can be
+active per MCP process, including at most three long answer waits; this leaves room for asks, renewals
+and Board reads. Calls over that limit are refused before submission and can be retried. Closing the
+MCP process closes its SSH children; it does not own the remote daemon.
 These choices follow [OpenSSH's client documentation](https://man.openbsd.org/ssh_config.5).
 
 The Desk displays the originating machine. A remote session's folder or chat is never opened on the Desk

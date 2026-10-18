@@ -55,5 +55,6 @@ Oversized/truncated reply history stops advancement and shows an error rather th
 [ntfy subscription API](https://docs.ntfy.sh/subscribe/api/). Refresh phone status in Settings to see the
 last protection check, publication, reply check and pending receipts.
 
-This feature is implemented in the candidate. No real account or phone was configured during development;
-live phone/service checks belong after the remaining feature work.
+The core receipt checks and loopback HTTP mock scenarios pass on Windows and Linux; see
+[expanded validation](EXPANDED-VALIDATION.md). No real account or phone was configured. HTTPS/server
+ACLs, offline recovery against a real ntfy service and actual phone behavior still need live validation.
