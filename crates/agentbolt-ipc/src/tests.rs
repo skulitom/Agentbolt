@@ -275,6 +275,25 @@ async fn an_oversized_request_closes_the_connection() {
     assert_eq!(rec.handled.load(Ordering::SeqCst), 0);
 }
 
+/// Resolve an SDDL trustee (a SID string or an alias such as "LA") to its SID string.
+#[cfg(windows)]
+fn trustee_sid(trustee: &str) -> String {
+    use windows::Win32::Foundation::{HLOCAL, LocalFree};
+    use windows::Win32::Security::Authorization::{ConvertSidToStringSidW, ConvertStringSidToSidW};
+    use windows::Win32::Security::PSID;
+    use windows::core::{HSTRING, PWSTR};
+    unsafe {
+        let mut psid = PSID::default();
+        ConvertStringSidToSidW(&HSTRING::from(trustee), &mut psid).expect("an SDDL trustee");
+        let mut text = PWSTR::null();
+        ConvertSidToStringSidW(psid, &mut text).expect("a SID string");
+        let out = text.to_string().expect("UTF-16");
+        let _ = LocalFree(Some(HLOCAL(text.0.cast())));
+        let _ = LocalFree(Some(HLOCAL(psid.0)));
+        out
+    }
+}
+
 #[cfg(windows)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_pipe_dacl_grants_only_the_current_user() {
@@ -286,7 +305,10 @@ async fn the_pipe_dacl_grants_only_the_current_user() {
     let sid = win::current_user_sid().unwrap();
     assert!(sddl.starts_with("D:P"), "protected DACL, no inherited ACEs: {sddl}");
     assert_eq!(sddl.matches('(').count(), 1, "exactly one ACE: {sddl}");
-    assert!(sddl.contains(&format!(";;;{sid})")), "the one ACE is the current user's: {sddl}");
+    // SDDL may write a well-known account as an alias (the built-in Administrator on CI runners is "LA"),
+    // so resolve the ACE's trustee to a SID string before comparing.
+    let trustee = sddl.rsplit(";;;").next().unwrap_or("").trim_end_matches(')');
+    assert_eq!(trustee_sid(trustee), sid, "the one ACE is the current user's: {sddl}");
     for other in [";WD)", ";AN)", ";BU)", ";BA)", ";SY)", ";AU)", ";IU)"] {
         assert!(!sddl.contains(other), "{other} must not be granted: {sddl}");
     }
