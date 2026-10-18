@@ -477,6 +477,7 @@ pub(crate) fn answer_for(conn: &Connection, ask_id: &str) -> rusqlite::Result<Op
     let Some((via, choice, values, note, answered_ms)) = row else {
         return Ok(None);
     };
+    let history = delivery_page(conn, ask_id, None)?;
     Ok(Some(Answer {
         ask_id: ask_id.to_string(),
         via,
@@ -484,24 +485,57 @@ pub(crate) fn answer_for(conn: &Connection, ask_id: &str) -> rusqlite::Result<Op
         values,
         note,
         answered_at: fmt_ms(answered_ms),
-        deliveries: deliveries_for(conn, ask_id)?,
+        deliveries: history.deliveries,
+        delivery_total: history.total,
+        delivery_next: history.next,
+        more_deliveries: history.more,
     }))
 }
 
+#[cfg(test)]
 pub(crate) fn deliveries_for(conn: &Connection, ask_id: &str) -> rusqlite::Result<Vec<Delivery>> {
-    let mut stmt = conn.prepare(
-        "SELECT target, at_ms, ok, detail, confirmed FROM deliveries WHERE ask_id = ?1 ORDER BY id",
-    )?;
-    let rows = stmt.query_map([ask_id], |r| {
-        Ok(Delivery {
-            to: r.get(0)?,
-            at: fmt_ms(r.get(1)?),
-            ok: r.get(2)?,
-            detail: r.get(3)?,
-            confirmed: r.get(4)?,
-        })
+    Ok(delivery_page(conn, ask_id, None)?.deliveries)
+}
+
+pub(crate) fn delivery_page(
+    conn: &Connection,
+    ask_id: &str,
+    before: Option<u64>,
+) -> rusqlite::Result<crate::protocol::DeliveryPage> {
+    let before = before.map(i64::try_from).transpose().map_err(|_| {
+        rusqlite::Error::InvalidParameterName("delivery cursor is too large".into())
     })?;
-    rows.collect()
+    let total = count(
+        conn,
+        "SELECT COUNT(*) FROM deliveries WHERE ask_id=?1",
+        [ask_id],
+    )?;
+    let mut stmt = conn.prepare("SELECT id,target,at_ms,ok,detail,confirmed FROM deliveries WHERE ask_id=?1 AND (?2 IS NULL OR id<?2) ORDER BY id DESC LIMIT 51")?;
+    let mut rows = stmt
+        .query_map(params![ask_id, before], |r| {
+            Ok((
+                r.get::<_, i64>(0)? as u64,
+                Delivery {
+                    to: r.get(1)?,
+                    at: fmt_ms(r.get(2)?),
+                    ok: r.get(3)?,
+                    detail: r.get(4)?,
+                    confirmed: r.get(5)?,
+                },
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    let more = rows.len() > 50;
+    rows.truncate(50);
+    let next = rows.last().map(|r| r.0);
+    // Keep chronological order within a page, including the legacy short-history ordering.
+    rows.reverse();
+    Ok(crate::protocol::DeliveryPage {
+        deliveries: rows.into_iter().map(|r| r.1).collect(),
+        next,
+        more,
+        total,
+    })
 }
 
 pub(crate) fn insert_answer(
@@ -691,6 +725,96 @@ pub(crate) fn agents(conn: &Connection) -> rusqlite::Result<Vec<Agent>> {
     ))?;
     let rows = stmt.query_map([], map_agent)?;
     rows.collect()
+}
+
+fn directory_search(query: &crate::protocol::DirectoryQuery) -> Result<&str, String> {
+    let search = query.search.trim();
+    if search.len() > 800 || search.chars().any(char::is_control) {
+        return Err("Search needs at most 800 bytes without control characters".into());
+    }
+    Ok(search)
+}
+
+pub(crate) fn agent_directory(
+    conn: &Connection,
+    query: crate::protocol::DirectoryQuery,
+) -> Result<crate::protocol::DirectoryPage<Agent>, String> {
+    let search = directory_search(&query)?;
+    let before = query
+        .after
+        .as_deref()
+        .map(str::parse::<i64>)
+        .transpose()
+        .map_err(|_| "Invalid agent page cursor")?;
+    let filter = "(?1='' OR instr(lower(owner||' '||client||' '||machine||' '||COALESCE(session_ref,'')||' '||COALESCE(doing,'')),lower(?1))>0)";
+    let total = count(
+        conn,
+        &format!("SELECT COUNT(*) FROM agents WHERE {filter}"),
+        [search],
+    )
+    .map_err(db_err)?;
+    let mut stmt = conn.prepare(&format!("SELECT rowid,handle FROM agents WHERE {filter} AND (?2 IS NULL OR rowid<?2) ORDER BY rowid DESC LIMIT 51")).map_err(db_err)?;
+    let mut rows = stmt
+        .query_map(params![search, before], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+        })
+        .map_err(db_err)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_err)?;
+    let more = rows.len() > 50;
+    rows.truncate(50);
+    let next = rows.last().map(|r| r.0.to_string());
+    let items = rows
+        .into_iter()
+        .map(|(_, handle)| {
+            agent(conn, &handle)
+                .map_err(db_err)?
+                .ok_or_else(|| "Agent disappeared".into())
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(crate::protocol::DirectoryPage {
+        items,
+        next,
+        more,
+        total,
+    })
+}
+
+pub(crate) fn owner_directory(
+    conn: &Connection,
+    query: crate::protocol::DirectoryQuery,
+) -> Result<crate::protocol::DirectoryPage<Owner>, String> {
+    let search = directory_search(&query)?;
+    let filter = "(?1='' OR instr(lower(name||' '||binding||' '||COALESCE(requested_owner,'')),lower(?1))>0)";
+    let total = count(
+        conn,
+        &format!("SELECT COUNT(*) FROM owners WHERE {filter}"),
+        [search],
+    )
+    .map_err(db_err)?;
+    let mut stmt = conn.prepare(&format!("SELECT name FROM owners WHERE {filter} AND (?2 IS NULL OR name>?2) ORDER BY name LIMIT 51")).map_err(db_err)?;
+    let mut rows = stmt
+        .query_map(params![search, query.after], |r| r.get::<_, String>(0))
+        .map_err(db_err)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_err)?;
+    let more = rows.len() > 50;
+    rows.truncate(50);
+    let next = rows.last().cloned();
+    let items = rows
+        .into_iter()
+        .map(|name| {
+            owner(conn, &name)
+                .map_err(db_err)?
+                .ok_or_else(|| "Owner disappeared".into())
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(crate::protocol::DirectoryPage {
+        items,
+        next,
+        more,
+        total,
+    })
 }
 
 pub(crate) struct NewAgent<'a> {

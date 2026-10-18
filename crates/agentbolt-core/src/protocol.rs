@@ -84,6 +84,10 @@ pub enum McpOp {
         before: Option<String>,
         wait_ms: u64,
     },
+    DeliveryHistory {
+        handle: String,
+        query: DeliveryQuery,
+    },
     Cancel {
         handle: String,
         id: String,
@@ -270,6 +274,18 @@ pub enum DeskOp {
     },
     Agents,
     Owners,
+    AgentDirectory {
+        query: DirectoryQuery,
+    },
+    OwnerDirectory {
+        query: DirectoryQuery,
+    },
+    DeliveryHistory {
+        query: DeliveryQuery,
+    },
+    DraftStates {
+        ids: Vec<String>,
+    },
     SetOwner {
         owner: Owner,
     },
@@ -338,6 +354,39 @@ pub struct DigestResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentsResult {
     pub agents: Vec<Agent>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DirectoryQuery {
+    pub after: Option<String>,
+    pub search: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectoryPage<T> {
+    pub items: Vec<T>,
+    pub next: Option<String>,
+    pub more: bool,
+    pub total: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeliveryQuery {
+    pub ask_id: String,
+    pub before: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DeliveryPage {
+    pub deliveries: Vec<crate::model::Delivery>,
+    pub next: Option<u64>,
+    pub more: bool,
+    pub total: u32,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DraftStates {
+    pub closed: Vec<String>,
 }
 
 /// Every bound or approved owner (by name), then the most recent provisional owners (newest first, at most

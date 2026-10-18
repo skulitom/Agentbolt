@@ -16,13 +16,16 @@ Earlier test results below predate these additions.
 
 Timed mute, partial Board profile updates, Inbox/History/Board/hold navigation, filtered relay and answer
 paging, linked Board messages and failed handoff outcomes are implemented. The twelve-tool plugin
-catalog now comes from the server schema source. Continue the full-plan implementation audit, including
-older Agents/Owners navigation, draft lifecycle across pages and bounded delivery records. See
-[FULL-PLAN.md](docs/FULL-PLAN.md). Finish those gaps before test suites or release work.
+catalog now comes from the server schema source. Agents/Owners directories, closed-draft reconciliation,
+complete delivery history and fixed-period adoption reporting are implemented too. The
+[feature inventory](docs/FEATURE-INVENTORY.md) maps the full plan to code. Implementation coverage is
+recorded; the expanded features still need their first regression, security, platform and host validation.
+No phone account, scan, adoption period or live workflow has been activated.
 
-**Current order: finish all implementation before heavy validation.** The long CPU
-probe and 72-hour run were stopped, and the hourly monitor is paused. Complete the handoff-to-code audit
-and remaining changes with focused checks first; package and run the full release checks afterward.
+
+**Current order: all features first, then validation.** The long CPU
+probe and 72-hour run were stopped, and the hourly monitor is paused. The full-plan source inventory is now recorded. Address any newly discovered feature gaps first; then
+validate the expanded features before packaging and heavy release checks.
 See [the implementation audit](docs/IMPLEMENTATION-AUDIT.md). It found and fixed queue acceptance hiding
 unread answers, phone counts including muted owners, and stale toasts bypassing mute/pause. Legacy Digest
 wording was removed from notification code; older-client wire compatibility remains.
@@ -164,7 +167,7 @@ covered by live regression fixtures. The follow-up review found no remaining act
 - **Done — independent security review:** the original two medium Windows findings and two subsequent upgrade
   rollback findings were fixed and tested. Follow-up review of lifecycle, task migration, rollback and uninstall
   found no remaining actionable issue. Review later changes if they affect these boundaries.
-- **Out of scope for this handoff:** M2 to M7 in PLAN.md (answers back to Claude sessions, Compass use, holds, the
+- **Original handoff boundary, superseded by Artem's full-plan instruction above:** M2 to M7 in PLAN.md (answers back to Claude sessions, Compass use, holds, the
   agent Board, phone answers, other machines).
 
 ## Rules that stay

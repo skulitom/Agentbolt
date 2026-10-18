@@ -31,6 +31,8 @@ pub struct Scan {
     pub at_ms: i64,
     pub paths: Vec<String>,
     pub error: Option<String>,
+    #[serde(default)]
+    pub conservative_submodules: bool,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Hold {
@@ -119,10 +121,13 @@ pub fn excluded(path: &str, config: &Config) -> bool {
     let Ok(path) = path_key(path) else {
         return true;
     };
-    config
-        .excluded_paths
-        .iter()
-        .any(|root| path_key(root).is_ok_and(|r| path == r || path.starts_with(&(r + "/"))))
+    config.excluded_paths.iter().any(|root| {
+        path_key(root).is_ok_and(|r| {
+            path == r
+                || path.starts_with(&(r.clone() + "/"))
+                || r.starts_with(&(path.clone() + "/"))
+        })
+    })
 }
 pub fn config(db: &Connection) -> Result<Config, String> {
     store::meta(db, "holds_config")
@@ -147,7 +152,9 @@ pub fn set_config(db: &Connection, now: i64, mut cfg: Config) -> Result<Config, 
         source.repo = board::repository(&source.repo)?;
     }
     if cfg.working_copies.iter().any(|s| excluded(&s.path, &cfg)) {
-        return Err("an allowlisted working copy is inside an excluded root".into());
+        return Err(
+            "an allowlisted working copy overlaps an excluded root; it cannot be scanned".into(),
+        );
     }
     // Removing a source removes its saved path data too; a later scan cannot reinsert it (save_scan rechecks).
     db.execute("DELETE FROM hold_scans", []).map_err(db_err)?;
@@ -197,7 +204,9 @@ fn working_copies(db: &Connection) -> Result<Snapshot, String> {
                 note: scan
                     .error
                     .clone()
-                    .unwrap_or_else(|| "Dirty or unpushed paths".into()),
+                    .unwrap_or_else(|| if scan.conservative_submodules {
+                        "Dirty/unpushed paths and conservative submodule holds; nested checkouts are not scanned".into()
+                    } else { "Dirty or unpushed paths".into() }),
                 until: None,
             });
         }
@@ -380,6 +389,13 @@ pub fn check(
         unknown.push("No working copy is configured for this repository".into());
     }
     for source in sources {
+        if excluded(&source.path, &state.config) {
+            unknown.push(format!(
+                "{} overlaps an excluded root and cannot be scanned",
+                source.path
+            ));
+            continue;
+        }
         match state
             .scans
             .iter()
@@ -389,6 +405,9 @@ pub fn check(
             Some(s) => {
                 if let Some(error) = &s.error {
                     unknown.push(format!("{}: {error}", s.path));
+                }
+                if s.at_ms > now {
+                    unknown.push(format!("{} scan time is in the future", s.path));
                 }
                 if now.saturating_sub(s.at_ms) > FRESH_MS {
                     unknown.push(format!("{} scan is stale", s.path));

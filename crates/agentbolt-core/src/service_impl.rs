@@ -709,6 +709,9 @@ impl Ctx<'_> {
             note,
             answered_at: fmt_ms(self.now),
             deliveries: Vec::new(),
+            delivery_total: 0,
+            delivery_next: None,
+            more_deliveries: false,
         };
         store::insert_answer(self.db, &answer, self.now).map_err(db_err)?;
         let (status, kind) = match via {
@@ -1746,6 +1749,16 @@ impl Service for StoreService {
                 let agent = c.touch(&handle, client)?;
                 c.undelivered_of(&agent.owner, before.as_deref())
             }),
+            McpOp::DeliveryHistory { handle, query } => self.write_json(now, |c| {
+                let agent = c.touch(&handle, client)?;
+                if !c
+                    .row(&query.ask_id)?
+                    .is_some_and(|r| r.owner == agent.owner)
+                {
+                    return Err("Unknown ask for this owner".into());
+                }
+                store::delivery_page(c.db, &query.ask_id, query.before).map_err(db_err)
+            }),
             McpOp::Cancel { handle, id } => {
                 self.write_json(now, |c| c.cancel(client, &handle, &id))
             }
@@ -1865,6 +1878,12 @@ impl Service for StoreService {
                     agents: store::agents(c.db).map_err(db_err)?,
                 })
             }),
+            DeskOp::AgentDirectory { query } => {
+                self.write_json(now, |c| store::agent_directory(c.db, query))
+            }
+            DeskOp::OwnerDirectory { query } => {
+                self.write_json(now, |c| store::owner_directory(c.db, query))
+            }
             DeskOp::Owners => self.write_json(now, |c| {
                 let (owners, more_provisional) =
                     store::owners_for_desk(c.db, rules::DESK_PROVISIONAL_OWNERS).map_err(db_err)?;
@@ -1872,6 +1891,16 @@ impl Service for StoreService {
                     owners,
                     more_provisional,
                 })
+            }),
+            DeskOp::DeliveryHistory { query } => self.write_json(now, |c| {
+                if c.row(&query.ask_id)?.is_none() { return Err("Unknown ask".into()); }
+                store::delivery_page(c.db,&query.ask_id,query.before).map_err(db_err)
+            }),
+            DeskOp::DraftStates { ids } => self.write_json(now, |c| {
+                if ids.len() > 100 { return Err("Check at most 100 draft IDs".into()); }
+                let mut stmt = c.db.prepare("SELECT id FROM asks WHERE id IN (SELECT value FROM json_each(?1)) AND status IN ('answered','defaulted','cancelled')").map_err(db_err)?;
+                let closed = stmt.query_map([json!(ids).to_string()],|r|r.get::<_,String>(0)).map_err(db_err)?.collect::<Result<Vec<_>,_>>().map_err(db_err)?;
+                Ok(crate::protocol::DraftStates { closed })
             }),
             DeskOp::SetOwner { owner } => self.write_json(now, |c| c.set_owner(owner)),
             DeskOp::ResolveOwner {

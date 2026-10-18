@@ -83,11 +83,21 @@ new network checks, so a poll outage does not hold up a previously received repl
 twelve-tool catalog is generated from the server's schema source, including its host wait cap. All of
 these changes have compilation feedback only; no feature, native, behavioral or release checks ran.
 
-Remaining implementation audit: compare every full-plan requirement with current code; finish missing
-features and bounds, including older Agents/Owners navigation, orphaned draft lifecycle across pages
-and complete delivery-record access without oversized question responses. Keep source and
-distribution descriptions in sync. Continue feature work before test suites, licensing, packaging,
-idle/soak or live-client checks. No configured phone/SSH/Beads/Compass workflow has been exercised yet.
+The final navigation/reporting pass adds searchable, complete Agents and Owners directories; known-closed
+draft reconciliation in bounded batches (unknown IDs and drafts on other pages are retained); and a
+paged delivery-history browser in both Desk and owner-only answer reads. Each answer carries only its
+latest 50 delivery records plus continuation metadata. Not needed rates now divide by submitted asks,
+and adoption reporting uses the fixed first 14 days after baseline recording, with stored-history span
+shown separately. These are implementation changes with compilation feedback only.
+
+Scanner review also closed two false-clearance paths: an allowlisted source may not overlap an excluded
+root in either direction, and submodule paths are conservatively held using parent-index metadata only.
+Nested checkouts are not scanned. Future-dated scan timestamps are unknown.
+
+The [full feature inventory](FEATURE-INVENTORY.md) now maps each v4/M0–M7 product requirement to its
+implementation and distinguishes source coverage from validation and rollout. No remaining named product
+feature has been intentionally deferred. Fresh regression/security/platform/host checks and rollout
+requirements remain unproven; implementing the interfaces does not establish production readiness.
 
 ## Later verification and rollout
 

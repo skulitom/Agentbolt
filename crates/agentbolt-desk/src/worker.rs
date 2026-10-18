@@ -4,10 +4,10 @@
 use std::sync::mpsc;
 
 use agentbolt_core::channel::Names;
-use agentbolt_core::model::{Owner, Settings};
+use agentbolt_core::model::{Agent, Owner, Settings};
 use agentbolt_core::protocol::{
-    AgentsResult, AnswerResult, BatchAnswerResult, DeskAnswer, DeskOp, InboxResult, OwnersResult,
-    StatusResult,
+    AnswerResult, BatchAnswerResult, DeskAnswer, DeskOp, DirectoryPage, DirectoryQuery,
+    InboxResult, StatusResult,
 };
 use agentbolt_ipc::{Client, IpcError, Pipe};
 use serde::de::DeserializeOwned;
@@ -24,6 +24,8 @@ pub enum Req {
     History(agentbolt_core::protocol::HistoryQuery),
     /// The counts only; marks nothing shown.
     Status,
+    DeliveryHistory(agentbolt_core::protocol::DeliveryQuery),
+    DraftStates(Vec<String>),
     Answer {
         ask_id: String,
         choice: Option<String>,
@@ -42,7 +44,7 @@ pub enum Req {
         owner: String,
         seconds: u32,
     },
-    Agents,
+    Agents(DirectoryQuery),
     Board(agentbolt_core::board::DeskQuery),
     Holds(Option<String>),
     SetHolds(agentbolt_core::holds::Config),
@@ -61,7 +63,7 @@ pub enum Req {
         owner: String,
         seconds: u32,
     },
-    Owners,
+    Owners(DirectoryQuery),
     SetOwner(Owner),
     ResolveOwner {
         owner: String,
@@ -91,11 +93,22 @@ pub enum Resp {
         result: Result<agentbolt_core::protocol::HistoryResult, String>,
     },
     Status(StatusResult),
+    DeliveryHistory {
+        query: agentbolt_core::protocol::DeliveryQuery,
+        result: Result<agentbolt_core::protocol::DeliveryPage, String>,
+    },
+    DraftStates {
+        ids: Vec<String>,
+        result: Result<agentbolt_core::protocol::DraftStates, String>,
+    },
     Answered {
         ask_id: String,
         result: Result<AnswerResult, String>,
     },
-    Agents(AgentsResult),
+    Agents {
+        query: DirectoryQuery,
+        result: Result<DirectoryPage<Agent>, String>,
+    },
     Board {
         query: agentbolt_core::board::DeskQuery,
         result: Result<agentbolt_core::board::Snapshot, String>,
@@ -109,7 +122,10 @@ pub enum Resp {
     Metrics(agentbolt_core::metrics::Report),
     MetricsSaved(Result<(), String>),
     LeaseSaved(Result<(), String>),
-    Owners(OwnersResult),
+    Owners {
+        query: DirectoryQuery,
+        result: Result<DirectoryPage<Owner>, String>,
+    },
     OwnerSaved(Result<String, String>),
     Settings(Settings),
     Phone(agentbolt_core::phone::Status),
@@ -227,16 +243,36 @@ async fn run(
                     .map_err(|e| e.to_string());
                 Resp::List { after, result }
             }
+            Req::DeliveryHistory(query) => {
+                let result = conn
+                    .get(&DeskOp::DeliveryHistory {
+                        query: query.clone(),
+                    })
+                    .await
+                    .map_err(|e| e.to_string());
+                Resp::DeliveryHistory { query, result }
+            }
+            Req::DraftStates(ids) => {
+                let result = conn
+                    .get(&DeskOp::DraftStates { ids: ids.clone() })
+                    .await
+                    .map_err(|e| e.to_string());
+                Resp::DraftStates { ids, result }
+            }
             Req::Status => conn
                 .get(&DeskOp::Status)
                 .await
                 .map(Resp::Status)
                 .unwrap_or_else(|e| failed("the Inbox", e)),
-            Req::Agents => conn
-                .get(&DeskOp::Agents)
-                .await
-                .map(Resp::Agents)
-                .unwrap_or_else(|e| failed("the agents", e)),
+            Req::Agents(query) => {
+                let result = conn
+                    .get(&DeskOp::AgentDirectory {
+                        query: query.clone(),
+                    })
+                    .await
+                    .map_err(|e| e.to_string());
+                Resp::Agents { query, result }
+            }
             Req::Board(query) => {
                 let result = conn
                     .get(&DeskOp::BoardPage {
@@ -287,11 +323,15 @@ async fn run(
                     .map(|_| ())
                     .map_err(|e| e.to_string()),
             ),
-            Req::Owners => conn
-                .get(&DeskOp::Owners)
-                .await
-                .map(Resp::Owners)
-                .unwrap_or_else(|e| failed("the owners", e)),
+            Req::Owners(query) => {
+                let result = conn
+                    .get(&DeskOp::OwnerDirectory {
+                        query: query.clone(),
+                    })
+                    .await
+                    .map_err(|e| e.to_string());
+                Resp::Owners { query, result }
+            }
             Req::GetSettings => conn
                 .get(&DeskOp::GetSettings)
                 .await

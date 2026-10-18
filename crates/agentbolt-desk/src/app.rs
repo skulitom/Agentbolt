@@ -50,6 +50,69 @@ struct SettingsDraft {
     toasts_off: bool,
 }
 
+#[derive(Default)]
+struct DirectoryState {
+    query: agentbolt_core::protocol::DirectoryQuery,
+    search: String,
+    back: Vec<Option<String>>,
+    next: Option<String>,
+    more: bool,
+    total: u32,
+}
+
+impl DirectoryState {
+    fn controls(&mut self, ui: &mut egui::Ui, label: &str, busy: bool) -> bool {
+        let mut changed = false;
+        ui.push_id(label, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(format!(
+                    "{} {label} · page {}",
+                    self.total,
+                    self.back.len() + 1
+                ));
+                ui.add(egui::TextEdit::singleline(&mut self.search).hint_text("Search"));
+                if ui.button("Search").clicked() {
+                    self.query.search = self.search.trim().into();
+                    self.query.after = None;
+                    self.back.clear();
+                    changed = true;
+                }
+                if ui
+                    .add_enabled(
+                        !busy && !self.back.is_empty(),
+                        egui::Button::new("Previous"),
+                    )
+                    .clicked()
+                {
+                    self.query.after = self.back.pop().flatten();
+                    changed = true;
+                }
+                if ui
+                    .add_enabled(!busy && self.more, egui::Button::new("More"))
+                    .clicked()
+                {
+                    self.back.push(self.query.after.clone());
+                    self.query.after = self.next.clone();
+                    changed = true;
+                }
+                if ui.button("First page / refresh").clicked() {
+                    self.query.after = None;
+                    self.back.clear();
+                    changed = true;
+                }
+            });
+        });
+        changed
+    }
+}
+
+struct DeliveryView {
+    query: agentbolt_core::protocol::DeliveryQuery,
+    back: Vec<Option<u64>>,
+    page: agentbolt_core::protocol::DeliveryPage,
+    busy: bool,
+}
+
 pub struct DeskApp {
     upgrade: crate::upgrade::Gate,
     names: Names,
@@ -76,8 +139,13 @@ pub struct DeskApp {
     draft_store: DraftStore,
     draft_error: Option<String>,
     draft_retry: Option<Instant>,
+    draft_check_after: Option<String>,
+    draft_check_inflight: bool,
+    last_draft_check: Option<Instant>,
+    delivery_view: Option<DeliveryView>,
     sending: HashSet<String>,
     agents: Vec<Agent>,
+    agents_directory: DirectoryState,
     board: agentbolt_core::board::Snapshot,
     board_query: agentbolt_core::board::DeskQuery,
     board_search: String,
@@ -103,7 +171,7 @@ pub struct DeskApp {
     new_hold_repo: String,
     new_hold_path: String,
     owners: Vec<Owner>,
-    more_owners: u32,
+    owners_directory: DirectoryState,
     settings: Option<Settings>,
     settings_draft: SettingsDraft,
     phone: Option<agentbolt_core::phone::Status>,
@@ -212,8 +280,13 @@ impl DeskApp {
             draft_store,
             draft_error,
             draft_retry: None,
+            draft_check_after: None,
+            draft_check_inflight: false,
+            last_draft_check: None,
+            delivery_view: None,
             sending: HashSet::new(),
             agents: Vec::new(),
+            agents_directory: Default::default(),
             board: Default::default(),
             board_query: Default::default(),
             board_search: String::new(),
@@ -239,7 +312,7 @@ impl DeskApp {
             new_hold_repo: String::new(),
             new_hold_path: String::new(),
             owners: Vec::new(),
-            more_owners: 0,
+            owners_directory: Default::default(),
             settings: None,
             settings_draft: SettingsDraft::default(),
             phone: None,
@@ -334,6 +407,27 @@ impl DeskApp {
                             .map(|a| a.id.clone());
                     }
                 }
+                Resp::DraftStates { ids, result } => {
+                    self.draft_check_inflight = false;
+                    if let Ok(status) = result {
+                        self.draft_check_after = ids.last().cloned();
+                        for id in status.closed {
+                            self.drafts.remove(&id);
+                            self.batch_selection.remove(&id);
+                        }
+                    }
+                }
+                Resp::DeliveryHistory { query, result } => {
+                    if let Some(view) = self.delivery_view.as_mut().filter(|v| v.query == query) {
+                        view.busy = false;
+                        match result {
+                            Ok(page) => view.page = page,
+                            Err(error) => {
+                                self.note(format!("Couldn't load delivery history: {error}"), true)
+                            }
+                        }
+                    }
+                }
                 Resp::Status(s) => {
                     self.notification_warning = s.notification_warning;
                     self.list_inflight = false;
@@ -381,9 +475,20 @@ impl DeskApp {
                         Err(e) => self.note(format!("That answer didn't go through: {e}"), true),
                     }
                 }
-                Resp::Agents(r) => {
+                Resp::Agents { query, result } => {
                     self.agents_inflight = false;
-                    self.agents = r.agents;
+                    if query != self.agents_directory.query {
+                        continue;
+                    }
+                    match result {
+                        Ok(page) => {
+                            self.agents = page.items;
+                            self.agents_directory.next = page.next;
+                            self.agents_directory.more = page.more;
+                            self.agents_directory.total = page.total;
+                        }
+                        Err(error) => self.note(format!("Couldn't load agents: {error}"), true),
+                    }
                 }
                 Resp::Board { query, result } => {
                     self.board_inflight = false;
@@ -450,10 +555,20 @@ impl DeskApp {
                     }
                     self.last_board = None;
                 }
-                Resp::Owners(r) => {
+                Resp::Owners { query, result } => {
                     self.owners_inflight = false;
-                    self.owners = r.owners;
-                    self.more_owners = r.more_provisional;
+                    if query != self.owners_directory.query {
+                        continue;
+                    }
+                    match result {
+                        Ok(page) => {
+                            self.owners = page.items;
+                            self.owners_directory.next = page.next;
+                            self.owners_directory.more = page.more;
+                            self.owners_directory.total = page.total;
+                        }
+                        Err(error) => self.note(format!("Couldn't load owners: {error}"), true),
+                    }
                 }
                 Resp::OwnerSaved(r) => {
                     match r {
@@ -562,7 +677,7 @@ impl DeskApp {
         {
             self.agents_inflight = true;
             self.last_agents = Some(Instant::now());
-            self.send(Req::Agents);
+            self.send(Req::Agents(self.agents_directory.query.clone()));
         }
         if self.tab == Tab::Board
             && seen
@@ -574,6 +689,7 @@ impl DeskApp {
             self.send(Req::Board(self.board_query.clone()));
         }
         if seen
+            && self.tab == Tab::Settings
             && !self.owners_inflight
             && self
                 .last_owners
@@ -581,7 +697,7 @@ impl DeskApp {
         {
             self.owners_inflight = true;
             self.last_owners = Some(Instant::now());
-            self.send(Req::Owners);
+            self.send(Req::Owners(self.owners_directory.query.clone()));
         }
         if self.tab == Tab::Activity
             && seen
@@ -604,6 +720,25 @@ impl DeskApp {
             self.holds_inflight = true;
             self.last_holds = Some(Instant::now());
             self.send(Req::Holds(self.holds_after.clone()));
+        }
+        if seen
+            && !self.drafts.is_empty()
+            && !self.draft_check_inflight
+            && self
+                .last_draft_check
+                .is_none_or(|t| t.elapsed() >= Duration::from_secs(5))
+        {
+            let mut ids: Vec<_> = self.drafts.keys().cloned().collect();
+            ids.sort();
+            let start = self
+                .draft_check_after
+                .as_ref()
+                .map_or(0, |after| ids.partition_point(|id| id <= after));
+            let start = if start == ids.len() { 0 } else { start };
+            let ids = ids.into_iter().skip(start).take(100).collect();
+            self.draft_check_inflight = true;
+            self.last_draft_check = Some(Instant::now());
+            self.send(Req::DraftStates(ids));
         }
         ctx.request_repaint_after(POLL);
     }
@@ -903,12 +1038,8 @@ impl DeskApp {
                     if let Some(choice) = &answer.choice { ui.add(egui::Label::new(choice).selectable(true).wrap()); }
                     if let Some(values) = &answer.values { ui.add(egui::Label::new(values.to_string()).selectable(true).wrap()); }
                     if let Some(note) = &answer.note { ui.label("Note"); ui.add(egui::Label::new(note).selectable(true).wrap()); }
-                    if answer.deliveries.is_empty() { ui.weak("Available for the agent to read; no delivery recorded yet."); }
-                    for delivery in &answer.deliveries {
-                        let status = if delivery.confirmed { "Delivery confirmed" } else if delivery.ok { "Accepted; receipt unconfirmed" } else { "Delivery failed" };
-                        ui.label(format!("{status} · {} · {}", delivery.to, delivery.at));
-                        if let Some(detail) = &delivery.detail { ui.add(egui::Label::new(detail).wrap()); }
-                    }
+                    self.deliveries(ui, answer);
+
                 } else { ui.strong("Withdrawn by the agent"); }
                 return;
             }
@@ -1061,6 +1192,95 @@ impl DeskApp {
                 }
             }
         });
+    }
+
+    fn deliveries(&mut self, ui: &mut egui::Ui, answer: &agentbolt_core::model::Answer) {
+        let expanded = self
+            .delivery_view
+            .as_ref()
+            .is_some_and(|v| v.query.ask_id == answer.ask_id);
+        let mut request = None;
+        let mut close = false;
+        if expanded {
+            let view = self
+                .delivery_view
+                .as_mut()
+                .expect("expanded delivery history");
+            ui.horizontal_wrapped(|ui| {
+                ui.strong(format!(
+                    "Delivery history · {} records · page {}",
+                    view.page.total,
+                    view.back.len() + 1
+                ));
+                if ui
+                    .add_enabled(
+                        !view.busy && !view.back.is_empty(),
+                        egui::Button::new("Newer deliveries"),
+                    )
+                    .clicked()
+                {
+                    view.query.before = view.back.pop().flatten();
+                    request = Some(view.query.clone());
+                }
+                if ui
+                    .add_enabled(
+                        !view.busy && view.page.more,
+                        egui::Button::new("Older deliveries"),
+                    )
+                    .clicked()
+                {
+                    view.back.push(view.query.before);
+                    view.query.before = view.page.next;
+                    request = Some(view.query.clone());
+                }
+                if ui
+                    .add_enabled(!view.busy, egui::Button::new("Latest / refresh"))
+                    .clicked()
+                {
+                    view.query.before = None;
+                    view.back.clear();
+                    request = Some(view.query.clone());
+                }
+                close = ui.small_button("Collapse history").clicked();
+            });
+            if view.busy {
+                ui.weak("Loading delivery records...");
+            }
+            delivery_rows(ui, &view.page.deliveries);
+        } else {
+            if answer.deliveries.is_empty() {
+                ui.weak("Available for the agent to read; no delivery recorded yet.");
+            }
+            delivery_rows(ui, &answer.deliveries);
+            if answer.more_deliveries {
+                ui.weak(format!(
+                    "Latest {} of {} delivery records",
+                    answer.deliveries.len(),
+                    answer.delivery_total
+                ));
+            }
+            if answer.delivery_total > 0 && ui.button("Browse delivery history").clicked() {
+                let query = agentbolt_core::protocol::DeliveryQuery {
+                    ask_id: answer.ask_id.clone(),
+                    before: None,
+                };
+                self.delivery_view = Some(DeliveryView {
+                    query: query.clone(),
+                    back: Vec::new(),
+                    page: Default::default(),
+                    busy: false,
+                });
+                request = Some(query);
+            }
+        }
+        if close {
+            self.delivery_view = None;
+        } else if let Some(query) = request {
+            if let Some(view) = &mut self.delivery_view {
+                view.busy = true;
+            }
+            self.send(Req::DeliveryHistory(query));
+        }
     }
 
     fn ask_pane(&mut self, ui: &mut egui::Ui) {
@@ -1224,6 +1444,15 @@ impl DeskApp {
     }
 
     fn agents_tab(&mut self, ui: &mut egui::Ui) {
+        if self
+            .agents_directory
+            .controls(ui, "agents", self.agents_inflight)
+        {
+            self.last_agents = None;
+        }
+        ui.weak(
+            "Newest registrations first. Search owner, session, client, machine or current work.",
+        );
         if self.agents.is_empty() {
             ui.centered_and_justified(|ui| {
                 ui.label(RichText::new(view::EMPTY_AGENTS).size(16.0).weak());
@@ -1419,43 +1648,46 @@ impl DeskApp {
             ui.heading("Is the Desk helping?");
             let Some(report)=&self.metrics else {ui.label("Loading recorded activity…");return;};
             ui.add(egui::Label::new(&report.explanation).wrap());
+            let current=report.observation.as_ref().unwrap_or(&report.current);
             let previous=report.baseline.as_ref().map_or(&report.previous,|b|&b.period);
             ui.add_space(8.0);
             egui::Grid::new("activity-comparison").striped(true).num_columns(3).show(ui,|ui| {
-                ui.strong("Measure");ui.strong("Latest 14 days");ui.strong(if report.baseline.is_some(){"Saved baseline"}else{"Previous 14 days"});ui.end_row();
+                ui.strong("Measure");ui.strong(if report.observation.is_some(){"Adoption observation"}else{"Latest 14 days"});ui.strong(if report.baseline.is_some(){"Saved baseline"}else{"Previous 14 days"});ui.end_row();
                 for (label,a,b) in [
-                    ("Questions submitted",report.current.submitted,previous.submitted),
-                    ("Human answers",report.current.human_answers,previous.human_answers),
-                    ("Defaults",report.current.defaults,previous.defaults),
-                    ("Not needed",report.current.not_needed,previous.not_needed),
-                    ("Withdrawn",report.current.cancelled,previous.cancelled),
-                    ("Missed deadlines",report.current.unanswered_deadlines,previous.unanswered_deadlines),
-                    ("PR/merge overlap checks",report.current.collision_checks,previous.collision_checks),
-                    ("Checks finding overlap",report.current.overlapping_checks,previous.overlapping_checks),
-                    ("Checks with unknown scans",report.current.unknown_checks,previous.unknown_checks),
+                    ("Questions submitted",current.submitted,previous.submitted),
+                    ("Human answers",current.human_answers,previous.human_answers),
+                    ("Defaults",current.defaults,previous.defaults),
+                    ("Not needed",current.not_needed,previous.not_needed),
+                    ("Withdrawn",current.cancelled,previous.cancelled),
+                    ("Missed deadlines",current.unanswered_deadlines,previous.unanswered_deadlines),
+                    ("PR/merge overlap checks",current.collision_checks,previous.collision_checks),
+                    ("Checks finding overlap",current.overlapping_checks,previous.overlapping_checks),
+                    ("Checks with unknown scans",current.unknown_checks,previous.unknown_checks),
                 ] {ui.label(label);ui.label(a.to_string());ui.label(b.to_string());ui.end_row();}
+                ui.label("Recorded history span");
+                for p in [current,previous] {ui.label(p.history_span_days.map_or("Unknown".into(),|d|format!("{d:.1} days")));}ui.end_row();
                 ui.label("Median answer time");
-                for p in [&report.current,previous] {ui.label(p.median_answer_hours.map_or("No human answers".into(),|h|format!("{h:.1} hours")));}ui.end_row();
+                for p in [current,previous] {ui.label(p.median_answer_hours.map_or("No human answers".into(),|h|format!("{h:.1} hours")));}ui.end_row();
                 ui.label("Unanswered at deadline");
-                for p in [&report.current,previous] {ui.label(p.unanswered_deadline_share.map_or("No elapsed deadlines".into(),|v|format!("{:.0}%",v*100.0)));}ui.end_row();
+                for p in [current,previous] {ui.label(p.unanswered_deadline_share.map_or("No elapsed deadlines".into(),|v|format!("{:.0}%",v*100.0)));}ui.end_row();
             });
             ui.label(format!("{} reversible questions have waited over 48 hours.",report.reversible_waiting_over_48h));
             ui.label(format!("{} irreversible questions are still open{}.",report.irreversible_open,report.oldest_irreversible_hours.map(|h|format!("; oldest {h:.1} hours")).unwrap_or_default()));
             ui.separator();ui.heading("By agent owner");
             egui::Grid::new("activity-owners").striped(true).show(ui,|ui| {
-                for title in ["Owner","Submitted","Not needed / human answers","Missed deadlines"] {ui.strong(title);}ui.end_row();
-                for o in &report.current.owners {
-                    ui.label(&o.owner);ui.label(o.submitted.to_string());ui.label(format!("{} / {}",o.not_needed,o.answered));ui.label(o.unanswered_deadlines.to_string());ui.end_row();
+                for title in ["Owner","Submitted","Not needed / submitted","Missed deadlines"] {ui.strong(title);}ui.end_row();
+                for o in &current.owners {
+                    ui.label(&o.owner);ui.label(o.submitted.to_string());ui.label(format!("{} / {}",o.not_needed,o.submitted));ui.label(o.unanswered_deadlines.to_string());ui.end_row();
                 }
             });
             egui::CollapsingHeader::new("Questions submitted by day (UTC)").show(ui,|ui| {
-                for (day,count) in &report.current.submissions_by_day {ui.label(format!("{day}: {count}"));}
+                for (day,count) in &current.submissions_by_day {ui.label(format!("{day}: {count}"));}
             });
             ui.separator();ui.heading("Adoption baseline");
             if let Some(b)=&report.baseline {
                 ui.label(format!("{} · saved {}",b.label,b.recorded_at));
                 ui.label(format!("{:.1} of 14 observation days elapsed",report.observation_days.unwrap_or_default()));
-                ui.weak("The saved baseline stays fixed. This does not claim the adoption period has passed.");
+                ui.weak("The comparison stays anchored to the first 14 days after this baseline. Elapsed time alone does not prove usage, uptime or improvement.");
             } else {
                 ui.label("Record the preceding 14 days before beginning adoption. Only activity already in this store is included; missing earlier history is unknown.");
                 ui.text_edit_singleline(&mut self.baseline_label);
@@ -1497,9 +1729,11 @@ impl DeskApp {
             let now=agentbolt_core::store::to_ms(time::OffsetDateTime::now_utc());
             for source in &self.holds.config.working_copies {
                 ui.strong(&source.repo);ui.label(&source.path);
+                if agentbolt_core::holds::excluded(&source.path,&self.holds.config) { ui.colored_label(ui.visuals().warn_fg_color,"This copy overlaps an excluded root; collision status is unknown."); }
                 if let Some(scan)=self.holds.scans.iter().find(|s|s.path==source.path){
                     let stale=now.saturating_sub(scan.at_ms)>agentbolt_core::holds::FRESH_MS;
                     if let Some(error)=&scan.error{ui.colored_label(ui.visuals().warn_fg_color,error);}
+                    if scan.conservative_submodules { ui.weak("Submodule paths are held conservatively; nested checkouts are not scanned."); }
                     if stale{ui.colored_label(ui.visuals().warn_fg_color,"Scan is stale; overlap status is unknown.");}
                     ui.weak(format!("Last scan {} · {} changed paths",agentbolt_core::store::fmt_ms(scan.at_ms),scan.paths.len()));
                 }else{ui.weak("Waiting for the first scan; overlap status is unknown.");}
@@ -1673,19 +1907,17 @@ impl DeskApp {
             ui.horizontal(|ui| {
                 ui.heading("Owners");
                 if ui.small_button("Refresh").clicked() {
-                    self.send(Req::Owners);
+                    self.send(Req::Owners(self.owners_directory.query.clone()));
                 }
             });
             ui.weak("An owner is a stable name for a routine, project or client. Answers and open-ask caps attach to it.");
+            if self.owners_directory.controls(ui, "owners", self.owners_inflight) {
+                self.last_owners = None;
+            }
+            ui.weak("All owners, alphabetically. Search a name, proposal or binding type.");
             if self.owners.is_empty() {
                 ui.weak("No owners yet.");
                 return;
-            }
-            if self.more_owners > 0 {
-                ui.weak(format!(
-                    "Showing the 50 most recent provisional owners; {} older ones are hidden (idle ones go after a week).",
-                    self.more_owners
-                ));
             }
             let mut changed = None;
             let mut resolve = None;
@@ -1814,6 +2046,22 @@ fn chat_button(
     if ui.add_enabled(target.is_some(), egui::Button::new(label))
         .on_disabled_hover_text("This host did not provide a supported session id. Older asks may lack their original client details.")
         .clicked() { target } else { None }
+}
+
+fn delivery_rows(ui: &mut egui::Ui, records: &[agentbolt_core::model::Delivery]) {
+    for delivery in records {
+        let status = if delivery.confirmed {
+            "Delivery confirmed"
+        } else if delivery.ok {
+            "Accepted; receipt unconfirmed"
+        } else {
+            "Delivery failed"
+        };
+        ui.label(format!("{status} · {} · {}", delivery.to, delivery.at));
+        if let Some(detail) = &delivery.detail {
+            ui.add(egui::Label::new(detail).selectable(true).wrap());
+        }
+    }
 }
 
 fn evidence_row(

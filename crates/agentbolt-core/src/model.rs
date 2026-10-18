@@ -139,6 +139,12 @@ pub struct Answer {
     /// Delivery records (relay, codex queue).
     #[serde(default)]
     pub deliveries: Vec<Delivery>,
+    #[serde(default)]
+    pub delivery_total: u32,
+    #[serde(default)]
+    pub delivery_next: Option<u64>,
+    #[serde(default)]
+    pub more_deliveries: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -173,6 +173,9 @@
           "before": {
             "type": "string"
           },
+          "delivery_id": {
+            "type": "string"
+          },
           "handle": {
             "type": "string"
           },

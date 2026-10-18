@@ -1,5 +1,8 @@
 # 0.2 implementation audit
 
+This document records the earlier M0/M1 handoff audit. The later full-plan implementation inventory is
+[FEATURE-INVENTORY.md](FEATURE-INVENTORY.md); its expanded features are not covered by the checks below.
+
 Artem's instruction at 22:01 UTC on 2026-10-18 is to implement all changes before heavy testing.
 This audit uses the v4 feedback at the top of Compass's `PLAN.md`, `CODEX-HANDOFF.md`, and `NEXT.md`.
 This is the historical M0/M1 audit. Artem subsequently expanded the task to the full plan, including

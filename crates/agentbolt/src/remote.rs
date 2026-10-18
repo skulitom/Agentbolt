@@ -204,6 +204,7 @@ pub(crate) fn retryable(op: &McpOp) -> bool {
         McpOp::Status
             | McpOp::Answers { .. }
             | McpOp::AnswersPage { .. }
+            | McpOp::DeliveryHistory { .. }
             | McpOp::RelayList { .. }
             | McpOp::RelayPage { .. }
     ) || matches!(

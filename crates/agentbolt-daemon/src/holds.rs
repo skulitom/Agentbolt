@@ -131,9 +131,10 @@ fn dirty(raw: &[u8], paths: &mut BTreeSet<String>) -> Result<(), String> {
 
 async fn scan(source: &WorkingCopy, config: &Config) -> Scan {
     let mut paths = BTreeSet::new();
+    let mut conservative_submodules = false;
     let outcome = async {
         if agentbolt_core::holds::excluded(&source.path, config) {
-            return Err("working copy is excluded".into());
+            return Err("working copy overlaps an excluded root and will not be scanned".into());
         }
         let path = std::fs::canonicalize(&source.path)
             .map_err(|e| format!("working copy unavailable: {e}"))?;
@@ -156,6 +157,25 @@ async fn scan(source: &WorkingCopy, config: &Config) -> Scan {
         let remote = git(&path, &["config", "--get", "remote.origin.url"]).await?;
         if remote_repo(&remote)? != source.repo {
             return Err("origin does not match the configured repository".into());
+        }
+        // Read gitlinks from this repository's index, without opening a nested checkout. Status below
+        // deliberately ignores submodules, so their paths must be held conservatively, not called clean.
+        let index = git(&path, &["ls-files", "--stage", "-z"]).await?;
+        for record in index
+            .split(|b| *b == 0)
+            .filter(|r| r.starts_with(b"160000 "))
+        {
+            let raw = record
+                .splitn(2, |b| *b == b'\t')
+                .nth(1)
+                .ok_or("incomplete Git index record")?;
+            add_path(&mut paths, raw)?;
+            let nested = format!(
+                "{}/**",
+                std::str::from_utf8(raw).map_err(|_| "submodule path is not UTF-8")?
+            );
+            add_path(&mut paths, nested.as_bytes())?;
+            conservative_submodules = true;
         }
         let status = git(
             &path,
@@ -211,5 +231,6 @@ async fn scan(source: &WorkingCopy, config: &Config) -> Scan {
         at_ms: agentbolt_core::store::to_ms(time::OffsetDateTime::now_utc()),
         paths,
         error,
+        conservative_submodules,
     }
 }

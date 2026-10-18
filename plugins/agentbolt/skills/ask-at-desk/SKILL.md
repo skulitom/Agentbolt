@@ -28,3 +28,6 @@ authorized by the user need no Desk question.
 
 For answer lists, follow `next` as `before` while `more` is true. Registration exposes the same
 continuation as `answers_next` and `more_answers`. Exact IDs can read answers older than the list window.
+
+To inspect delivery attempts, use `desk_answers` with `delivery_id` and no wait or `ids`. Page using
+`next` as a string `before`; this does not consume or alter the answer.

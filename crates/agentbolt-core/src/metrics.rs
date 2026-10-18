@@ -24,6 +24,8 @@ pub struct OwnerStats {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Period {
+    #[serde(default)]
+    pub history_span_days: Option<f64>,
     pub from: String,
     pub to: String,
     pub submitted: u32,
@@ -66,6 +68,8 @@ pub struct Report {
     pub irreversible_open: u32,
     pub oldest_irreversible_hours: Option<f64>,
     pub observation_days: Option<f64>,
+    #[serde(default)]
+    pub observation: Option<Period>,
     pub explanation: String,
 }
 
@@ -86,7 +90,16 @@ fn period(db: &Connection, from: i64, to: i64) -> Result<Period, String> {
             ))
         })
         .map_err(db_err)?;
+    let first_record: Option<i64> = db
+        .query_row(
+            "SELECT CAST(MIN(unixepoch(at,'subsec'))*1000 AS INTEGER) FROM events",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(db_err)?;
     let mut report = Period {
+        history_span_days: first_record
+            .map(|first| (to - from.max(first)).max(0) as f64 / DAY as f64),
         from: fmt_ms(from),
         to: fmt_ms(to),
         ..Default::default()
@@ -151,7 +164,7 @@ fn period(db: &Connection, from: i64, to: i64) -> Result<Period, String> {
         .into_values()
         .map(|mut o| {
             o.not_needed_share =
-                (o.answered > 0).then(|| f64::from(o.not_needed) / f64::from(o.answered));
+                (o.submitted > 0).then(|| f64::from(o.not_needed) / f64::from(o.submitted));
             o
         })
         .collect();
@@ -173,21 +186,27 @@ fn saved<T: serde::de::DeserializeOwned>(db: &Connection, key: &str) -> Result<O
 pub fn report(db: &Connection, now: i64) -> Result<Report, String> {
     let baseline: Option<Baseline> = saved(db, "adoption_baseline")?;
     let (stale,irreversible,oldest):(u32,u32,Option<i64>)=db.query_row("SELECT COALESCE(SUM(reversible=1 AND created_ms<=?1),0),COALESCE(SUM(reversible=0),0),MIN(CASE WHEN reversible=0 THEN created_ms END) FROM asks WHERE status IN ('open','digest')",[now-2*DAY],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(db_err)?;
-    let observation_days = baseline
+    let observation_start = baseline
         .as_ref()
-        .and_then(|b| {
+        .map(|b| {
             time::OffsetDateTime::parse(
                 &b.recorded_at,
                 &time::format_description::well_known::Rfc3339,
             )
-            .ok()
+            .map(store::to_ms)
+            .map_err(|e| format!("Invalid saved baseline time: {e}"))
         })
-        .map(|at| (now - store::to_ms(at)).max(0) as f64 / DAY as f64);
+        .transpose()?;
+    let observation_days =
+        observation_start.map(|start| (now - start).clamp(0, WINDOW) as f64 / DAY as f64);
+    let observation = observation_start
+        .map(|start| period(db, start, now.clamp(start, start.saturating_add(WINDOW))))
+        .transpose()?;
     Ok(Report{
         current:period(db,now-WINDOW,now)?, previous:period(db,now-2*WINDOW,now-WINDOW)?,
         baseline, verdict:saved(db,"adoption_verdict")?, reversible_waiting_over_48h:stale,
-        irreversible_open:irreversible,oldest_irreversible_hours:oldest.map(|at|(now-at).max(0) as f64/3_600_000.0),observation_days,
-        explanation:"Each period follows questions submitted during those 14 days, using outcomes recorded by the period's end. Answer latency includes human answers, including Not needed; defaults are separate. Deadline misses count asks still unanswered at their deadline. Missing history is not a zero-activity baseline. Stale and irreversible backlog are current totals across all ages.".into(),
+        irreversible_open:irreversible,oldest_irreversible_hours:oldest.map(|at|(now-at).max(0) as f64/3_600_000.0),observation_days,observation,
+        explanation:"Each period follows questions submitted during those 14 days, using outcomes recorded by the period's end. Answer latency measures recorded Desk/notification/phone answers, including Not needed; defaults are separate. Opening a session does not establish that its required go-ahead was given; that needs the session record. Not needed share uses all submitted asks for each owner. Deadline misses count asks still unanswered at their deadline. Missing history is not a zero-activity baseline. History span starts at the first stored event and does not prove uptime. The adoption comparison uses the fixed first 14 days after the saved baseline; rolling periods remain available separately. Stale and irreversible backlog are current totals across all ages.".into(),
     })
 }
 

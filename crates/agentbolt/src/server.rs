@@ -341,8 +341,25 @@ impl DeskServer {
             }
             tools::ANSWERS => {
                 let a = tools::answers_args(args, self.args.max_wait_ms)?;
+                let delivery_before = if a.delivery_id.is_some() {
+                    a.before
+                        .as_deref()
+                        .map(str::parse::<u64>)
+                        .transpose()
+                        .map_err(|_| "Delivery before must be the numeric cursor as a string")?
+                } else {
+                    None
+                };
                 self.with_handle(&who, handle, |handle| {
-                    if a.ids.is_empty() {
+                    if let Some(id) = &a.delivery_id {
+                        McpOp::DeliveryHistory {
+                            handle,
+                            query: agentbolt_core::protocol::DeliveryQuery {
+                                ask_id: id.clone(),
+                                before: delivery_before,
+                            },
+                        }
+                    } else if a.ids.is_empty() {
                         McpOp::AnswersPage {
                             handle,
                             before: a.before.clone(),
@@ -357,7 +374,15 @@ impl DeskServer {
                     }
                 })
                 .await
-                .map(|v| (tools::answers_line(&v), v))
+                .map(|v| {
+                    let line = if a.delivery_id.is_some() {
+                        "Delivery history for your ask. Follow next as before while more is true."
+                            .into()
+                    } else {
+                        tools::answers_line(&v)
+                    };
+                    (line, v)
+                })
             }
             tools::CANCEL => {
                 let id = tools::cancel_id(args)?;

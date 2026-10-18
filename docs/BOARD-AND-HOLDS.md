@@ -8,12 +8,12 @@ remove a repository; supplying a repository and `clear_repo` together is refused
 
 | Tool | Use |
 |---|---|
-| `board_who` | Live agents, roles, current work and open handoffs. |
-| `board_post` | Plain-text message to everyone, a role, owner or public agent ID; optional thread and dedupe key. |
+| `board_who` | Live agents, roles, current work and open handoffs; page with `next` as `after`, optionally include inactive agents. |
+| `board_post` | Plain-text message to everyone, a role, owner or public agent ID; optional thread, dedupe key and up to eight safe link/path references. |
 | `board_read` | Routed messages, never consumed; persist `next` as `after`, continue while `more` is true. |
 | `board_request` | Create a handoff (`action: request`), page requests (`requests`, `after`, `include_closed`), retrieve an exact ID (`get`) or cancel your owner's request (`cancel`). |
 | `board_claim` | Claim, renew or release. Save the returned `fence`; renew/release require it. |
-| `board_done` | Complete your live claim using its exact fence and a result. |
+| `board_done` | Finish your live claim using its exact fence and a result; `failed: true` records unsuccessful work. |
 | `work_holds` | List, check overlap, acquire or release your own advisory path hold. |
 
 Requests have a ten-open-items cap per owner. The same key in the same repository/role scope or a
@@ -32,13 +32,15 @@ In the Desk's Work holds tab, set excluded roots first, then add explicit reposi
 eligible entries from a chosen FOCUS.json. Import reads only the JSON: invest/maintain projects with both
 repo and path are shown for review. Remove any folder that the governing workspace rules close, then save.
 An empty allowlist disables scanning. Excluded roots are checked lexically before opening a folder and
-again after resolving its path. A configured folder must be the repository root with the matching origin.
+again after resolving its path. A source containing an excluded subtree is refused too, so Git cannot
+walk into a closed folder while collecting untracked files. A configured folder must be the repository root with the matching origin.
 
 The daemon reads Git metadata only: `git --no-optional-locks -c core.fsmonitor=false status --porcelain=v2`
 and unpushed commit paths from `git log @{upstream}..HEAD`, with NUL-separated paths. It does not fetch,
 refresh the index, run hooks, modify files or scan unlisted repositories. Scans have time/output bounds;
 errors, missing upstreams, overflow and results older than three minutes remain unknown. Dirty and unpushed
-paths become Artem's advisory holds. Agent holds are separate and expire with handle inactivity.
+paths become Artem's advisory holds. Gitlinks are read from the parent index only; each submodule path
+and its descendants are held conservatively without inspecting the nested checkout. Agent holds are separate and expire with handle inactivity.
 
 Before opening a PR, pass the actual changed paths (both sides of a rename) to `work_holds` with
 `action: check` and `stage: pr_open`; repeat with `stage: merge` immediately before merging. Relative
@@ -50,5 +52,7 @@ prints JSON and exits zero only when configured working-copy scans are fresh, su
 Repeat `--path` for more files; use `--stage merge` at merge time. An unknown scan or overlap exits nonzero,
 as does a connection error. The command reports status only; it never opens or merges a PR itself.
 
-The Desk currently presents a bounded recent Board view. Agents can page messages/requests and retrieve
-older request IDs. Complete large-result/UI pagination review remains in the feature backlog.
+The Desk has searchable request and message pages, completed/cancelled/failed request visibility,
+agent pages including inactive agents, and work-hold pages. A collision check still examines every
+relevant live hold. It returns at most 50 collision details plus `total_collisions` and `more_collisions`;
+use the paged hold list to inspect the remainder. Missing, stale, failed or future-dated scans are unknown.
