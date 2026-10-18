@@ -82,11 +82,17 @@ pub fn append(conn: &Connection, at_ms: i64, kind: &str, subject: &str, data: &V
 /// Walk the whole chain. Ok(number of events) when every row links to the previous one and hashes to its
 /// stored hash; Err names the first row that doesn't.
 pub fn verify_chain(conn: &Connection) -> Result<u64, String> {
+    verify_chain_from(conn, 0, GENESIS).map(|(seq, _)| seq as u64)
+}
+
+/// Verify the rows after `after_seq`, starting from `prev_hash` (the hash of row `after_seq`, or `GENESIS` for 0).
+/// Returns the last row's seq and hash (`after_seq` and `prev_hash` when there are no new rows).
+pub fn verify_chain_from(conn: &Connection, after_seq: i64, prev_hash: &str) -> Result<(i64, String), String> {
     let mut stmt = conn
-        .prepare("SELECT seq, at, kind, subject, data, prev_hash, hash FROM events ORDER BY seq")
+        .prepare("SELECT seq, at, kind, subject, data, prev_hash, hash FROM events WHERE seq > ?1 ORDER BY seq")
         .map_err(|e| format!("can't read the event log: {e}"))?;
     let rows = stmt
-        .query_map([], |r| {
+        .query_map([after_seq], |r| {
             Ok((
                 r.get::<_, i64>(0)?,
                 r.get::<_, String>(1)?,
@@ -98,8 +104,8 @@ pub fn verify_chain(conn: &Connection) -> Result<u64, String> {
             ))
         })
         .map_err(|e| format!("can't read the event log: {e}"))?;
-    let mut expected_seq = 1i64;
-    let mut prev = GENESIS.to_string();
+    let mut expected_seq = after_seq + 1;
+    let mut prev = prev_hash.to_string();
     for row in rows {
         let (seq, at, kind, subject, data, prev_hash, hash) =
             row.map_err(|e| format!("can't read the event log: {e}"))?;
@@ -117,7 +123,7 @@ pub fn verify_chain(conn: &Connection) -> Result<u64, String> {
         prev = hash;
         expected_seq += 1;
     }
-    Ok((expected_seq - 1) as u64)
+    Ok((expected_seq - 1, prev))
 }
 
 #[cfg(test)]

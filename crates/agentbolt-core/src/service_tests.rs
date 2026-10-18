@@ -876,6 +876,26 @@ fn the_event_chain_detects_a_tampered_row() {
 }
 
 #[test]
+fn status_checks_only_new_rows_between_full_walks_and_still_catches_a_bad_one() {
+    let t = T::new();
+    let a = t.register("owner-a");
+    t.ask(&a, t.input("First"));
+    assert!(t.status().chain_ok, "the first Status walks the whole chain");
+    t.ask(&a, t.input("Second"));
+    assert!(t.status().chain_ok, "new, well-formed rows verify incrementally");
+    {
+        let conn = t.svc.conn_for_tests();
+        let next: i64 = conn.query_row("SELECT MAX(seq) + 1 FROM events", [], |r| r.get(0)).unwrap();
+        conn.execute(
+            "INSERT INTO events (seq, at, kind, subject, data, prev_hash, hash) VALUES (?1, 'x', 'forged', 's', '{}', 'bad', 'bad')",
+            [next],
+        )
+        .unwrap();
+    }
+    assert!(!t.status().chain_ok, "a forged row after the mark is caught without a full walk");
+}
+
+#[test]
 fn relay_calls_are_refused_to_every_other_owner() {
     let t = T::new();
     let a = t.register("owner-a");
@@ -923,8 +943,12 @@ fn the_relay_lists_answers_until_any_delivery_succeeds() {
     let (v, _) = t.mcp(mark(true, "notes")).unwrap();
     assert_eq!(de::<AnswerResult>(v).answer.deliveries.len(), 2);
     assert_eq!(list(&t), vec![two.id.clone()]);
-    assert!(t.answers(&a, &[]).answers.is_empty(), "delivered: off the owner's undelivered list");
-    assert_eq!(t.answers(&a, &[&one.id]).answers.len(), 1, "but still readable by id");
+    assert_eq!(
+        t.answers(&a, &[]).answers.len(),
+        1,
+        "a notes delivery takes it off the relay's list, not off the asker's own: that agent may not read NOTES.md"
+    );
+    assert_eq!(t.answers(&a, &[&one.id]).answers.len(), 1, "and readable by id");
 
     // The daemon's own record (codex queue) counts the same way.
     t.svc.record_delivery(&two.id, "owner-b-session", true, Some("queued")).unwrap();

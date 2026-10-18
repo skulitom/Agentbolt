@@ -51,7 +51,20 @@ pub struct StoreService {
     machine: String,
     secret: [u8; tokens::SECRET_LEN],
     last_inbox: Mutex<Option<Snapshot>>,
+    /// How far Status has verified the event chain, so a Desk polling Status doesn't re-walk the whole log.
+    chain_mark: Mutex<ChainMark>,
 }
+
+/// The last verified event, and when the whole chain was last walked.
+#[derive(Default)]
+struct ChainMark {
+    seq: i64,
+    hash: Option<String>,
+    full_at_ms: Option<i64>,
+}
+
+/// Status walks the whole chain at most this often; in between it checks only new rows and the mark row.
+const FULL_CHAIN_EVERY_MS: i64 = 10 * 60_000;
 
 impl StoreService {
     /// Open the daemon's database: creates parent folders, migrates, sets WAL and exclusive locking (the daemon
@@ -92,7 +105,15 @@ impl StoreService {
             .iter()
             .find_map(|k| std::env::var(k).ok().filter(|v| !v.trim().is_empty()))
             .unwrap_or_else(|| "local".into());
-        Ok(StoreService { conn: Mutex::new(conn), clock, channel, machine, secret, last_inbox: Mutex::new(None) })
+        Ok(StoreService {
+            conn: Mutex::new(conn),
+            clock,
+            channel,
+            machine,
+            secret,
+            last_inbox: Mutex::new(None),
+            chain_mark: Mutex::new(ChainMark::default()),
+        })
     }
 
     /// Replace the clock operations use (tests; `tick` takes its own `now`).
@@ -215,13 +236,57 @@ impl StoreService {
         Ok(Some(Effect::InboxChanged { open: snap.0, digest: snap.1, next_deadline: snap.2 }))
     }
 
+    /// The event chain's state for Status: a full walk every `FULL_CHAIN_EVERY_MS`, otherwise only the rows after
+    /// the last verified one, plus a check that the mark row itself is unchanged.
+    fn chain_ok(&self, conn: &Connection, now: i64) -> bool {
+        let mut mark = self.chain_mark.lock().unwrap_or_else(|e| e.into_inner());
+        let full_due = mark.full_at_ms.is_none_or(|at| now - at >= FULL_CHAIN_EVERY_MS);
+        let result = if full_due || mark.hash.is_none() {
+            events::verify_chain_from(conn, 0, events::GENESIS).map(|r| (r, true))
+        } else {
+            let prev = mark.hash.clone().unwrap_or_default();
+            // Rows before the mark can only change if the append-only triggers were dropped, so check they're there.
+            let guarded = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('events_no_update', 'events_no_delete')",
+                    [],
+                    |r| r.get::<_, i64>(0),
+                )
+                .is_ok_and(|n| n == 2);
+            let unchanged = conn
+                .query_row("SELECT hash FROM events WHERE seq = ?1", [mark.seq], |r| r.get::<_, String>(0))
+                .is_ok_and(|h| h == prev);
+            if !guarded {
+                events::verify_chain_from(conn, 0, events::GENESIS).map(|r| (r, true))
+            } else if unchanged {
+                events::verify_chain_from(conn, mark.seq, &prev).map(|r| (r, false))
+            } else {
+                Err("the last verified event changed".to_string())
+            }
+        };
+        match result {
+            Ok(((seq, hash), full)) => {
+                mark.seq = seq;
+                mark.hash = Some(hash);
+                if full {
+                    mark.full_at_ms = Some(now);
+                }
+                true
+            }
+            Err(_) => {
+                *mark = ChainMark::default();
+                false
+            }
+        }
+    }
+
     fn status(&self, now: i64) -> Result<(Value, Vec<Effect>), String> {
         let conn = self.lock();
         let open = store::count(&conn, "SELECT COUNT(*) FROM asks WHERE status = 'open'", []).map_err(db_err)?;
         let digest = store::count(&conn, "SELECT COUNT(*) FROM asks WHERE status = 'digest'", []).map_err(db_err)?;
         let agents = store::count(&conn, "SELECT COUNT(*) FROM agents WHERE last_seen_ms >= ?1", [now - ALIVE_MS])
             .map_err(db_err)?;
-        let chain_ok = events::verify_chain(&conn).is_ok();
+        let chain_ok = self.chain_ok(&conn, now);
         let r = StatusResult {
             version: env!("CARGO_PKG_VERSION").to_string(),
             channel: self.channel.clone(),
@@ -255,9 +320,15 @@ fn opt_line(s: Option<String>, max: usize, what: &str) -> Result<Option<String>,
     }
 }
 
-/// Undelivered: no successful delivery recorded yet, wherever it went. The relay may only be able to write an
-/// answer to NOTES.md (`to` = "notes"), and that counts: otherwise such answers would sit on its list forever.
-const UNDELIVERED: &str = "NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.ask_id = asks.id AND d.ok = 1)";
+/// For the asking owner's own lists (`desk_register`, `desk_answers` without ids): not yet delivered to the session
+/// that asked (or to the owner, when no session is known). A relay's "notes" delivery doesn't count here: the
+/// agent that asked may not read NOTES.md, so it must still find its answer.
+const UNDELIVERED_TO_ASKER: &str = "NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.ask_id = asks.id AND d.ok = 1
+                           AND (d.target = asks.asking_session OR (asks.asking_session IS NULL AND d.target = asks.owner)))";
+
+/// For the relay's list: no successful delivery recorded yet, wherever it went. The relay may only be able to
+/// write an answer to NOTES.md (`to` = "notes"), and that counts here, or such answers would sit on its list forever.
+const UNDELIVERED_ANYWHERE: &str = "NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.ask_id = asks.id AND d.ok = 1)";
 
 /// The fields of `McpOp::Register`.
 struct Registration {
@@ -343,7 +414,7 @@ impl Ctx<'_> {
         let rows = store::ask_rows(
             self.db,
             &format!(
-                "owner = ?1 AND status IN ('answered', 'defaulted') AND closed_ms >= ?2 AND {UNDELIVERED}
+                "owner = ?1 AND status IN ('answered', 'defaulted') AND closed_ms >= ?2 AND {UNDELIVERED_TO_ASKER}
                  ORDER BY closed_ms DESC, rowid DESC LIMIT {ANSWER_LIST_LIMIT}"
             ),
             params![owner, self.now - ANSWER_WINDOW_MS],
@@ -801,7 +872,7 @@ impl Ctx<'_> {
         let rows = store::ask_rows(
             self.db,
             &format!(
-                "owner <> ?1 AND status IN ('answered', 'defaulted') AND closed_ms >= ?2 AND {UNDELIVERED}
+                "owner <> ?1 AND status IN ('answered', 'defaulted') AND closed_ms >= ?2 AND {UNDELIVERED_ANYWHERE}
                  ORDER BY closed_ms DESC, rowid DESC LIMIT {RELAY_LIST_LIMIT}"
             ),
             params![agent.owner, self.now - ANSWER_WINDOW_MS],
