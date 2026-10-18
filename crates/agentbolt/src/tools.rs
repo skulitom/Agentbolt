@@ -1,0 +1,554 @@
+//! The MCP tools (PLAN.md, "MCP tools"): their descriptions, input schemas, argument checks and result text.
+//! Pure functions, so they test without a daemon or a transport.
+//!
+//! Rules kept here:
+//! - no `outputSchema` (clients render the structured branch and drop `content`);
+//! - each result is one short human line plus the JSON, in `content`, with the same JSON in `structuredContent`;
+//! - the whole `tools/list` stays under 6,000 characters.
+
+use std::sync::Arc;
+
+use agentbolt_core::model::{AnswerVia, Ask, AskInput, AskKind, AskStatus, Evidence, Field, Priority};
+use agentbolt_core::protocol::AnswersResult;
+use rmcp::model::{JsonObject, Tool, ToolAnnotations};
+use serde_json::{Value, json};
+
+pub const REGISTER: &str = "desk_register";
+pub const ASK: &str = "desk_ask";
+pub const ANSWERS: &str = "desk_answers";
+pub const CANCEL: &str = "desk_cancel";
+pub const RELAY: &str = "desk_relay";
+
+pub const NAMES: [&str; 5] = [REGISTER, ASK, ANSWERS, CANCEL, RELAY];
+
+const HANDLE: &str = "Your handle from desk_register. Leave out to use this server's own.";
+
+/// The server instructions (sent in `initialize` and `server/discover`).
+pub fn instructions(owner: Option<&str>) -> String {
+    let mut s = String::from(
+        "Agentbolt is Artem's desk. Ask him with desk_ask when you can't settle something from the files; you \
+         get an id at once and keep working. Answers are durable and outlive your session: call desk_answers at \
+         the start of a run and before you finish. Silence is never agreement. A defaulted answer carries no \
+         authority from Artem: act on it only under your own rules. An answer never replaces a go-ahead your \
+         rules require in the session itself.",
+    );
+    if let Some(o) = owner {
+        s.push_str(&format!(" This server asks as owner '{o}'."));
+    }
+    s
+}
+
+fn schema(v: Value) -> Arc<JsonObject> {
+    match v {
+        Value::Object(o) => Arc::new(o),
+        _ => unreachable!("schemas are objects"),
+    }
+}
+
+fn tool(name: &'static str, title: &str, description: &'static str, input: Value, read_only: bool) -> Tool {
+    let ann = ToolAnnotations::with_title(title).read_only(read_only).destructive(false).open_world(false);
+    Tool::new(name, description, schema(input)).with_annotations(ann)
+}
+
+/// The tools, in the order clients list them.
+pub fn tools() -> Vec<Tool> {
+    vec![
+        tool(
+            REGISTER,
+            "Register with Artem's desk",
+            "Say who you are at the start of a run. Returns your handle, the answers Artem has given your owner \
+             since last time, and your open asks. Pass your handle later to renew it. Other tools register you \
+             on their own if you skip this.",
+            json!({"type": "object", "properties": {
+                "handle": {"type": "string", "description": HANDLE},
+                "doing": {"type": "string", "description": "One line: what you're working on"},
+                "session": {"type": "string", "description": "Your session or thread id, if you know it"},
+                "cwd": {"type": "string", "description": "Your working folder, if not the server's"}
+            }}),
+            false,
+        ),
+        tool(
+            ASK,
+            "Ask Artem",
+            "Ask Artem a question you can't settle from the files: a choice, an approval or missing \
+             information. Always give options where you can, a recommended default and a deadline; you get an \
+             id at once and keep working. Over his daily budget it waits in his digest, never refused. An ask \
+             that can't be undone never takes its default.",
+            json!({"type": "object", "properties": {
+                "handle": {"type": "string", "description": HANDLE},
+                "kind": {"type": "string", "enum": ["choose", "approve", "text", "form", "inform"],
+                         "description": "choose: pick an option; approve: yes or no; text: a reply; form: fields; inform: FYI"},
+                "title": {"type": "string", "description": "The question, in one line"},
+                "body": {"type": "string", "description": "What he needs to decide, plain text"},
+                "options": {"type": "array", "items": {"type": "string"}, "description": "For choose: 2 to 5"},
+                "default": {"description": "Your recommended answer: an option's text, or {field: value} for a form"},
+                "deadline": {"type": "string", "description": "RFC 3339, e.g. 2026-10-20T18:00:00+01:00"},
+                "reversible": {"type": "boolean", "description": "Can it be undone? Only reversible asks take their default"},
+                "priority": {"type": "string", "enum": ["P0", "P1", "P2"], "description": "Default P1. P0 skips the budget once a day and needs p0_reason"},
+                "p0_reason": {"type": "string"},
+                "evidence": {"type": "array", "description": "https://, claude:// links or file paths",
+                             "items": {"type": "object", "properties": {"label": {"type": "string"}, "url": {"type": "string"}},
+                                       "required": ["label", "url"]}},
+                "fields": {"type": "array", "description": "For form: up to 8",
+                           "items": {"type": "object", "properties": {
+                               "id": {"type": "string"}, "label": {"type": "string"},
+                               "type": {"type": "string", "enum": ["text", "number", "boolean", "choice"]},
+                               "required": {"type": "boolean"}, "options": {"type": "array", "items": {"type": "string"}}},
+                             "required": ["id", "label", "type"]}},
+                "dedupe_key": {"type": "string", "description": "The same key returns the existing ask"}
+            }, "required": ["kind", "title", "default", "deadline", "reversible"]}),
+            false,
+        ),
+        tool(
+            ANSWERS,
+            "Read Artem's answers",
+            "Check Artem's answers to your asks: at the start of a run, before you finish, and when you're \
+             blocked. Reading never consumes an answer. No answer yet means wait, not yes.",
+            json!({"type": "object", "properties": {
+                "handle": {"type": "string", "description": HANDLE},
+                "ids": {"type": "array", "items": {"type": "string"}, "description": "Ask ids; leave out for all your owner's answers"},
+                "wait_ms": {"type": "integer", "minimum": 0, "description": "Wait up to this long for an answer (capped)"}
+            }}),
+            true,
+        ),
+        tool(
+            CANCEL,
+            "Withdraw an ask",
+            "Withdraw an ask you no longer need, because you settled it or it went stale, so it leaves \
+             Artem's Inbox.",
+            json!({"type": "object", "properties": {
+                "handle": {"type": "string", "description": HANDLE},
+                "id": {"type": "string", "description": "The ask id"}
+            }, "required": ["id"]}),
+            false,
+        ),
+        tool(
+            RELAY,
+            "Relay answers (relay owner only)",
+            "Relay owner only: list the answers waiting for other owners, then mark each one delivered once you \
+             have passed it on. Refused to every other owner.",
+            json!({"type": "object", "properties": {
+                "handle": {"type": "string", "description": HANDLE},
+                "action": {"type": "string", "enum": ["list", "mark"]},
+                "ask_id": {"type": "string", "description": "For mark"},
+                "to": {"type": "string", "description": "For mark: where you delivered it"},
+                "ok": {"type": "boolean", "description": "For mark: did delivery work"},
+                "detail": {"type": "string"}
+            }, "required": ["action"]}),
+            false,
+        ),
+    ]
+}
+
+// ---------------------------------------------------------------- arguments
+
+pub fn str_arg(args: &JsonObject, key: &str) -> Result<Option<String>, String> {
+    match args.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(s)) if s.trim().is_empty() => Ok(None),
+        Some(Value::String(s)) => Ok(Some(s.clone())),
+        Some(_) => Err(format!("{key} must be a string")),
+    }
+}
+
+fn req_str(args: &JsonObject, key: &str) -> Result<String, String> {
+    str_arg(args, key)?.ok_or_else(|| format!("{key} is required"))
+}
+
+fn str_list(args: &JsonObject, key: &str) -> Result<Vec<String>, String> {
+    match args.get(key) {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|v| v.as_str().map(str::to_string).ok_or_else(|| format!("{key} must be a list of strings")))
+            .collect(),
+        Some(_) => Err(format!("{key} must be a list of strings")),
+    }
+}
+
+fn bool_arg(args: &JsonObject, key: &str) -> Result<Option<bool>, String> {
+    match args.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Bool(b)) => Ok(Some(*b)),
+        Some(_) => Err(format!("{key} must be true or false")),
+    }
+}
+
+pub fn handle_arg(args: &JsonObject) -> Result<Option<String>, String> {
+    str_arg(args, "handle")
+}
+
+pub fn parse_kind(s: &str) -> Result<AskKind, String> {
+    serde_json::from_value(Value::String(s.to_ascii_lowercase()))
+        .map_err(|_| format!("kind must be choose, approve, text, form or inform, not '{s}'"))
+}
+
+pub fn parse_priority(s: &str) -> Result<Priority, String> {
+    serde_json::from_value(Value::String(s.to_ascii_uppercase()))
+        .map_err(|_| format!("priority must be P0, P1 or P2, not '{s}'"))
+}
+
+/// Checks an RFC 3339 deadline and returns it normalised.
+pub fn parse_deadline(s: &str) -> Result<String, String> {
+    use time::format_description::well_known::Rfc3339;
+    let t = time::OffsetDateTime::parse(s.trim(), &Rfc3339)
+        .map_err(|_| format!("deadline must be RFC 3339 with a zone, like 2026-10-20T18:00:00+01:00, not '{s}'"))?;
+    t.format(&Rfc3339).map_err(|e| e.to_string())
+}
+
+/// `desk_ask` arguments to the pipe's `AskInput`. Shape checks only; the daemon owns the rules
+/// (budget, caps, option and default checks, the link allowlist).
+pub fn ask_input(args: &JsonObject) -> Result<AskInput, String> {
+    let kind = parse_kind(&req_str(args, "kind")?)?;
+    let title = req_str(args, "title")?;
+    let default = match args.get("default") {
+        Some(v) if !v.is_null() => v.clone(),
+        _ if kind == AskKind::Inform => Value::Null,
+        _ => return Err("default is required: your recommended answer".into()),
+    };
+    let deadline = parse_deadline(&req_str(args, "deadline")?)?;
+    let reversible = bool_arg(args, "reversible")?.ok_or("reversible is required: can this be undone later?")?;
+    let priority = match str_arg(args, "priority")? {
+        Some(p) => parse_priority(&p)?,
+        None => Priority::P1,
+    };
+    let evidence: Vec<Evidence> = match args.get("evidence") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(v) => serde_json::from_value(v.clone()).map_err(|_| "evidence must be a list of {label, url}")?,
+    };
+    let fields: Vec<Field> = match args.get("fields") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(v) => serde_json::from_value(v.clone()).map_err(|_| "fields must be a list of {id, label, type}")?,
+    };
+    Ok(AskInput {
+        kind,
+        title,
+        body: str_arg(args, "body")?.unwrap_or_default(),
+        evidence,
+        options: str_list(args, "options")?,
+        fields,
+        default,
+        deadline,
+        reversible,
+        priority,
+        p0_reason: str_arg(args, "p0_reason")?,
+        dedupe_key: str_arg(args, "dedupe_key")?,
+    })
+}
+
+pub struct AnswersArgs {
+    pub ids: Vec<String>,
+    pub wait_ms: u64,
+}
+
+pub fn answers_args(args: &JsonObject, max_wait_ms: u64) -> Result<AnswersArgs, String> {
+    let wait_ms = match args.get("wait_ms") {
+        None | Some(Value::Null) => 0,
+        Some(v) => v.as_u64().ok_or("wait_ms must be a whole number of milliseconds")?,
+    };
+    Ok(AnswersArgs { ids: str_list(args, "ids")?, wait_ms: wait_ms.min(max_wait_ms) })
+}
+
+pub fn cancel_id(args: &JsonObject) -> Result<String, String> {
+    req_str(args, "id")
+}
+
+pub enum RelayAction {
+    List,
+    Mark { ask_id: String, to: String, ok: bool, detail: Option<String> },
+}
+
+pub fn relay_action(args: &JsonObject) -> Result<RelayAction, String> {
+    match req_str(args, "action")?.as_str() {
+        "list" => Ok(RelayAction::List),
+        "mark" => Ok(RelayAction::Mark {
+            ask_id: req_str(args, "ask_id")?,
+            to: req_str(args, "to")?,
+            ok: bool_arg(args, "ok")?.unwrap_or(true),
+            detail: str_arg(args, "detail")?,
+        }),
+        other => Err(format!("action must be list or mark, not '{other}'")),
+    }
+}
+
+// ---------------------------------------------------------------- results
+
+/// Structured content must be an object; wrap anything else.
+pub fn as_object(v: Value) -> Value {
+    match v {
+        Value::Object(_) => v,
+        Value::Array(_) => json!({ "items": v }),
+        other => json!({ "result": other }),
+    }
+}
+
+/// The asks inside a daemon result, wherever they are: an array, or `answers` / `asks` / `items` / `digest`.
+pub fn asks_in(v: &Value) -> Vec<Ask> {
+    let list = match v {
+        Value::Array(a) => Some(a),
+        Value::Object(o) => ["answers", "asks", "items", "digest"].iter().find_map(|k| o.get(*k)?.as_array()),
+        _ => None,
+    };
+    list.map(|a| a.iter().filter_map(|x| serde_json::from_value(x.clone()).ok()).collect()).unwrap_or_default()
+}
+
+fn plural(n: usize, one: &str, many: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { many })
+}
+
+fn answer_value(ask: &Ask) -> String {
+    let Some(a) = &ask.answer else { return String::new() };
+    if let Some(c) = &a.choice {
+        format!("\"{c}\"")
+    } else if let Some(v) = &a.values {
+        v.to_string()
+    } else {
+        "an acknowledgement".into()
+    }
+}
+
+/// One line per ask: what Artem said, or that he hasn't yet.
+pub fn describe_answer(ask: &Ask) -> String {
+    let head = format!("{} \"{}\"", ask.id, ask.input.title);
+    match (&ask.status, &ask.answer) {
+        (_, Some(a)) if a.via == AnswerVia::Defaulted || ask.status == AskStatus::Defaulted => format!(
+            "{head}: no answer from Artem; it defaulted to {}. A default carries no authority from him: act \
+             under your own rules.",
+            answer_value(ask)
+        ),
+        (_, Some(a)) => {
+            let note = a.note.as_deref().map(|n| format!(" Note: {n}")).unwrap_or_default();
+            let via = if a.via == AnswerVia::Toast { " (from a notification)" } else { "" };
+            format!("{head}: Artem answered {}{via}.{note}", answer_value(ask))
+        }
+        (AskStatus::Cancelled, None) => format!("{head}: cancelled."),
+        (AskStatus::Digest, None) => format!("{head}: no answer yet; it waits in his daily digest."),
+        _ => format!("{head}: no answer yet."),
+    }
+}
+
+pub fn register_line(v: &Value) -> String {
+    let owner = v.get("owner").and_then(Value::as_str).unwrap_or("?");
+    let handle = v.get("handle").and_then(Value::as_str).unwrap_or("?");
+    let answers = v.get("answers").and_then(Value::as_array).map_or(0, Vec::len);
+    let open = v.get("open_asks").and_then(Value::as_array).map_or(0, Vec::len);
+    let provisional = if v.get("provisional").and_then(Value::as_bool) == Some(true) {
+        " (a provisional owner until Artem approves it on the Desk)"
+    } else {
+        ""
+    };
+    format!(
+        "Registered as owner {owner}{provisional}, handle {handle}: {} waiting, {} open.",
+        plural(answers, "answer", "answers"),
+        plural(open, "ask", "asks")
+    )
+}
+
+/// The daemon answers "existing" both for a duplicate and for an owner at its open-ask cap; tell them apart
+/// by whether the returned ask is the one that was sent (same dedupe key, or same title).
+fn is_same_ask(existing: &AskInput, sent: &AskInput) -> bool {
+    match (&existing.dedupe_key, &sent.dedupe_key) {
+        (Some(a), Some(b)) => a == b,
+        _ => existing.title.trim().eq_ignore_ascii_case(sent.title.trim()),
+    }
+}
+
+pub fn ask_line(v: &Value, sent: Option<&AskInput>) -> String {
+    let id = v.get("id").and_then(Value::as_str).unwrap_or("?");
+    match v.get("placed").and_then(Value::as_str) {
+        Some("digest") => format!(
+            "Asked: {id} waits in Artem's daily digest (today's Inbox budget is used). Keep working and check \
+             desk_answers later."
+        ),
+        Some("cap") => {
+            let title = v.pointer("/existing/title").and_then(Value::as_str).unwrap_or("?");
+            format!(
+                "Not asked: your owner already has its limit of open asks. The oldest is {id} \"{title}\". \
+                 Withdraw one you no longer need with desk_cancel, or wait for answers."
+            )
+        }
+        Some("existing") => {
+            let existing: Option<Ask> = v.get("existing").and_then(|e| serde_json::from_value(e.clone()).ok());
+            match (existing, sent) {
+                (Some(e), Some(s)) if !is_same_ask(&e.input, s) => format!(
+                    "Not asked: your owner already has its limit of open asks. The oldest is {id} \"{}\". \
+                     Withdraw one you no longer need with desk_cancel, or wait for answers.",
+                    e.input.title
+                ),
+                _ => format!("Not asked again: it matches your ask {id}. Check desk_answers for it."),
+            }
+        }
+        _ => format!("Asked: {id} is in Artem's Inbox. Keep working and check desk_answers later."),
+    }
+}
+
+pub fn answers_line(v: &Value) -> String {
+    let r: AnswersResult = serde_json::from_value(v.clone()).unwrap_or_else(|_| AnswersResult {
+        answers: asks_in(v),
+        ..Default::default()
+    });
+    let mut s = if r.answers.is_empty() {
+        "No answers yet.".to_string()
+    } else {
+        format!("{}:", plural(r.answers.len(), "answer", "answers"))
+    };
+    for a in &r.answers {
+        s.push('\n');
+        s.push_str(&describe_answer(a));
+    }
+    if !r.waiting.is_empty() {
+        s.push_str(&format!(
+            "\nNo answer yet for {}. Silence is not agreement: keep working, and check again later.",
+            r.waiting.join(", ")
+        ));
+    } else if r.answers.is_empty() {
+        s.push_str(" Silence is not agreement.");
+    }
+    if !r.cancelled.is_empty() {
+        s.push_str(&format!("\nCancelled: {}.", r.cancelled.join(", ")));
+    }
+    if !r.unknown.is_empty() {
+        s.push_str(&format!("\nNot your asks, or no such ids: {}.", r.unknown.join(", ")));
+    }
+    s
+}
+
+pub fn relay_list_line(v: &Value) -> String {
+    let asks = asks_in(v);
+    let mut s = format!("{} waiting for other owners.", plural(asks.len(), "answer", "answers"));
+    for a in &asks {
+        s.push_str(&format!("\n[{}] {}", a.owner, describe_answer(a)));
+    }
+    s
+}
+
+/// The `content` text: the line, then the JSON.
+pub fn text(line: &str, v: &Value) -> String {
+    format!("{line}\n\n{v}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn obj(v: Value) -> JsonObject {
+        v.as_object().unwrap().clone()
+    }
+
+    #[test]
+    fn five_tools_without_output_schema_under_the_size_cap() {
+        let tools = tools();
+        let names: Vec<_> = tools.iter().map(|t| t.name.to_string()).collect();
+        assert_eq!(names, NAMES);
+        assert!(tools.iter().all(|t| t.output_schema.is_none()));
+        let size = serde_json::to_string(&json!({ "tools": tools })).unwrap().len();
+        assert!(size < 6000, "tools/list is {size} characters");
+    }
+
+    #[test]
+    fn ask_arguments_map_to_the_pipe_input() {
+        let a = ask_input(&obj(json!({
+            "kind": "choose", "title": "Ship?", "options": ["Ship", "Wait"], "default": "Ship",
+            "deadline": "2026-10-20T18:00:00+01:00", "reversible": true,
+            "evidence": [{"label": "PR", "url": "https://github.com/x/y/pull/1"}]
+        })))
+        .unwrap();
+        assert_eq!(a.kind, AskKind::Choose);
+        assert_eq!(a.priority, Priority::P1);
+        assert_eq!(a.default, json!("Ship"));
+        assert_eq!(a.evidence.len(), 1);
+        assert_eq!(a.deadline, "2026-10-20T18:00:00+01:00");
+    }
+
+    #[test]
+    fn ask_arguments_are_checked() {
+        let base = json!({"kind": "choose", "title": "t", "default": "a", "deadline": "2026-10-20T18:00:00Z", "reversible": false});
+        let without = |k: &str| {
+            let mut o = obj(base.clone());
+            o.remove(k);
+            ask_input(&o).unwrap_err()
+        };
+        assert!(without("default").contains("default"));
+        assert!(without("deadline").contains("deadline"));
+        assert!(without("reversible").contains("reversible"));
+        let mut o = obj(base.clone());
+        o.insert("deadline".into(), json!("tomorrow"));
+        assert!(ask_input(&o).unwrap_err().contains("RFC 3339"));
+        o.insert("deadline".into(), json!("2026-10-20T18:00:00"));
+        assert!(ask_input(&o).unwrap_err().contains("RFC 3339"), "a deadline without a zone is refused");
+        let mut o = obj(base.clone());
+        o.insert("kind".into(), json!("poll"));
+        assert!(ask_input(&o).unwrap_err().contains("kind"));
+        let mut o = obj(base);
+        o.insert("kind".into(), json!("inform"));
+        o.remove("default");
+        assert_eq!(ask_input(&o).unwrap().default, Value::Null, "an FYI needs no default");
+    }
+
+    #[test]
+    fn answers_wait_is_capped() {
+        let a = answers_args(&obj(json!({"wait_ms": 600000, "ids": ["a1"]})), 20_000).unwrap();
+        assert_eq!(a.wait_ms, 20_000);
+        assert_eq!(a.ids, vec!["a1"]);
+        assert_eq!(answers_args(&obj(json!({})), 20_000).unwrap().wait_ms, 0);
+        assert!(answers_args(&obj(json!({"wait_ms": -1})), 20_000).is_err());
+    }
+
+    fn ask(status: &str, answer: Option<Value>) -> Value {
+        json!({
+            "id": "a1", "owner": "o", "asking_session": null, "kind": "choose", "title": "Ship?", "body": "",
+            "options": ["Ship", "Wait"], "default": "Wait", "deadline": "2026-10-20T18:00:00Z", "reversible": true,
+            "priority": "P1", "status": status, "created_at": "2026-10-18T10:00:00Z", "shown_at": null,
+            "answer": answer
+        })
+    }
+
+    #[test]
+    fn a_default_is_never_reported_as_artems_answer() {
+        let v = json!({"answers": [ask("defaulted", Some(json!({"ask_id": "a1", "via": "defaulted", "choice": "Wait", "answered_at": "x"})))]});
+        let line = answers_line(&v);
+        assert!(line.contains("no answer from Artem"), "{line}");
+        assert!(line.contains("no authority"), "{line}");
+        let v = json!({"answers": [ask("answered", Some(json!({"ask_id": "a1", "via": "desk", "choice": "Ship", "note": "go", "answered_at": "x"})))],
+                       "waiting": ["a2"], "cancelled": ["a3"], "unknown": ["zz"]});
+        let line = answers_line(&v);
+        assert!(line.starts_with("1 answer:"), "{line}");
+        assert!(line.contains("Artem answered \"Ship\". Note: go"), "{line}");
+        assert!(line.contains("No answer yet for a2. Silence is not agreement"), "{line}");
+        assert!(line.contains("Cancelled: a3.") && line.contains("no such ids: zz."), "{line}");
+        let line = answers_line(&json!({"answers": [], "waiting": []}));
+        assert_eq!(line, "No answers yet. Silence is not agreement.");
+        assert!(answers_line(&json!([ask("open", None)])).contains("no answer yet"), "an older shape still reads");
+    }
+
+    #[test]
+    fn ask_and_register_lines() {
+        assert!(ask_line(&json!({"id": "a1", "placed": "open"}), None).contains("Inbox"));
+        assert!(ask_line(&json!({"id": "a1", "placed": "digest"}), None).contains("digest"));
+        assert!(ask_line(&json!({"id": "a1", "placed": "existing"}), None).contains("matches"));
+        let sent: AskInput = serde_json::from_value(ask("open", None)).unwrap();
+        let same = json!({"id": "a1", "placed": "existing", "existing": ask("open", None)});
+        assert!(ask_line(&same, Some(&sent)).contains("matches"));
+        let mut other = sent.clone();
+        other.title = "Something else".into();
+        let line = ask_line(&same, Some(&other));
+        assert!(line.contains("limit of open asks") && line.contains("desk_cancel"), "{line}");
+        let r = register_line(&json!({"handle": "h1", "owner": "o", "provisional": true, "answers": [], "open_asks": [1]}));
+        assert!(r.contains("provisional") && r.contains("0 answers") && r.contains("1 ask open"), "{r}");
+    }
+
+    #[test]
+    fn structured_content_is_always_an_object() {
+        assert!(as_object(json!([1])).is_object());
+        assert!(as_object(json!(true)).is_object());
+        assert_eq!(as_object(json!({"a": 1})), json!({"a": 1}));
+    }
+
+    #[test]
+    fn instructions_say_the_rules() {
+        let s = instructions(Some("compass-storefront"));
+        for needle in ["durable", "start of a run", "before you finish", "Silence is never agreement", "no authority", "compass-storefront"] {
+            assert!(s.contains(needle), "missing {needle}");
+        }
+    }
+}

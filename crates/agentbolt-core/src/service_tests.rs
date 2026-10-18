@@ -209,7 +209,7 @@ fn the_fair_share_stops_one_owner_taking_the_day() {
     assert_eq!(t.placed(&b, "b1"), "open");
     assert_eq!(t.placed(&a, "a2"), "open", "two owners: a share of ceil(5 / 2) = 3 each");
     assert_eq!(t.placed(&a, "a3"), "open");
-    assert_eq!(t.placed(&a, "a4"), "existing", "a has 3 open asks: the owner cap answers before the share");
+    assert_eq!(t.placed(&a, "a4"), "cap", "a has 3 open asks: the owner cap answers before the share");
     assert_eq!(t.placed(&b, "b2"), "open");
     assert_eq!(t.placed(&c, "c1"), "digest", "the budget of 5 is used");
     assert_eq!(t.list().inbox.len(), 5);
@@ -336,7 +336,7 @@ fn an_owner_over_its_cap_gets_its_oldest_open_ask_back() {
     let a = t.register("owner-a");
     let ids: Vec<String> = ["one", "two", "three"].iter().map(|n| t.ask(&a, t.input(n)).id).collect();
     let over = t.ask(&a, t.input("four"));
-    assert_eq!(over.placed, "existing");
+    assert_eq!(over.placed, "cap");
     assert_eq!(over.id, ids[0]);
     assert_eq!(over.existing.as_ref().map(|e| e.id.as_str()), Some(ids[0].as_str()));
     assert_eq!(t.status().open, 3);

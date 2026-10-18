@@ -69,7 +69,8 @@ pub struct RegisterResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AskResult {
     pub id: String,
-    /// "open" (in the Inbox), "digest" (held by the budget) or "existing" (deduplicated).
+    /// "open" (in the Inbox), "digest" (held by the budget), "existing" (deduplicated) or "cap" (the owner
+    /// already has its limit of open asks; `existing` is its oldest).
     pub placed: String,
     /// When `placed` is "existing", or when the owner is at its cap: the ask it was matched to.
     #[serde(default, skip_serializing_if = "Option::is_none")]

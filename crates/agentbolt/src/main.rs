@@ -1,2 +1,5 @@
-//! agentbolt CLI and MCP server (filled in by the MCP work).
-fn main() {}
+//! agentbolt: the CLI and MCP server (a console program: PLAN.md, Anode B-050).
+
+fn main() {
+    std::process::exit(agentbolt::run(std::env::args().skip(1)));
+}

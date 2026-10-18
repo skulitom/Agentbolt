@@ -641,7 +641,7 @@ impl Ctx<'_> {
             let oldest = &pending[0];
             return Ok(AskResult {
                 id: oldest.id.clone(),
-                placed: "existing".into(),
+                placed: "cap".into(),
                 existing: Some(self.full(oldest)?),
             });
         }
