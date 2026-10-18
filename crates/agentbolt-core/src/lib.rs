@@ -5,6 +5,7 @@
 pub mod channel;
 pub mod events;
 pub mod model;
+pub mod navigation;
 pub mod protocol;
 pub mod rules;
 pub mod service;

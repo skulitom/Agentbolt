@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use agentbolt_core::model::{Ask, AskKind, Evidence, Field};
+use agentbolt_core::model::{Ask, AskKind, Field};
 use serde_json::{Map, Value};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -78,11 +78,7 @@ pub enum Link {
 }
 
 /// Printable ASCII that URLs use; anything else (spaces, quotes, angle brackets, non-ASCII) disqualifies.
-fn url_chars_ok(s: &str) -> bool {
-    s.len() <= 2048
-        && s.bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"-._~:/?#[]@!$&'()*+,;=%".contains(&b))
-}
+use agentbolt_core::rules::url_chars_ok;
 
 /// `s` starts with `prefix` (ASCII case ignored) and has more after it. Never slices inside a character: byte
 /// `prefix.len()` may fall inside a multi-byte one, as in "1234567éx" or "Notes/Résumé.md".
@@ -95,7 +91,7 @@ pub fn classify(url: &str) -> Link {
     if has_prefix(u, "https://") && url_chars_ok(u) {
         return Link::Web(u.to_string());
     }
-    if has_prefix(u, "claude://") && url_chars_ok(u) {
+    if (has_prefix(u, "claude://") || has_prefix(u, "codex://")) && url_chars_ok(u) {
         return Link::Session(u.to_string());
     }
     // A local drive path such as C:\DEV\x or C:/DEV/x. Never UNC (\\server\share would reach the network).
@@ -112,14 +108,6 @@ pub fn classify(url: &str) -> Link {
         return Link::Path(PathBuf::from(u.replace('/', "\\")));
     }
     Link::Text
-}
-
-/// The first `claude://` link in the evidence: the Desk's "Open the session" button.
-pub fn session_link(evidence: &[Evidence]) -> Option<String> {
-    evidence.iter().find_map(|e| match classify(&e.url) {
-        Link::Session(u) => Some(u),
-        _ => None,
-    })
 }
 
 /// The buttons for a choose / approve ask.
@@ -351,7 +339,7 @@ pub const EMPTY_AGENTS: &str = "No agents have registered yet.";
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agentbolt_core::model::{AskInput, AskStatus, Priority};
+    use agentbolt_core::model::{AskInput, AskStatus, Evidence, Priority};
     use serde_json::json;
     use time::macros::datetime;
 
@@ -360,6 +348,8 @@ mod tests {
             id: id.into(),
             owner: "o".into(),
             asking_session: None,
+            asking_client: None,
+            asking_cwd: None,
             input: AskInput {
                 kind: AskKind::Choose,
                 title: id.into(),
@@ -480,18 +470,6 @@ mod tests {
         ] {
             assert_eq!(classify(text), Link::Text, "{text:?} must be plain text");
         }
-        let ev = vec![
-            Evidence {
-                label: "PR".into(),
-                url: "https://github.com".into(),
-            },
-            Evidence {
-                label: "Session".into(),
-                url: "claude://resume/abc".into(),
-            },
-        ];
-        assert_eq!(session_link(&ev).as_deref(), Some("claude://resume/abc"));
-        assert_eq!(session_link(&ev[..1]), None);
     }
 
     #[test]
@@ -521,22 +499,6 @@ mod tests {
             classify("C:/Users/Åsa/日本.md"),
             Link::Path(PathBuf::from("C:\\Users\\Åsa\\日本.md"))
         );
-        let ev = vec![
-            Evidence {
-                label: "Résumé".into(),
-                url: "Notes/Résumé.md".into(),
-            },
-            Evidence {
-                label: "ünïcödé".into(),
-                url: "1234567éx".into(),
-            },
-            Evidence {
-                label: "Session".into(),
-                url: "claude://resume/abc".into(),
-            },
-        ];
-        assert_eq!(session_link(&ev).as_deref(), Some("claude://resume/abc"));
-        assert_eq!(session_link(&ev[..2]), None);
         // The Agents tab classifies session refs the host gave, which can be anything.
         for session_ref in ["sessión-1", "セッション", "019a-thread", "claude:/é"] {
             assert_eq!(classify(session_ref), Link::Text, "{session_ref:?}");

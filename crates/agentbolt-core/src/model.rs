@@ -90,6 +90,11 @@ pub struct Ask {
     pub id: String,
     pub owner: String,
     pub asking_session: Option<String>,
+    /// Immutable host context, kept after the live agent's handle expires.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asking_client: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asking_cwd: Option<String>,
     #[serde(flatten)]
     pub input: AskInput,
     pub status: AskStatus,

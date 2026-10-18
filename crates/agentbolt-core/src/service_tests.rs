@@ -21,6 +21,34 @@ use crate::{rules, store};
 
 const START: OffsetDateTime = datetime!(2026-10-19 09:00 UTC);
 
+#[test]
+fn an_ask_keeps_its_original_chat_after_agents_expire_or_register_elsewhere() {
+    let t = T::new();
+    let original = "01a1503a-5165-7e62-a9ba-88c35a72cfce";
+    let reg = t.register_full(
+        Some("persistent-owner"),
+        Some(original),
+        Some("C:\\original"),
+    );
+    let mut input = t.input("Durable chat context");
+    input.reversible = false;
+    let ask = t.ask(&reg.handle, input);
+    t.register_full(
+        Some("persistent-owner"),
+        Some("a-later-session"),
+        Some("C:\\different"),
+    );
+    t.advance(Duration::days(8));
+    t.tick();
+    let list = t.list();
+    let stored = list.inbox.iter().find(|a| a.id == ask.id).unwrap();
+    assert_eq!(stored.asking_session.as_deref(), Some(original));
+    assert_eq!(stored.asking_client.as_deref(), Some("claude-code"));
+    assert_eq!(stored.asking_cwd.as_deref(), Some("C:\\original"));
+    let agents: AgentsResult = de(t.desk(DeskOp::Agents).unwrap().0);
+    assert!(agents.agents.is_empty());
+}
+
 struct T {
     svc: StoreService,
     now: Arc<Mutex<OffsetDateTime>>,

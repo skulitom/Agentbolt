@@ -57,5 +57,27 @@ daemon removed the warm window. The native visibility checks run throughout prel
 Set `AGENTBOLT_MEASURE_IDLE=1` for the warm probe to additionally measure both processes for ten minutes;
 the combined CPU limit is 0.5% of one core (stricter than Task Manager's all-core percentage).
 
-Ten-minute CPU, sign-in reliability, installed upgrade behavior,
-live-client navigation/delivery, signing, packaging and remaining `NEXT.md` items are still pending.
+The ten-minute CPU sample measured **0.323% of one core combined** (daemon 0.065%, Desk 0.258%,
+600.18 seconds). CPU passed, but the following reopen probe failed to refresh the Inbox; investigation is
+still open. This longer test is not recorded as an overall pass.
+
+## Chat navigation
+
+The Desk now offers validated chat navigation on asks and Agents rows. Claude Desktop links are generated
+from `CLAUDE_CODE_HOST_SESSION_ID`, taking precedence over its different CLI session id; Codex uses per-call
+thread metadata. Claude CLI resumes with separate Windows Terminal arguments. Invalid ids are refused;
+unsafe, missing or nonlocal folders fall back to the user's existing local home directory.
+The installed Codex package manifest registers `codex`, and its bundled app source uses
+`codex://threads/<threadId>`. CLI fallback is available if opening that protocol fails.
+
+Ask records retain the original client and working directory alongside the session id, even after agent
+expiry or a later registration. Schema migration preserves existing asks and answers without guessing
+missing historical client context. Both session URL schemes use the same character filter.
+
+Windows workspace tests and all-target lint checks pass. Tests cover malformed identifiers, terminal
+argument separation, folder fallback, host-id precedence, durable chat context and a released-schema
+upgrade. **Live inheritance of Claude Desktop's host variable, actual Codex `_meta.threadId` calls and
+navigation into those real clients remain unverified.**
+
+Sign-in reliability, installed upgrade behavior, live-client navigation/delivery, signing, packaging and
+remaining `NEXT.md` items are still pending.

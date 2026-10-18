@@ -177,3 +177,37 @@ pub fn trace_window_shown(title: &str) {
 pub fn run_task(names: &Names) -> Result<(), String> {
     imp::run_task(&names.task)
 }
+
+pub fn open_chat(
+    target: &agentbolt_core::navigation::ChatTarget,
+    cwd: Option<&str>,
+) -> Result<(), String> {
+    use agentbolt_core::navigation::ChatTarget;
+    if !agentbolt_core::navigation::valid_session_id(target.id()) {
+        return Err("The host supplied an invalid session id.".into());
+    }
+    match target {
+        ChatTarget::ClaudeDesktop(_) => return open_url(&target.url().ok_or("Invalid chat link")?),
+        ChatTarget::Codex(_) => {
+            // The installed Codex app registers codex://threads/<id>. A CLI-only machine can resume in wt.
+            if open_url(&target.url().ok_or("Invalid chat link")?).is_ok() {
+                return Ok(());
+            }
+        }
+        ChatTarget::ClaudeTerminal(_) => {}
+    }
+    let home =
+        std::env::var(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).unwrap_or_default();
+    let args = crate::chat::terminal_args(target, cwd, &home)?;
+    #[cfg(windows)]
+    return std::process::Command::new("wt.exe")
+        .args(args)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Couldn't start Windows Terminal: {e}"));
+    #[cfg(not(windows))]
+    {
+        let _ = args;
+        Err("Terminal resume from the Desk is available on Windows.".into())
+    }
+}

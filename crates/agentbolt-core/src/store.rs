@@ -17,7 +17,8 @@ use crate::model::{Agent, Answer, AnswerVia, AskInput, AskStatus, Delivery, Owne
 use crate::rules;
 
 /// Each entry upgrades the schema by one version (`PRAGMA user_version`). Never edit a released entry; append.
-const MIGRATIONS: &[&str] = &[r#"
+const MIGRATIONS: &[&str] = &[
+    r#"
 CREATE TABLE meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -107,7 +108,12 @@ CREATE TRIGGER events_no_update BEFORE UPDATE ON events
 BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
 CREATE TRIGGER events_no_delete BEFORE DELETE ON events
 BEGIN SELECT RAISE(ABORT, 'events are append-only'); END;
-"#];
+"#,
+    r#"
+ALTER TABLE asks ADD COLUMN asking_client TEXT;
+ALTER TABLE asks ADD COLUMN asking_cwd TEXT;
+"#,
+];
 
 pub(crate) fn db_err(e: rusqlite::Error) -> String {
     format!("database error: {e}")
@@ -255,6 +261,8 @@ pub(crate) struct AskRow {
     pub id: String,
     pub owner: String,
     pub asking_session: Option<String>,
+    pub asking_client: Option<String>,
+    pub asking_cwd: Option<String>,
     pub input: AskInput,
     pub status: AskStatus,
     pub created_ms: i64,
@@ -262,8 +270,7 @@ pub(crate) struct AskRow {
     pub deadline_ms: i64,
 }
 
-const ASK_COLS: &str =
-    "id, owner, asking_session, input_json, status, created_ms, shown_ms, deadline_ms";
+const ASK_COLS: &str = "id, owner, asking_session, input_json, status, created_ms, shown_ms, deadline_ms, asking_client, asking_cwd";
 
 fn map_ask(r: &Row<'_>) -> rusqlite::Result<AskRow> {
     let input_json: String = r.get(3)?;
@@ -274,6 +281,8 @@ fn map_ask(r: &Row<'_>) -> rusqlite::Result<AskRow> {
         id: r.get(0)?,
         owner: r.get(1)?,
         asking_session: r.get(2)?,
+        asking_client: r.get(8)?,
+        asking_cwd: r.get(9)?,
         input,
         status: parse_status(&status).ok_or_else(|| bad(4, "ask status"))?,
         created_ms: r.get(5)?,
@@ -306,6 +315,8 @@ pub(crate) struct NewAsk<'a> {
     pub id: &'a str,
     pub owner: &'a str,
     pub asking_session: Option<&'a str>,
+    pub asking_client: Option<&'a str>,
+    pub asking_cwd: Option<&'a str>,
     pub input: &'a AskInput,
     pub p0_skip: bool,
     pub deadline_ms: i64,
@@ -320,8 +331,8 @@ pub(crate) fn insert_ask(conn: &Connection, a: &NewAsk<'_>) -> rusqlite::Result<
     let priority = rules::priority_str(a.input.priority);
     conn.execute(
         "INSERT INTO asks (id, owner, asking_session, input_json, priority, p0_skip, reversible, deadline_ms, status,
-                           created_ms, inbox_ms)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                           created_ms, inbox_ms, asking_client, asking_cwd)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         params![
             a.id,
             a.owner,
@@ -333,7 +344,9 @@ pub(crate) fn insert_ask(conn: &Connection, a: &NewAsk<'_>) -> rusqlite::Result<
             a.deadline_ms,
             status_str(a.status),
             a.created_ms,
-            a.inbox_ms
+            a.inbox_ms,
+            a.asking_client,
+            a.asking_cwd
         ],
     )?;
     Ok(())
@@ -605,4 +618,52 @@ pub(crate) fn utc_offset_minutes(conn: &Connection) -> rusqlite::Result<i32> {
     Ok(meta(conn, "utc_offset_minutes")?
         .and_then(|s| s.parse().ok())
         .unwrap_or(0))
+}
+
+#[cfg(test)]
+mod migration_tests {
+    use super::*;
+
+    #[test]
+    fn released_database_upgrade_preserves_answers_and_never_guesses_a_chat() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(MIGRATIONS[0]).unwrap();
+        conn.execute_batch("PRAGMA user_version = 1;").unwrap();
+        let input = serde_json::json!({
+            "kind":"choose", "title":"Existing decision", "options":["Yes","No"],
+            "default":"No", "deadline":"2026-10-20T00:00:00Z", "reversible":true,
+            "priority":"P1"
+        });
+        conn.execute(
+            "INSERT INTO asks (id, owner, asking_session, input_json, priority, reversible,
+             deadline_ms, status, created_ms, inbox_ms, shown_ms, closed_ms)
+             VALUES ('old', 'owner', 'original-host-session', ?1, 'P1', 1, 2000,
+                     'answered', 1000, 1000, 1100, 1200)",
+            [input.to_string()],
+        )
+        .unwrap();
+        conn.execute_batch(
+            "INSERT INTO answers (ask_id, via, choice, answered_ms)
+                            VALUES ('old', 'desk', 'No', 1200);",
+        )
+        .unwrap();
+        migrate(&mut conn).unwrap();
+        migrate(&mut conn).unwrap(); // A second launch must be harmless.
+        let ask = ask_row(&conn, "old").unwrap().unwrap();
+        assert_eq!(ask.status, AskStatus::Answered);
+        assert_eq!(ask.shown_ms, Some(1100));
+        assert_eq!(ask.asking_session.as_deref(), Some("original-host-session"));
+        assert!(ask.asking_client.is_none() && ask.asking_cwd.is_none());
+        let choice: String = conn
+            .query_row("SELECT choice FROM answers WHERE ask_id = 'old'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(choice, "No");
+        assert_eq!(
+            conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            MIGRATIONS.len() as i64
+        );
+    }
 }

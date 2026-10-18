@@ -4,6 +4,7 @@
 
 mod app;
 mod args;
+mod chat;
 mod os;
 mod resident;
 mod startup;

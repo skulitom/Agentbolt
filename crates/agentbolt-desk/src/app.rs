@@ -498,13 +498,10 @@ impl DeskApp {
                     evidence_row(ui, &e.label, &e.url, exists);
                 }
             }
-            if let Some(link) = view::session_link(&ask.input.evidence) {
-                ui.add_space(4.0);
-                if ui.button("Open the session").on_hover_text(&link).clicked()
-                    && let Err(e) = os::open_url(&link)
-                {
-                    self.note(e, true);
-                }
+            ui.add_space(4.0);
+            if let Some(target) = chat_button(ui, ask.asking_client.as_deref().unwrap_or_default(), ask.asking_session.as_deref())
+                && let Err(e) = os::open_chat(&target, ask.asking_cwd.as_deref()) {
+                self.note(e, true);
             }
             ui.separator();
             let sending = self.sending.contains(&ask.id);
@@ -670,30 +667,17 @@ impl DeskApp {
                             }
                             ui.label(view::ago(&a.last_seen, now))
                                 .on_hover_text(&a.last_seen);
-                            match a.session_ref.as_deref() {
-                                Some(s) => match view::classify(s) {
-                                    Link::Session(u) | Link::Web(u) => {
-                                        if ui.link("Open").on_hover_text(&u).clicked() {
-                                            open = Some(u);
-                                        }
-                                    }
-                                    _ => {
-                                        ui.add(
-                                            egui::Label::new(RichText::new(s).monospace())
-                                                .selectable(true),
-                                        );
-                                    }
-                                },
-                                None => {
-                                    ui.weak("none");
-                                }
+                            if let Some(target) =
+                                chat_button(ui, &a.client, a.session_ref.as_deref())
+                            {
+                                open = Some((target, a.cwd.clone()));
                             }
                             ui.end_row();
                         }
                     });
             });
-        if let Some(u) = open
-            && let Err(e) = os::open_url(&u)
+        if let Some((target, cwd)) = open
+            && let Err(e) = os::open_chat(&target, cwd.as_deref())
         {
             self.note(e, true);
         }
@@ -791,6 +775,18 @@ fn priority_tag(ui: &mut egui::Ui, p: Priority) {
         Priority::P2 => ("P2", ui.visuals().weak_text_color()),
     };
     ui.label(RichText::new(text).monospace().strong().color(color));
+}
+
+fn chat_button(
+    ui: &mut egui::Ui,
+    client: &str,
+    session: Option<&str>,
+) -> Option<agentbolt_core::navigation::ChatTarget> {
+    let target = agentbolt_core::navigation::ChatTarget::from_host(client, session);
+    let label = target.as_ref().map_or("Open chat", |t| t.label());
+    if ui.add_enabled(target.is_some(), egui::Button::new(label))
+        .on_disabled_hover_text("This host did not provide a supported session id. Older asks may lack their original client details.")
+        .clicked() { target } else { None }
 }
 
 fn evidence_row(

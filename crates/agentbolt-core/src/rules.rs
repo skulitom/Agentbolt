@@ -76,7 +76,14 @@ pub fn clean_line(s: &str, max: usize) -> String {
 
 // ---- links ----
 
-/// The Desk's link allowlist: `https://` and `claude://` links, or a plain repository path (no scheme, no `..`,
+/// Printable URL characters only. Shared with the Desk so a stored link cannot bypass its launch filter.
+pub fn url_chars_ok(s: &str) -> bool {
+    s.len() <= MAX_LINK
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-._~:/?#[]@!$&'()*+,;=%".contains(&b))
+}
+
+/// The Desk's link allowlist: `https://`, `claude://` and `codex://`, or a plain repository path (no scheme, no `..`,
 /// no control characters, not a network path). Everything else (`javascript:`, `file:`, `ms-msdt:`,
 /// `search-ms:`, `http:`, `data:` ...) is refused, and the Desk renders refused text as plain text.
 pub fn check_link(url: &str) -> Result<(), String> {
@@ -95,18 +102,18 @@ pub fn check_link(url: &str) -> Result<(), String> {
         return Err("an evidence link starts or ends with spaces".into());
     }
     let lower = url.to_ascii_lowercase();
-    for scheme in ["https://", "claude://"] {
+    for scheme in ["https://", "claude://", "codex://"] {
         if let Some(rest) = lower.strip_prefix(scheme) {
             if rest.is_empty() || rest.starts_with('/') {
                 return Err(format!("the link {url:?} has no host after {scheme}"));
             }
-            if url.chars().any(char::is_whitespace) {
-                return Err(format!("the link {url:?} contains spaces"));
+            if !url_chars_ok(url) {
+                return Err(format!("the link {url:?} contains unsafe URL characters"));
             }
             return Ok(());
         }
     }
-    // Not https:// or claude://, so it must be a plain path.
+    // Not an allowed URL scheme, so it must be a plain path.
     if let Some(colon) = url.find(':') {
         let before = &url[..colon];
         let drive = before.len() == 1
@@ -124,7 +131,7 @@ pub fn check_link(url: &str) -> Result<(), String> {
                     .all(|b| b.is_ascii_alphanumeric() || b"+-.".contains(&b));
             return Err(if looks_like_scheme {
                 format!(
-                    "the link {url:?} is refused: only https:// and claude:// links or repository paths are allowed, \
+                    "the link {url:?} is refused: only https://, claude:// and codex:// links or repository paths are allowed, \
                      not {}:",
                     before.to_ascii_lowercase()
                 )

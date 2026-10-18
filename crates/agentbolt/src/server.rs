@@ -89,7 +89,11 @@ fn caller(
             meta.entry(k.clone()).or_insert_with(|| v.clone());
         }
     }
-    let session_ref = session_ref_from(&meta, std::env::var("CLAUDE_CODE_SESSION_ID").ok());
+    let session_ref = host_session_ref_from(
+        &meta,
+        std::env::var("CLAUDE_CODE_HOST_SESSION_ID").ok(),
+        std::env::var("CLAUDE_CODE_SESSION_ID").ok(),
+    );
     let client = args
         .client
         .clone()
@@ -103,6 +107,24 @@ fn caller(
         session_ref,
         client,
     }
+}
+
+/// Codex metadata is per request. Claude Desktop's host id takes precedence over its separate
+/// terminal session id; an invalid host id never becomes an arbitrary URL or a terminal command.
+pub fn host_session_ref_from(
+    meta: &serde_json::Map<String, Value>,
+    host: Option<String>,
+    terminal: Option<String>,
+) -> Option<String> {
+    for key in ["threadId", "thread_id"] {
+        if let Some(id) = meta.get(key).and_then(Value::as_str) {
+            return agentbolt_core::navigation::valid_session_id(id).then(|| id.to_string());
+        }
+    }
+    if let Some(host) = host {
+        return agentbolt_core::navigation::claude_desktop_ref(&host);
+    }
+    session_ref_from(meta, terminal)
 }
 
 fn ok(line: String, v: Value) -> CallToolResult {
@@ -344,6 +366,44 @@ impl ServerHandler for DeskServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn desktop_host_id_wins_over_claudes_terminal_id_and_links_are_generated() {
+        let id = "01a1503a-5165-7e62-a9ba-88c35a72cfce";
+        let empty = serde_json::Map::new();
+        let desktop = host_session_ref_from(
+            &empty,
+            Some(format!("local_{id}")),
+            Some("different-terminal-id".into()),
+        )
+        .unwrap();
+        assert_eq!(desktop, format!("claude://claude.ai/epitaxy/local_{id}"));
+        assert_eq!(
+            host_session_ref_from(&empty, None, Some(id.into())),
+            Some(id.into())
+        );
+        assert!(
+            host_session_ref_from(
+                &empty,
+                Some("https://agent-chosen-link".into()),
+                Some(id.into())
+            )
+            .is_none()
+        );
+        let meta = json!({"threadId":id,"sessionId":"a different chat"});
+        assert_eq!(
+            host_session_ref_from(meta.as_object().unwrap(), Some("local_wrong".into()), None),
+            Some(id.into())
+        );
+        assert!(
+            host_session_ref_from(
+                json!({"threadId":"--help"}).as_object().unwrap(),
+                None,
+                None
+            )
+            .is_none()
+        );
+    }
 
     #[test]
     fn session_ref_prefers_the_threads_own_id() {

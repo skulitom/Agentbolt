@@ -41,6 +41,7 @@ impl Server {
             .args(["mcp", "--owner", "mcp-stdio-test"])
             .env("AGENTBOLT_CHANNEL", throwaway_channel())
             .env_remove("CLAUDE_CODE_SESSION_ID")
+            .env_remove("CLAUDE_CODE_HOST_SESSION_ID")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
