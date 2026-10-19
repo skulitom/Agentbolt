@@ -382,6 +382,20 @@ Automatic approval review rejected the cleanup command for this stopped fixture 
 Its installation, registrations, data and original logs remain in place; no alternate deletion was attempted.
 The two earlier blocked cleanup folders (`codex02-gui-1018` and `warm-95688`) also remain unresolved.
 
+### Duplicate-instance repair (2026-10-19)
+
+Artem reported two Agentbolt instances. Process paths and scheduled-task actions identified the extra
+Desk as this old `codex-02-soak-1018` fixture, which had restarted at sign-in alongside main. The normal
+Desk already holds one per-user/channel/session window lock; its supervisor and daemon worker are
+expected helper processes, not extra windows. No application-code change was needed.
+
+Under Artem's request to keep one instance, the exact old task was verified, exported to
+`target/duplicate-instance-1019/old-test-task.xml`, disabled and stopped. Its verified Start-menu shortcut
+was moved into that same workspace folder. Read-only follow-up confirmed the task disabled, the old
+supervisor/worker/Desk exited, only the main Desk and its supervisor/worker running, and one Agentbolt
+shortcut in the Start menu. Main process IDs remained unchanged. The old installation and data were
+retained; the previously blocked file cleanup was not retried. No tests or reliability runs resumed.
+
 ## 0.2.0 release preparation (2026-10-18 21:09 UTC)
 
 The workspace version is now 0.2.0. Installation writes a per-user, per-channel Installed Apps entry after

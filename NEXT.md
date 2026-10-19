@@ -181,6 +181,10 @@ covered by live regression fixtures. The follow-up review found no remaining act
    `PT0S` probe started 2026-10-18 19:53 UTC but was interrupted by a logged tray Quit at 20:45 UTC.
    It does not count as a pass; a fresh uninterrupted run on the final candidate is required. The stopped
    fixture remains installed because automatic approval review rejected its cleanup (“blocked by policy”).
+   On 2026-10-19 Artem reported duplicate instances: this old task had started again at Windows sign-in.
+   Its exact task is now disabled and stopped, and its Start-menu shortcut is parked under
+   `target/duplicate-instance-1019`. Only the main Desk and its normal helpers remain running. The old
+   fixture's files/data are retained; do not re-enable its task or count this uptime as validation.
    See `docs/SOAK-2026-10-18.json`; do not restart or count later uptime toward that interrupted run.
    A fresh candidate run started at 21:56:49 UTC on 2026-10-18, channel `soak-7e4d081-1018`, in Anode session 4.
    It was stopped at Artem's implementation-first instruction; its fixture uninstalled and purged successfully.
