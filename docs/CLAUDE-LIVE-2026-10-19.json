@@ -1,0 +1,186 @@
+{
+  "recordedDate": "2026-10-19",
+  "runtimeCommit": "10bc4adf744bd32fec255651325f1e50b342f72e",
+  "clientVersion": "Claude Code 2.1.302",
+  "channel": "claude-wait-107156",
+  "desktop": "Anode session 4, hidden viewer",
+  "jobId": "j_c57e08bf64af4de0ae61a2cae07dec3c",
+  "jobExitCode": 0,
+  "transport": "Byte-preserving stdio bridge to the real local agentbolt mcp process and real daemon. No simulated tool results or injected host identity.",
+  "constraints": {
+    "persistentClaudeSession": false,
+    "builtInTools": [],
+    "allowedMcpTools": [
+      "desk_register",
+      "desk_ask",
+      "desk_answers"
+    ],
+    "permissionMode": "dontAsk",
+    "strictMcpConfig": true,
+    "settingSources": [],
+    "hooksDisabled": true,
+    "mainChannelUsed": false,
+    "installedOrRegistered": false,
+    "externalMessagingOrWorkflowAction": false
+  },
+  "fixtureScriptSha256": "7f2e4271728ea69b34d817d7bd2bf694ec915fdf6142479250b3fdb2195eec13",
+  "phases": {
+    "live": {
+      "wireSha256": "2cc446c877504994da865ced760a49a8c133ac902879b5cfcedf88de0f0d78d4",
+      "claudeOutputSha256": "3f1f61f00f96870a056933f2fc934baa4aee81789825015c0bf89baccbaf1e9d",
+      "hostEnvironment": {
+        "CLAUDE_CODE_HOST_SESSION_ID": null,
+        "CLAUDE_CODE_SESSION_ID": "05eb9a90-8e15-4887-a631-8a427018af0c"
+      },
+      "discoveryMethod": "server/discover",
+      "toolNames": [
+        "desk_register",
+        "desk_ask",
+        "desk_answers",
+        "desk_cancel",
+        "desk_relay",
+        "board_who",
+        "board_post",
+        "board_read",
+        "board_request",
+        "board_claim",
+        "board_done",
+        "work_holds"
+      ],
+      "noOutputSchema": true,
+      "calls": [
+        {
+          "tool": "desk_register",
+          "argumentsWithoutBearerHandle": {
+            "doing": "Claude Code live wait fixture"
+          },
+          "elapsedSeconds": 0.006409,
+          "textJsonEqualsStructuredContent": true,
+          "answerCount": 0,
+          "answer": null
+        },
+        {
+          "tool": "desk_ask",
+          "argumentsWithoutBearerHandle": {
+            "kind": "choose",
+            "title": "Synthetic Claude long-wait check",
+            "body": "Synthetic Agentbolt test answer - no real-world authorization.",
+            "options": [
+              "Test A",
+              "Test B"
+            ],
+            "default": "Test A",
+            "reversible": true,
+            "priority": "P2",
+            "deadline": "2026-10-20T01:40:23.826104Z"
+          },
+          "elapsedSeconds": 0.006073,
+          "textJsonEqualsStructuredContent": true,
+          "answerCount": 0,
+          "answer": null
+        },
+        {
+          "tool": "desk_answers",
+          "argumentsWithoutBearerHandle": {
+            "ids": [
+              "ask_5ee8368168889db3"
+            ],
+            "wait_ms": 600000
+          },
+          "elapsedSeconds": 53.861949,
+          "textJsonEqualsStructuredContent": true,
+          "answerCount": 1,
+          "answer": {
+            "ask_id": "ask_5ee8368168889db3",
+            "answered_at": "2026-10-19T01:41:30.331Z",
+            "via": "desk",
+            "choice": "Test B",
+            "note": "Synthetic Agentbolt test answer — no real-world authorization."
+          }
+        }
+      ],
+      "claudeReportedExactAnswerAndNote": true,
+      "permissionDenials": [],
+      "subagentsSpawned": 0,
+      "conversationPersisted": false
+    },
+    "recovery": {
+      "wireSha256": "b7e1be60b888e6dafa70c07c8d36e06060cd899bfd62118fb621f257cd119ce2",
+      "claudeOutputSha256": "6172c4fd2069c4040eb303c2896509e19021cad8e652437510c5f46c88aeecf5",
+      "hostEnvironment": {
+        "CLAUDE_CODE_HOST_SESSION_ID": null,
+        "CLAUDE_CODE_SESSION_ID": "e731a722-041d-485f-9446-38442eb707df"
+      },
+      "discoveryMethod": "server/discover",
+      "toolNames": [
+        "desk_register",
+        "desk_ask",
+        "desk_answers",
+        "desk_cancel",
+        "desk_relay",
+        "board_who",
+        "board_post",
+        "board_read",
+        "board_request",
+        "board_claim",
+        "board_done",
+        "work_holds"
+      ],
+      "noOutputSchema": true,
+      "calls": [
+        {
+          "tool": "desk_register",
+          "argumentsWithoutBearerHandle": {
+            "doing": "Claude Code next-run fixture"
+          },
+          "elapsedSeconds": 0.006356,
+          "textJsonEqualsStructuredContent": true,
+          "answerCount": 1,
+          "answer": {
+            "ask_id": "ask_5ee8368168889db3",
+            "answered_at": "2026-10-19T01:41:30.331Z",
+            "via": "desk",
+            "choice": "Test B",
+            "note": "Synthetic Agentbolt test answer — no real-world authorization."
+          }
+        },
+        {
+          "tool": "desk_answers",
+          "argumentsWithoutBearerHandle": {
+            "wait_ms": 0
+          },
+          "elapsedSeconds": 0.005001,
+          "textJsonEqualsStructuredContent": true,
+          "answerCount": 1,
+          "answer": {
+            "ask_id": "ask_5ee8368168889db3",
+            "answered_at": "2026-10-19T01:41:30.331Z",
+            "via": "desk",
+            "choice": "Test B",
+            "note": "Synthetic Agentbolt test answer — no real-world authorization."
+          }
+        }
+      ],
+      "claudeReportedExactAnswerAndNote": true,
+      "permissionDenials": [],
+      "subagentsSpawned": 0,
+      "conversationPersisted": false
+    }
+  },
+  "cleanup": {
+    "ownedProcessesStopped": true,
+    "agentboltSeatWindowsRemaining": 0,
+    "leaseReleased": true,
+    "channelDataRemoved": false,
+    "remainingChannelData": "C:\\Users\\artem\\AppData\\Local\\Agentbolt\\claude-wait-107156",
+    "reason": "Automatic approval review rejected the exact-path native PowerShell cleanup before execution: blocked by policy. Not retried through another mechanism.",
+    "rawEvidenceDirectory": "C:\\DEV\\Agentbolt\\target\\claude-live-wait-1a66d6193b18"
+  },
+  "limits": [
+    "A 600000 ms requested wait returned after 53.862 seconds; this proves waiting beyond the default 20-second cap, not a full ten-minute timeout or host background-task transition.",
+    "The second process recovered the same bound-owner answer with a new host session ID. No live Compass dispatcher, advisor, notes or charter was changed.",
+    "The CLI supplied CLAUDE_CODE_SESSION_ID; the desktop-host variable was absent. Actual Claude Desktop environment and visible chat navigation remain unverified.",
+    "The Desk showed Resume in a terminal, but it was not invoked because these print-mode sessions do not persist.",
+    "No installation, phone, cross-machine, idle-CPU or reliability claim is supported by this fixture."
+  ]
+}

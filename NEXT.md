@@ -36,7 +36,11 @@ The Claude plugin now covers saved-answer recovery, bounded waits, fenced handof
 in six mocked behavioral scenarios, repeated three times with and without the plugin. Manual review caught
 a changed numeric meaning in a recorded result; the tool/skill guidance now preserves supplied wording,
 and three focused reruns pass. See the [evaluation evidence](docs/PLUGIN-EVAL-2026-10-19.json).
-Real Claude long waits, host navigation and authorized dispatcher/workflow rollout remain open.
+Real Claude Code CLI waiting and fresh-process owner recovery now pass: a ten-minute requested wait
+returned the native Desk answer after 53.862 seconds, and a new CLI session recovered it without another
+ask. The real host used all twelve tool schemas and matching text/structured results. See
+[the live-client evidence](docs/CLAUDE-LIVE-2026-10-19.json). A full wait timeout/background transition,
+Claude Desktop navigation and authorized dispatcher/workflow rollout remain open.
 Phone delivery now rechecks topic privacy after a backward clock change; a future-dated check cannot
 authorize a new notification.
 The expanded security review found two scanner issues: configured filter execution and metadata reads

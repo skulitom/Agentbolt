@@ -61,3 +61,30 @@ Its actual MCP environment and visible navigation still need a normal-session ch
 The three temporary Codex chats were archived after testing. The project-only MCP override was removed.
 The installed test channel uninstalled/purged successfully, including its task, registrations, shortcut,
 programs and data; the main connection and global client configuration were unchanged.
+
+## Observed Claude Code CLI results, 2026-10-19
+
+Runtime `10bc4ad` was built locally and run on `claude-wait-107156` in Anode session 4. Claude Code
+2.1.302 used a strict temporary MCP configuration and a byte-preserving logging bridge to the real
+server. Built-in tools, hooks and session persistence were disabled; only registration, asking and
+answer reads were allowed. No host session metadata was injected by the fixture.
+
+- Both fresh client processes used `server/discover` and discovered all twelve tools without an
+  `outputSchema`. The complete JSON in text and structured results matched for every actual call.
+- The first process registered, asked once, then requested `desk_answers` with `wait_ms: 600000`.
+  It received Test B and the exact synthetic note after 53.862 seconds, following a native Desk click.
+- The second process had a new CLI session ID and recovered the same answer in registration and a
+  no-ID answer read. It did not ask again or act on the synthetic value.
+- Both MCP processes inherited `CLAUDE_CODE_SESSION_ID`, with no `CLAUDE_CODE_HOST_SESSION_ID`. The
+  Desk displayed Resume in a terminal. It was not invoked for these non-persistent print sessions.
+
+[CLAUDE-LIVE-2026-10-19.json](CLAUDE-LIVE-2026-10-19.json) records timing, hashes, host metadata and
+bounded results with bearer handles omitted. The fixture job exited 0; its processes stopped and no
+Agentbolt window remained in the seat. The desktop lease was released. Automatic approval review
+rejected cleanup of `C:\Users\artem\AppData\Local\Agentbolt\claude-wait-107156` before execution
+with “blocked by policy”; the stopped data folder remains and removal was not retried another way.
+No installation or per-user registration was created.
+
+The full ten-minute timeout/background transition, Claude Desktop's actual environment/navigation and
+live Reception/advisor workflow remain unverified. This fixture does not use the still-unused
+authorization for the proposed temporary Claude Desktop navigation chat.

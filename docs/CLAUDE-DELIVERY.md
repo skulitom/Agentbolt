@@ -42,3 +42,18 @@ delivery. See [workflow integration](WORKFLOW-INTEGRATION.md). No live dispatche
 changed while implementing it, and it sends no chat messages. Rollout and live-host checks follow feature
 implementation. Preserve the dispatcher's maintenance-hour and messaging rules. Agentbolt never creates
 an MCP human-answer operation.
+
+## Observed CLI behavior
+
+Claude Code 2.1.302 on Windows used the real MCP server on a temporary channel on 2026-10-19.
+It requested a 600,000 ms wait and received a synthetic Desk answer after 53.862 seconds. A second CLI
+process, with a different host session ID but the same bound owner, recovered the exact answer and
+note from both registration and a no-ID checkpoint read, without creating another question.
+All twelve tools were discovered, no output schema was present, and the JSON in text matched the
+structured result in every tool call. [Evidence and limits](CLAUDE-LIVE-2026-10-19.json).
+
+This verifies a live wait beyond the ordinary twenty-second cap. It does not establish a full ten-minute
+timeout, a host background-task transition, Claude Desktop navigation, or delivery through the live
+Compass dispatcher. The test used non-persistent CLI sessions with only the three necessary MCP tools.
+Its processes stopped; automatic approval review blocked the exact-path temporary data cleanup, so
+the stopped fixture folder remains as recorded in the evidence.

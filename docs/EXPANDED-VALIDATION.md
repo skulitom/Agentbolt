@@ -389,3 +389,24 @@ remained in the seat, the channel data was removed, and the desktop lease was re
 protocol handler, task, external account, real baseline or main-channel setting was used. Focused
 fixture Clippy and both repository guard checks pass. Schema 15 installed upgrade and release checks
 remain open; this verifies the new UI behavior only.
+
+## Real Claude CLI answer transport (2026-10-19)
+
+The full-feature runtime at `10bc4ad` now passes an isolated real Claude Code 2.1.302 CLI check in Anode.
+It asked one synthetic question and requested a ten-minute wait. After 53.862 seconds, a native Desk
+click returned Test B and the exact Unicode note. A second CLI process with a new session ID and the
+same bound owner read the saved answer from registration and an ordinary no-ID checkpoint, without
+creating another question. Both processes discovered the twelve real tools, with no output schema,
+and every actual call's text JSON matched its structured result. [Evidence](CLAUDE-LIVE-2026-10-19.json).
+
+The fixture used only the temporary MCP configuration, disabled built-in tools/hooks/session
+persistence, and allowed only the three required Desk tools. It launched no subagents. The MCP child
+inherited the CLI session ID; the desktop-host ID was absent. The Desk offered Resume in a terminal,
+which was not invoked for the non-persistent fixture. This is not a Claude Desktop navigation pass,
+a ten-minute timeout/background-task pass, or a live Compass workflow rollout.
+
+The job exited 0 and all owned test processes stopped. No Agentbolt window remained in the seat and
+the lease was released. Automatic approval review rejected the exact-path native PowerShell cleanup
+of `C:\Users\artem\AppData\Local\Agentbolt\claude-wait-107156` before execution (“blocked by policy”).
+That stopped data folder remains; cleanup was not retried through another mechanism. No install,
+handler or task was registered. The main connection, real notes, accounts and schedules were unchanged.
