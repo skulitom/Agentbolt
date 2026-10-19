@@ -855,7 +855,11 @@ pub fn run(db: &Connection, now: i64, agent: &Agent, op: BoardOp) -> Result<Valu
                 .map_err(db_err)?;
             for (id, raw) in candidates {
                 let old: RequestInput = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-                let same_scope = old.repo == input.repo && old.to_role == input.to_role;
+                // A linked issue is an identity: a similar title must not substitute
+                // another issue or an unlinked request for the requested handoff.
+                let same_scope = old.repo == input.repo
+                    && old.to_role == input.to_role
+                    && old.beads_issue == input.beads_issue;
                 let same_key = input.dedupe_key.is_some() && old.dedupe_key == input.dedupe_key;
                 if same_scope && (same_key || similar_title(&old.title, &input.title)) {
                     return Ok(

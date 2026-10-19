@@ -66,6 +66,11 @@ clipboard/origin checks pass. Actual Claude terminal resume encountered this PC'
 profile and remains unverified; no consent or settings change was made. See
 [the navigation evidence](docs/CLAUDE-NAVIGATION-2026-10-19.json).
 
+Beads imports now keep different issue IDs separate even when their titles match, and cannot reuse an
+unlinked handoff. The adapter invokes Beads with write-command and automatic-push restrictions. A real
+Beads 1.3.1 disposable workspace confirms repeat/export deduplication, Unicode preservation and unchanged
+source issue data. See [the adapter record](docs/EXPANDED-VALIDATION.md#beads-issue-identity-and-real-cli-import-2026-10-19).
+
 
 **Current order: all features first, then validation.** The long CPU
 probe and 72-hour run were stopped, and the hourly monitor is paused. The full-plan source inventory is now recorded. Address any newly discovered feature gaps first; then

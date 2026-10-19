@@ -59,7 +59,15 @@ async fn issue_json(args: &Args) -> anyhow::Result<Value> {
         let mut command = tokio::process::Command::new("bd");
         command
             .current_dir(cwd)
-            .args(["show", "--json", "--id", &args.issue])
+            // Reading a handoff must not activate an inherited auto-push policy or write command.
+            .args([
+                "show",
+                "--readonly",
+                "--sandbox",
+                "--json",
+                "--id",
+                &args.issue,
+            ])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())

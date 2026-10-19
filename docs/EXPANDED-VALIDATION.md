@@ -500,3 +500,44 @@ verified absent. Automatic approval review rejected removal of
 `C:\Users\artem\AppData\Local\Agentbolt\claude-resume-68816` with “blocked by policy” before execution;
 that data remains and its cleanup was not retried by another method. No installation, handler, main
 channel, Terminal settings or working chat changed. [Bounded evidence](CLAUDE-NAVIGATION-2026-10-19.json).
+
+## Beads issue identity and real CLI import (2026-10-19)
+
+Board title deduplication could return an unlinked request or a different Beads issue with the same
+title. Linked issue identity is now part of the repository/role scope, so title similarity or a reused
+key cannot substitute a different issue. Retries of the same issue still deduplicate, including after
+a title change; ordinary unlinked title deduplication and distinct role scopes are preserved. The
+adapter also passes `--readonly --sandbox` to `bd show`, blocking write commands and automatic pushes.
+
+The actual [Beads 1.3.1 Windows release](https://github.com/gastownhall/beads/releases/tag/v1.3.1),
+commit `c1c4b642ac1c`, ran in a fresh local Git repository using its embedded database. The published
+archive SHA-256 matched `48cd82e1d3e311c9bf9a5d6d67ad1a8542ae13d4e20c5bfb527656c5e666af76`.
+Only `bd.exe` was extracted into ignored build output; there was no system installation. The fixture
+used an isolated profile, removed inherited Beads/Dolt configuration variables and skipped agent setup
+and Git hooks. Its child-only PATH exposed Beads to the real Agentbolt CLI; the real daemon ran headless
+on `beads-live-116636`, with all channel data inside the fixture profile.
+
+- Two issues with identical Unicode titles produced distinct requests linked to the correct IDs.
+- Description, acceptance criteria, design, notes, repository, role and paths were preserved, including
+  `café — 雪 🚀`.
+- A repeated CLI import and an export from the real `bd show` both returned the first request.
+- Mismatched-ID, duplicate-ID, closed and oversized synthetic exports were refused; the final database
+  contained exactly two Board requests.
+- Full source-issue JSON from `bd show` matched before and after imports. This does not assert that
+  Beads made no local bookkeeping changes.
+
+An initial fixture on `beads-live-117204` reached its final read-only SQLite inspection while the daemon
+still held the expected exclusive lock. That run was not counted as a pass. The corrected fixture
+stopped its daemon before the offline inspection and completed successfully in 9.62 seconds.
+The focused identity regression and the two Beads adapter unit cases pass on Windows and Linux.
+Windows all-target core/CLI Clippy and both repository guards pass. No heavy release checks ran.
+
+Both fixture daemons are stopped. Automatic approval review rejected the bounded cleanup with
+“blocked by policy” before execution; it gave no more specific reason. These two isolated workspaces,
+including their synthetic Beads databases and Agentbolt channel data, remain:
+
+- `C:\DEV\Agentbolt\target\beads-live-9ff28e430d6a` (initial fixture)
+- `C:\DEV\Agentbolt\target\beads-live-8ae23c5795df` (completed fixture)
+
+Cleanup was not retried by another method. No sign-in task, protocol handler or main-channel state was
+created or changed. Other Beads releases and external database configurations remain unverified.

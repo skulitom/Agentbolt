@@ -118,6 +118,67 @@ fn request(t: &T, handle: &str, title: &str) -> Value {
     )
     .unwrap()
 }
+
+#[test]
+fn board_dedupe_keeps_distinct_beads_issues_and_unlinked_requests_separate() {
+    let t = T::new();
+    let handle = t.register("beads-importer");
+    let create = |issue: Option<&str>, key: &str, title: &str, role: &str| {
+        board(
+            &t,
+            &handle,
+            BoardOp::Request {
+                input: RequestInput {
+                    title: title.into(),
+                    body: "Synthetic linked issue".into(),
+                    to_role: Some(role.into()),
+                    repo: Some("example/project".into()),
+                    paths: vec!["src/**".into()],
+                    dedupe_key: Some(key.into()),
+                    beads_issue: issue.map(str::to_owned),
+                },
+            },
+        )
+        .unwrap()
+    };
+    let title = "Repair the shared widget";
+    let plain = create(None, "manual", title, "reviewer");
+    let first = create(Some("proj-aaa"), "beads:proj-aaa", title, "reviewer");
+    let second = create(Some("proj-bbb"), "beads:proj-bbb", title, "reviewer");
+    assert_eq!(
+        first["existing"], false,
+        "an unlinked request cannot stand in for an exact issue"
+    );
+    assert_eq!(
+        second["existing"], false,
+        "matching titles are not matching issue IDs"
+    );
+    assert_ne!(plain["request"]["id"], first["request"]["id"]);
+    assert_ne!(first["request"]["id"], second["request"]["id"]);
+    assert_eq!(second["request"]["beads_issue"], "proj-bbb");
+    let retry = create(
+        Some("proj-aaa"),
+        "beads:proj-aaa",
+        "Renamed issue",
+        "reviewer",
+    );
+    assert_eq!(retry["existing"], true);
+    assert_eq!(retry["request"]["id"], first["request"]["id"]);
+    let another_role = create(Some("proj-aaa"), "beads:proj-aaa", title, "builder");
+    assert_eq!(another_role["existing"], false);
+    let conflicting_key = create(Some("proj-ccc"), "beads:proj-aaa", title, "reviewer");
+    assert_eq!(
+        conflicting_key["existing"], false,
+        "a reused key cannot change a linked issue's identity"
+    );
+    let plain_retry = create(None, "other-manual-key", title, "reviewer");
+    assert_eq!(
+        plain_retry["existing"], true,
+        "ordinary title dedupe is unchanged"
+    );
+    assert_eq!(plain_retry["request"]["id"], plain["request"]["id"]);
+}
+
 fn holds(t: &T, handle: &str, action: HoldOp) -> Result<Value, String> {
     t.mcp(McpOp::Holds {
         handle: handle.into(),
