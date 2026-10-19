@@ -6,6 +6,11 @@ evidence gate. The table records implementation coverage, not observed behavior 
 Expanded features now have [focused local checks](EXPANDED-VALIDATION.md). Earlier release test reports
 refer to older commits; live integrations and production readiness remain unverified.
 
+**Current status:** the `0229139` candidate has passing platform/package/installed-upgrade checks,
+final warm startup/idle measurements and normal-session notification checks. Testing stopped at Artem's
+2026-10-19 request, including the fresh reliability run; its monitor is paused. Remaining evidence in
+the table is a backlog, not an instruction to restart testing. [Current candidate record](CANDIDATE-0229139.json).
+
 | Requirement | Implementation | Evidence still needed |
 |---|---|---|
 | M0: Rust workspace, console MCP/CLI, separate tray daemon and Desk, per-user channel isolation, Linux core/MCP | Workspace manifests; core `channel.rs`, `protocol.rs`, `store.rs`; IPC; CLI `server.rs`, `install.rs`; daemon lifecycle | Fresh Windows/Linux checks, both protocol revisions, packaging and repo guard |

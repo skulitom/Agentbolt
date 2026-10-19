@@ -1,0 +1,73 @@
+{
+  "purpose": "Final expanded candidate uninterrupted 72-hour scheduled-start reliability check",
+  "channel": "soak-0229139-1019",
+  "sourceCommit": "0229139d03678a758f99cdfd2d29250dee36cc43",
+  "sourceDirectory": "C:\\DEV\\Agentbolt\\target\\dist-0229139\\extracted-windows-x64",
+  "installDirectory": "C:\\Users\\artem\\AppData\\Local\\Programs\\Agentbolt-soak-0229139-1019",
+  "dataDirectory": "C:\\Users\\artem\\AppData\\Local\\Agentbolt\\soak-0229139-1019",
+  "taskName": "Agentbolt (soak-0229139-1019) [S-1-5-21-3614297312-3082623692-3458564699-1001]",
+  "session": 4,
+  "state": "stopped",
+  "automationId": "agentbolt-72-hour-reliability-check",
+  "monitorState": "paused",
+  "preparedUtc": "2026-10-19T11:15:30.2291607+00:00",
+  "binaries": [
+    {
+      "name": "agentbolt.exe",
+      "sha256": "edf19bb67052305a7be48fdea3b4c2f3430ce9656c55e39a74562cc09c41a820"
+    },
+    {
+      "name": "agentbolt-daemon.exe",
+      "sha256": "2998156485895e6054ef284275c61cb1e344d5cd2f1d756967f83ebb0c07bcbd"
+    },
+    {
+      "name": "agentbolt-desk.exe",
+      "sha256": "c0bfcf5b55ea5648d64e914c5afe13f8d12f39919a3c3e955c9b77b4910cb864"
+    }
+  ],
+  "observations": [
+    {
+      "atUtc": "2026-10-19T11:15:32.7813725+00:00",
+      "taskState": 4,
+      "status": "Agentbolt 0.2.0 is running on channel soak-0229139-1019: 0 open, 0 agent(s); the event chain is intact.",
+      "note": "Started exact packaged candidate in Anode session 4; no synthetic questions. Do not restart or repair."
+    },
+    {
+      "atUtc": "2026-10-19T11:16:05.0112225+00:00",
+      "taskState": 4,
+      "status": "Agentbolt 0.2.0 is running on channel soak-0229139-1019: 0 open, 0 agent(s); the event chain is intact.",
+      "elapsedHours": 0.009353366444444445,
+      "originalProcessIdentities": true,
+      "issues": []
+    }
+  ],
+  "startedUtc": "2026-10-19T11:15:31.3391033+00:00",
+  "notBeforeFinishUtc": "2026-10-22T11:16:31.3391033+00:00",
+  "taskExecutionTimeLimit": "PT0S",
+  "processes": [
+    {
+      "pid": 56512,
+      "session": 4,
+      "image": "C:\\Users\\artem\\AppData\\Local\\Programs\\Agentbolt-soak-0229139-1019\\agentbolt-desk.exe",
+      "commandLine": "\"C:\\Users\\artem\\AppData\\Local\\Programs\\Agentbolt-soak-0229139-1019\\agentbolt-desk.exe\" \"--channel\" \"soak-0229139-1019\" \"--warm\"",
+      "startedUtc": "2026-10-19T11:15:31.7981710Z"
+    },
+    {
+      "pid": 65484,
+      "session": 4,
+      "image": "C:\\Users\\artem\\AppData\\Local\\Programs\\Agentbolt-soak-0229139-1019\\agentbolt-daemon.exe",
+      "commandLine": "\"C:\\Users\\artem\\AppData\\Local\\Programs\\Agentbolt-soak-0229139-1019\\agentbolt-daemon.exe\" --channel soak-0229139-1019 --supervise",
+      "startedUtc": "2026-10-19T11:15:31.4962620Z"
+    },
+    {
+      "pid": 112612,
+      "session": 4,
+      "image": "C:\\Users\\artem\\AppData\\Local\\Programs\\Agentbolt-soak-0229139-1019\\agentbolt-daemon.exe",
+      "commandLine": "\"C:\\Users\\artem\\AppData\\Local\\Programs\\Agentbolt-soak-0229139-1019\\agentbolt-daemon.exe\" \"--channel\" \"soak-0229139-1019\"",
+      "startedUtc": "2026-10-19T11:15:31.5214100Z"
+    }
+  ],
+  "observedStoppedUtc": "2026-10-19T11:21:04.894126+00:00",
+  "stopReason": "Artem explicitly requested: Stop all testing for now. This partial run is not a reliability pass.",
+  "cleanup": "Pinned CLI uninstall --channel soak-0229139-1019 --purge exited 0 in Anode. Both registry views confirm no task, protocol/AUMID/uninstall entries, shortcut, installation or data. No fixture processes remain."
+}

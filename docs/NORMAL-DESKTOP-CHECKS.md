@@ -1,10 +1,20 @@
 # Remaining normal-desktop checks
 
-Deferred until implementation and focused checks are complete, per Artem's 22:01 UTC instruction.
-Use the new unsigned 0.2.0 candidate built after the implementation audit. `7e4d081` is historical.
+**Stopped at Artem's request on 2026-10-19: "Stop all testing for now."** Do not execute the remaining
+steps until he resumes testing. The `0229139` normal-session silent appearance, body activation and
+direct Blue notification-button checks passed; [record](NORMAL-DESKTOP-2026-10-19.json). Claude Desktop
+and exact-chat navigation remain unverified. The temporary installation and project MCP connection
+were removed. The earlier ready answer does not override this latest pause.
+
+The steps below remain a future checklist. `7e4d081` is historical; `0229139` is the current review candidate.
 The Anode desktop cannot emit Windows notifications (0x803E0105) or observe Claude running in the main
 desktop. These checks require Artem to observe the normal desktop. The earlier authorization to create
 synthetic test chats still applies; this is a request for observations, not a new authorization requirement.
+
+The shell-host and background app observed different effective HKCU registration views. For a resumed
+fixture, install/register in the app's Windows context (Anode worked), verify runtime reports the sender
+enabled, and then start only its exact task in session 1. Cleanup must verify both observed registry
+views. This is an observed environment constraint, not a claim about its underlying Windows mechanism.
 
 ## Preparation after the final candidate is built
 

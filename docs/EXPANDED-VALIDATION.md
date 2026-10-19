@@ -600,3 +600,34 @@ executable cleanup scoped to this run. The packaged files and their checksums re
 This was a current-binary reinstall with older-shaped data, not an actual older-release binary test;
 the user-requested desktop update remains separate evidence. Rollback/crash/scheduler-decoy variants
 were not rerun. See [the candidate record](CANDIDATE-0229139.json).
+
+## Final warm/idle and normal-desktop results, then testing pause (2026-10-19)
+
+The actual `0229139` extracted Desk/daemon/supervisor passed a 600.186-second hidden idle sample at
+0.437364% of one core combined (daemon 0.153598%, Desk 0.283766%, supervisor 0%). Five subsequent
+reopens measured 15.18–36.76 ms for the window and 52.46–78.41 ms for the Inbox. The test also verified
+unseen/default-clock safety, the same warm process after closing, and child cleanup after daemon exit.
+Anode job `j_aca7dde3451c4143811b7f98c687e646` exited 0; no candidate-path daemon/Desk remained.
+These are warm measurements using the chosen fallback, not new cold-start measurements.
+
+In normal desktop session 1, the first notification did not appear. The fixture registration was visible
+to the shell host but absent in the app's effective registry view; both context probes reported no package
+identity, so the underlying mechanism was not established. The same packaged installer run through
+Anode repaired that registration. Artem then confirmed silent appearance and that the body opened the
+test Desk. A later direct Blue button produced a durable `via: toast` answer; both MCP result branches
+matched. The [normal-desktop record](NORMAL-DESKTOP-2026-10-19.json) distinguishes these observations
+from two Green answers submitted in the Desk. It does not claim live replay testing.
+
+The fresh 72-hour candidate run began at 11:15:31 UTC, channel `soak-0229139-1019`, in Anode session 4.
+Its first read-only observation confirmed original process identities, hashes, task limit and intact
+status. Before it reached 72 hours, Artem requested **"Stop all testing for now."** The run was stopped,
+its monitor paused, and its installation purged; it is not a reliability pass. The manual fixture was
+also removed, including both observed registration views and its unused local Claude MCP configuration.
+Both views independently confirm no fixture tasks, registrations, shortcuts, programs or channel data;
+no fixture processes remain. No Claude Desktop recorder trace or navigation result was produced.
+
+The same registration-view issue left the requested real desktop update without its Installed Apps
+version in the normal Windows view. Re-running the preserved `d33c261` installer through Anode completed
+that registration: Windows now reports 0.2.0, all three installed hashes still match the requested build,
+and all normal app processes remain in session 1. No synthetic main-channel ask or answer was created.
+Older blocked-cleanup fixtures were untouched. Testing is paused and production readiness remains unproven.

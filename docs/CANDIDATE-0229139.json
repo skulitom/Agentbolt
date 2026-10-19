@@ -47,8 +47,8 @@
       ],
       "checksums": "match",
       "extraction": "target/dist-0229139/extracted-windows-x64",
-      "daemonStarted": false,
-      "installed": false
+      "daemonStarted": true,
+      "installed": true
     },
     "linux-x64": {
       "platform": "linux-x64",
@@ -144,10 +144,75 @@
   },
   "limits": [
     "No tag, push, hosted workflow or publication occurred.",
-    "A packaged installation ran only on the fresh insttest-186943b533b40 channel in Anode. No synthetic main-channel operation occurred. The user-requested desktop update is recorded separately in NEXT.md.",
-    "Standard test counts do not establish the ignored native/SSH checks or conditional installer probes.",
-    "Packaged install, open-Desk reinstall, migration and uninstall pass. Final startup/idle/reliability and remaining native/live checks are still pending.",
-    "Claude Desktop and visible navigation, actual phone/other-machine services and authorized workflow/adoption rollout remain unverified.",
+    "Synthetic operations used separate installer/manual/soak channels. The requested real desktop update and its registration repair are recorded separately in NEXT.md.",
+    "Standard test counts do not establish ignored or conditional native/SSH checks.",
+    "Packaged install/reinstall/migration/uninstall and final warm-startup/idle checks pass. Normal-session silent appearance, notification-body navigation and a direct notification-button answer pass.",
+    "The fresh 72-hour run was stopped at the user's request after only a few minutes; no reliability pass is claimed.",
+    "Claude Desktop and visible exact-chat navigation, actual phone/other-machine services and authorized workflow/adoption rollout remain unverified. Testing is paused.",
     "Source-revision links in the standalone plugin become available only after an authorized push."
-  ]
+  ],
+  "nativePerformance": {
+    "anodeJob": "j_aca7dde3451c4143811b7f98c687e646",
+    "session": 4,
+    "exitCode": 0,
+    "testSeconds": 611.53,
+    "idle": {
+      "combined_percent_one_core": 0.4373644312406594,
+      "daemon_percent_one_core": 0.15359822287618397,
+      "desk_binary": "C:\\DEV\\Agentbolt\\target\\dist-0229139\\extracted-windows-x64\\agentbolt-desk.exe",
+      "desk_percent_one_core": 0.2837662083644754,
+      "duration_seconds": 600.1859805,
+      "pids": [
+        109768,
+        108352,
+        29520
+      ],
+      "supervisor_percent_one_core": 0.0
+    },
+    "reopenSamples": [
+      {
+        "inbox_ms": 62.0104,
+        "run": 0,
+        "window_ms": 15.183399999999999
+      },
+      {
+        "inbox_ms": 75.8974,
+        "run": 1,
+        "window_ms": 20.1528
+      },
+      {
+        "inbox_ms": 78.4067,
+        "run": 2,
+        "window_ms": 36.7646
+      },
+      {
+        "inbox_ms": 62.733200000000004,
+        "run": 3,
+        "window_ms": 16.555400000000002
+      },
+      {
+        "inbox_ms": 52.455099999999995,
+        "run": 4,
+        "window_ms": 15.611999999999998
+      }
+    ],
+    "checks": [
+      "Hidden Desk stayed alive and hidden throughout the 600-second sample",
+      "Combined supervisor, worker and Desk CPU below 0.5% of one core",
+      "Five warm reopen cycles below 300 ms window / 1 s Inbox targets",
+      "Unseen questions did not start default clocks",
+      "Closing hid the same warm Desk; daemon termination reaped its child"
+    ],
+    "cleanup": "Test returned exit 0; subsequent process inspection found no running daemon or Desk from the extracted candidate path."
+  },
+  "normalDesktopChecks": "NORMAL-DESKTOP-2026-10-19.json",
+  "reliability": {
+    "record": "SOAK-CANDIDATE-0229139.json",
+    "state": "stopped at user request; not a pass"
+  },
+  "testing": {
+    "state": "paused at user request",
+    "instruction": "Stop all testing for now",
+    "recordedUtc": "2026-10-19T11:21:04.894126+00:00"
+  }
 }

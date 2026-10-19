@@ -1,0 +1,65 @@
+{
+  "date": "2026-10-19",
+  "sourceRevision": "0229139d03678a758f99cdfd2d29250dee36cc43",
+  "channel": "manual-0229139-1019",
+  "session": 1,
+  "notifications": {
+    "initialAttempt": {
+      "askId": "ask_2b55c76600919239",
+      "observed": "No notification appeared",
+      "diagnostic": "Runtime could not see the handler/AUMID registration written by the shell-host context. Log: unknown notification setting 0x80070490 and emitted with zero buttons.",
+      "repair": "Same packaged installer ran in Anode; runtime then reported enabled and emitted two-button notifications.",
+      "rootCauseLimit": "Different effective registry views were observed. Both Python context probes returned APPMODEL_ERROR_NO_PACKAGE; no specific Windows packaging mechanism is claimed."
+    },
+    "silentAppearanceAndBody": {
+      "humanConfirmation": "Opened Desk, answered Green; silent",
+      "askId": "ask_c06e3c79e7d629a8",
+      "answer": {
+        "answered_at": "2026-10-19T11:13:46.591Z",
+        "ask_id": "ask_c06e3c79e7d629a8",
+        "choice": "Green",
+        "deliveries": [],
+        "delivery_next": null,
+        "delivery_total": 0,
+        "more_deliveries": false,
+        "via": "desk"
+      },
+      "status": "passed"
+    },
+    "button": {
+      "askId": "ask_d7312cd8698cecef",
+      "answer": {
+        "answered_at": "2026-10-19T11:16:05.097Z",
+        "ask_id": "ask_d7312cd8698cecef",
+        "choice": "Blue",
+        "deliveries": [],
+        "delivery_next": null,
+        "delivery_total": 0,
+        "more_deliveries": false,
+        "via": "toast"
+      },
+      "status": "passed"
+    },
+    "extraBodyAnswer": {
+      "askId": "ask_59a5aa322d7a8eff",
+      "choice": "Green",
+      "via": "desk",
+      "note": "User explained they clicked before reading the button-test instructions; this is not counted as a button pass."
+    },
+    "mcpResults": "Synthetic answer reads preserved matching full JSON text and structuredContent."
+  },
+  "claudeDesktop": {
+    "status": "deferred at user request",
+    "note": "Prepared an isolated project and byte-preserving recorder. No recorder trace was created and no test chat was observed. Removed its .mcp.json after the user stopped testing."
+  },
+  "cleanup": {
+    "confirmedUtc": "2026-10-19T11:21:04.894126+00:00",
+    "status": "passed",
+    "details": "Pinned CLI uninstall/purge succeeded in Anode. The CLI then removed the remaining registration in the shell-host view. Both views independently confirm no task, protocol/AUMID/uninstall keys, shortcut, installation or channel data; process inspection found no fixture processes."
+  },
+  "limits": [
+    "No exact-chat navigation pass is claimed.",
+    "The real phone/SSH/workflow checks were not performed.",
+    "Older blocked-cleanup fixtures were untouched."
+  ]
+}

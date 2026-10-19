@@ -3,6 +3,12 @@
 The design and milestones are in Compass's `work/2026-10-18-agentbolt/PLAN.md` (v4). 0.1 is M0 plus most of M1. This
 list is what's left before a public release. Do the first section first.
 
+**Testing paused at Artem's request (2026-10-19): "Stop all testing for now."** Do not start or resume
+tests from the older checklists or readiness answers below. The normal-desktop fixture and fresh
+`0229139` reliability fixture were uninstalled and purged; the hourly monitor is paused. Completed
+results remain evidence, while Claude Desktop/navigation and the uninterrupted 72-hour check remain
+unverified. Resume only when Artem asks. His normal desktop app remains updated to 0.2.0.
+
 **Current scope (Artem, 2026-10-18): implement the full plan, including M2–M7.** This overrides the older
 handoff's M0/M1 limit and the evidence gate before building the Board. Finish all features before heavy
 testing, licensing or release validation. [Full feature work](docs/FULL-PLAN.md) tracks the expanded scope.
@@ -72,9 +78,9 @@ Beads 1.3.1 disposable workspace confirms repeat/export deduplication, Unicode p
 source issue data. See [the adapter record](docs/EXPANDED-VALIDATION.md#beads-issue-identity-and-real-cli-import-2026-10-19).
 
 
-**Current order: all features first, then validation.** The long CPU
-probe and 72-hour run were stopped, and the hourly monitor is paused. The full-plan source inventory is now recorded. Address any newly discovered feature gaps first; then
-validate the expanded features before packaging and heavy release checks.
+**Implementation order remains all features first, then validation.** The full-plan source inventory
+is recorded and the expanded local/package checks below have run. The latest testing pause above
+overrides the earlier validation instructions; do not restart either interrupted reliability fixture.
 See [the implementation audit](docs/IMPLEMENTATION-AUDIT.md). It found and fixed queue acceptance hiding
 unread answers, phone counts including muted owners, and stale toasts bypassing mute/pause. Legacy Digest
 wording was removed from notification code; older-client wire compatibility remains.
@@ -163,16 +169,21 @@ covered by live regression fixtures. The follow-up review found no remaining act
    A fresh candidate run started at 21:56:49 UTC on 2026-10-18, channel `soak-7e4d081-1018`, in Anode session 4.
    It was stopped at Artem's implementation-first instruction; its fixture uninstalled and purged successfully.
    The hourly monitor is paused. See `docs/SOAK-CANDIDATE-7e4d081.json`; this is not a reliability pass.
-4. **Idle CPU:** the extracted `e7e1ff0` candidate passed at 0.318% of one core over 600 seconds, including
-   supervisor, daemon and hidden Desk. Five subsequent reopen cycles took 13–16 ms window / 30–59 ms Inbox.
-   The repeat on `7e4d081` was cancelled after 488 seconds at Artem's implementation-first instruction.
-   Its fixture was purged. Repeat against the final implementation during release validation.
+   The expanded `0229139` run started 2026-10-19 11:15:31 UTC in Anode, then stopped a few minutes later
+   when Artem requested all testing stop. Its task, registrations, programs and data were removed;
+   see [the stopped run](docs/SOAK-CANDIDATE-0229139.json). It is not a pass and must not be resumed.
+4. **Idle CPU and warm opening pass on the final expanded archive:** `0229139` measured
+   **0.437% of one core over 600.186 seconds**, including supervisor, daemon and hidden Desk.
+   Five reopen cycles took **15.18–36.76 ms window / 52.46–78.41 ms Inbox**. Hidden-question/default-clock
+   and child-cleanup checks passed. [Pinned evidence](docs/CANDIDATE-0229139.json).
 5. **Toasts live:** they appear silently. A button answers through the `agentbolt://` handler with its single-use
    token, a used or wrong-option token is refused, and the body click opens the Desk.
-   Anode session 4 rejects toast emission with Windows error 0x803E0105 (notification platform unavailable)
-   and has no isolated audio endpoint. A normal-session check remains necessary; this is not a pass.
-   The prepared checklist is `docs/NORMAL-DESKTOP-CHECKS.md`; Artem answered `ask_97958c01f34e55e5` ready
-   at 22:00 UTC. His subsequent implementation-first instruction defers this check. No test ran on `main`.
+   **Normal-session appearance, silence, body and button checks pass on `0229139`.** Artem confirmed
+   the notification was silent and opened the test Desk; a later direct Blue button produced `via: toast`.
+   The first attempt exposed different effective registry views between the shell host and background
+   app. Running the same installer in the app's context repaired the test registration. Core tests cover
+   replay/wrong-option refusal; those were not replayed live. [Evidence](docs/NORMAL-DESKTOP-2026-10-19.json).
+   No synthetic test used `main`. Exact-chat navigation is deferred at Artem's latest request.
 6. **The native remake's scenarios** (`native/verification.md` on the `legacy-native-2026-10-18` tag), run against
    Agentbolt. Mapped in `docs/NATIVE-SCENARIO-AUDIT.md`; fresh GUI checks now pass focus preservation, blank
    required validation, 860 × 620 layout, one restored Desk/draft, exact numeric submission with untouched
@@ -207,8 +218,9 @@ covered by live regression fixtures. The follow-up review found no remaining act
   exposed an overlong Registry description; the generator is fixed and these archives replace it.
   Application source is unchanged from the desktop build installed at Artem's request. These exact
   archives now pass installed open-Desk/MCP upgrade, older-schema preservation and clean uninstall in
-  Anode on `insttest-186943b533b40` (8.87 seconds). Remaining native/live and fresh idle/reliability evidence
-  are still pending. Nothing was published.
+  Anode on `insttest-186943b533b40` (8.87 seconds), final warm startup/idle checks and normal-session
+  silent notification/body/button checks. Remaining live integrations and 72-hour evidence are unverified;
+  testing is paused. Nothing was published.
 - **Full local preflight passes (2026-10-19):** Windows workspace tests and Linux core/IPC/daemon/MCP/
   packaging tests pass, with all-target Clippy on both platforms. Current target-specific license policy
   and notice reports pass too. The release workflow now rejects generic notice fallbacks and uncovered
@@ -222,6 +234,11 @@ covered by live regression fixtures. The follow-up review found no remaining act
   reads its durable answers. This was the requested app update, not a synthetic main-channel test. Older
   connected MCP hosts may need reconnection to discover the expanded tool catalog. Final release checks
   remain outstanding; the original working clones were not changed.
+  The later normal-desktop check found the Installed Apps entry visible only in the shell-host registry
+  view. Re-running the same preserved `d33c261` installer through Anode repaired the normal Windows
+  registration; it now reports 0.2.0 there too. All three program hashes still match the requested build,
+  and supervisor, worker and Desk remain in Artem's normal session 1. This completed the requested
+  real app update, independently of the synthetic test fixtures.
 - **Current implementation build — `d33c261`:** all three Windows release programs and the Linux CLI
   compile from the locked dependency graph. Both CLIs report version 0.2.0. Copies and checksums are preserved
   under `target/prepared-d33c261`; [the build record](docs/BUILD-d33c261.json) pins their source and scope.
