@@ -10,11 +10,19 @@ use std::time::Duration;
 
 use agentbolt_core::channel::Names;
 use agentbolt_core::navigation::{ChatTarget, claude_desktop_ref, valid_session_id};
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde::Deserialize;
 
 const RECENT_LIMIT: usize = 200;
 const ENTRY_LIMIT: usize = 4096;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Activity {
+    Running,
+    Idle,
+    Waiting,
+    Unknown,
+}
 
 #[derive(Debug, Clone)]
 pub struct Session {
@@ -25,10 +33,26 @@ pub struct Session {
     /// A held Codex writer or a verified, still-running Claude process. Not evidence of a running turn.
     pub open: bool,
     pub background: bool,
-    pub status: &'static str,
+    pub activity: Activity,
 }
 
 impl Session {
+    pub fn running(&self) -> bool {
+        self.open && self.activity == Activity::Running
+    }
+
+    pub fn status(&self) -> &'static str {
+        if !self.open {
+            return "Recent";
+        }
+        match self.activity {
+            Activity::Running => "Running",
+            Activity::Idle => "Idle",
+            Activity::Waiting => "Waiting",
+            Activity::Unknown => "Status unavailable",
+        }
+    }
+
     pub fn app(&self) -> &'static str {
         match self.target {
             ChatTarget::Codex(_) => "Codex",
@@ -181,10 +205,12 @@ fn discover(roots: &Roots) -> Snapshot {
             .push(format!("Claude sessions couldn't be read: {error}"));
     }
     result.items.sort_by(|a, b| {
-        b.open
-            .cmp(&a.open)
-            .then(b.updated.cmp(&a.updated))
-            .then(a.title.cmp(&b.title))
+        b.running().cmp(&a.running()).then(
+            b.open
+                .cmp(&a.open)
+                .then(b.updated.cmp(&a.updated))
+                .then(a.title.cmp(&b.title)),
+        )
     });
     // A resumed Claude chat may briefly have both an old and a new registry entry.
     // Prefer the verified open process, then the newest metadata, instead of directory order.
@@ -201,8 +227,9 @@ fn codex_sessions(root: &Path, result: &mut Snapshot) -> Result<(), String> {
     let Some(root) = checked_local_path(root)? else {
         return Ok(());
     };
-    // Select the newest numbered state database, never logs, message history or credentials.
+    // Only select session metadata and turn-state columns, never message content or credentials.
     let mut databases = Vec::new();
+    let mut turn_databases = Vec::new();
     for entry in fs::read_dir(&root)
         .map_err(|e| e.to_string())?
         .take(ENTRY_LIMIT)
@@ -215,6 +242,13 @@ fn codex_sessions(root: &Path, result: &mut Snapshot) -> Result<(), String> {
             .and_then(|s| s.parse::<u32>().ok())
         {
             databases.push((version, entry.path()));
+        }
+        if let Some(version) = name
+            .strip_prefix("thread_history_")
+            .and_then(|s| s.strip_suffix(".sqlite"))
+            .and_then(|s| s.parse::<u32>().ok())
+        {
+            turn_databases.push((version, entry.path()));
         }
     }
     databases.sort_by_key(|(version, _)| std::cmp::Reverse(*version));
@@ -280,13 +314,13 @@ fn codex_sessions(root: &Path, result: &mut Snapshot) -> Result<(), String> {
         .query_map([RECENT_LIMIT as i64], codex_row)
         .map_err(|e| e.to_string())?;
     let mut ids = HashSet::new();
+    let first_item = result.items.len();
     for row in rows {
         let mut item = row.map_err(|e| e.to_string())?;
         if !valid_session_id(item.target.id()) {
             continue;
         }
         item.open = open_ids.contains(item.target.id());
-        item.status = if item.open { "Open" } else { "Recent" };
         ids.insert(item.target.id().to_owned());
         result.items.push(item);
     }
@@ -300,11 +334,60 @@ fn codex_sessions(root: &Path, result: &mut Snapshot) -> Result<(), String> {
         match by_id.query_row([id], codex_row) {
             Ok(mut item) => {
                 item.open = true;
-                item.status = "Open";
                 result.items.push(item);
             }
             Err(rusqlite::Error::QueryReturnedNoRows) => {}
             Err(error) => return Err(error.to_string()),
+        }
+    }
+    if result.items[first_item..].iter().any(|item| item.open) {
+        turn_databases.sort_by_key(|(version, _)| std::cmp::Reverse(*version));
+        let activity = (|| -> Result<(), String> {
+            let (_, path) = turn_databases
+                .first()
+                .ok_or("the app's turn-status index is unavailable")?;
+            let path = local_path(path).ok_or("the turn-status index is not a local file")?;
+            let turns = Connection::open_with_flags(
+                path,
+                OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            )
+            .map_err(|e| e.to_string())?;
+            turns
+                .busy_timeout(Duration::from_millis(150))
+                .map_err(|e| e.to_string())?;
+            turns
+                .pragma_update(None, "query_only", true)
+                .map_err(|e| e.to_string())?;
+            let mut latest = turns.prepare("SELECT status, started_at, completed_at FROM thread_turns WHERE thread_id = ?1 ORDER BY rollout_ordinal DESC LIMIT 1")
+                .map_err(|e| e.to_string())?;
+            for item in &mut result.items[first_item..] {
+                if !item.open {
+                    continue;
+                }
+                let state: Option<(String, Option<i64>, Option<i64>)> = latest
+                    .query_row([item.target.id()], |r| {
+                        Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                    })
+                    .optional()
+                    .map_err(|e| e.to_string())?;
+                item.activity = match state {
+                    Some((status, Some(_), None)) if status == "inProgress" => Activity::Running,
+                    Some((status, _, finished))
+                        if finished.is_some()
+                            || matches!(
+                                status.as_str(),
+                                "completed" | "interrupted" | "failed"
+                            ) =>
+                    {
+                        Activity::Idle
+                    }
+                    _ => Activity::Unknown,
+                };
+            }
+            Ok(())
+        })();
+        if let Err(error) = activity {
+            result.warnings.push(format!("Some Codex running states couldn't be read: {error}. Unconfirmed chats stay under Other open chats."));
         }
     }
     Ok(())
@@ -320,7 +403,7 @@ fn codex_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Session> {
         updated: row.get(3)?,
         open: false,
         background: source.contains("subagent"),
-        status: "Recent",
+        activity: Activity::Unknown,
     })
 }
 
@@ -433,14 +516,14 @@ fn claude_sessions(root: &Path, result: &mut Snapshot) -> Result<(), String> {
         } else {
             ChatTarget::ClaudeTerminal(session.session_id)
         };
-        let status = if !open {
-            "Recent"
+        let activity = if !open {
+            Activity::Unknown
         } else {
             match session.status.as_str() {
-                "idle" => "Open · idle",
-                "waiting" => "Open · waiting",
-                "working" | "running" | "busy" => "Working",
-                _ => "Open",
+                "idle" => Activity::Idle,
+                "waiting" => Activity::Waiting,
+                "working" | "running" | "busy" => Activity::Running,
+                _ => Activity::Unknown,
             }
         };
         result.items.push(Session {
@@ -450,7 +533,7 @@ fn claude_sessions(root: &Path, result: &mut Snapshot) -> Result<(), String> {
             updated: session.updated_at / 1000,
             open,
             background: !session.kind.is_empty() && session.kind != "interactive",
-            status,
+            activity,
         });
     }
     Ok(())

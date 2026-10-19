@@ -82,7 +82,7 @@ pub fn apply(ctx: &egui::Context) {
     });
 }
 
-/// Only interaction feedback animates. The system's reduced-motion choice also covers disclosures.
+/// The system's reduced-motion choice covers interactions, disclosures and running-session shimmer.
 pub fn motion(ctx: &egui::Context, enabled: bool) {
     ctx.all_styles_mut(|style| {
         style.animation_time = if enabled { 0.18 } else { 0.0 };
@@ -150,6 +150,73 @@ pub fn selection_surface(
             egui::StrokeKind::Inside,
         ),
     );
+}
+
+/// A low-contrast sweep behind a running card. This is activity feedback, never a progress percentage.
+pub fn running_surface(
+    ui: &egui::Ui,
+    rect: egui::Rect,
+    shape: egui::layers::ShapeIdx,
+    moving: bool,
+) {
+    if !ui.is_rect_visible(rect) {
+        return;
+    }
+    let accent = ui.visuals().selection.stroke.color;
+    let base = ui.visuals().extreme_bg_color;
+    let mut shapes = vec![egui::Shape::Rect(egui::epaint::RectShape::new(
+        rect,
+        6,
+        mix(base, ui.visuals().selection.bg_fill, 0.42),
+        Stroke::new(
+            1.0,
+            mix(
+                ui.visuals().widgets.noninteractive.bg_stroke.color,
+                accent,
+                0.50,
+            ),
+        ),
+        egui::StrokeKind::Inside,
+    ))];
+    if moving {
+        let inner = rect.shrink(3.0);
+        let phase = ui.input(|i| (i.time / 3.6).fract()) as f32;
+        let width = inner.width() * 0.30;
+        let center = egui::lerp(
+            inner.left() - width - inner.height()..=inner.right() + width,
+            phase,
+        );
+        let mut mesh = egui::Mesh::default();
+        const STEPS: u32 = 40;
+        for column in 0..=STEPS {
+            let x = egui::lerp(inner.x_range(), column as f32 / STEPS as f32);
+            for y in [inner.top(), inner.bottom()] {
+                let offset = (y - inner.center().y) * 0.6;
+                let glow = (1.0 - ((x - center - offset) / width).abs())
+                    .max(0.0)
+                    .powi(2);
+                let alpha = glow * if ui.visuals().dark_mode { 48.0 } else { 28.0 };
+                mesh.colored_vertex(
+                    egui::pos2(x, y),
+                    Color32::from_rgba_unmultiplied(
+                        accent.r(),
+                        accent.g(),
+                        accent.b(),
+                        alpha as u8,
+                    ),
+                );
+            }
+            if column > 0 {
+                let previous = (column - 1) * 2;
+                mesh.add_triangle(previous, previous + 1, previous + 2);
+                mesh.add_triangle(previous + 1, previous + 3, previous + 2);
+            }
+        }
+        shapes.push(egui::Shape::mesh(mesh));
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(33));
+    }
+    ui.painter().set(shape, egui::Shape::Vec(shapes));
 }
 
 pub fn nav_button(

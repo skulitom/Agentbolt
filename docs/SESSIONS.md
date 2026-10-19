@@ -5,19 +5,27 @@ ID. Use the Codex/Claude filters to narrow the list. **Open chat** opens a deskt
 Claude Code terminal sessions offer **Resume in a terminal**. Extra reference/copy actions are under
 Details. No Agentbolt registration is needed for these local sessions.
 
-Open sessions are first. Recent chats start collapsed every time you return to Sessions, including
-while searching. View includes an optional background-agent filter. The page refreshes every five
+**Running now** is first, with a slow amber background sweep and a text label on each running card.
+**Other open chats** and **Recent chats** start collapsed every time you return to Sessions, including
+while searching. View includes an optional background-agent filter. The page refreshes every two
 seconds while visible, and Refresh requests an immediate update.
 
-## What “Open” means
+## Running, open and recent
 
-- Codex has the chat loaded and holds its writer lock. This does not prove a turn is running or that
-  it needs a reply. Names match the app's saved chat name when available.
-- Claude Code's session registry identifies a process whose creation time and executable still match.
-  Claude's own idle/waiting/working label is shown where available. These labels do not create Inbox
-  questions or imply that a waiting session requires your answer.
+- Codex is Running only when the chat has a held writer lock and its latest turn reports `inProgress`,
+  has a start time and has no completion time. Completed, interrupted and failed turns are idle.
+  Merely keeping the chat loaded no longer puts it in the main list. Names match the app's saved name.
+- Claude is Running only when its process creation time and executable still match and the registry
+  reports `busy`, `working` or `running`. Idle, waiting and unrecognized statuses never animate.
+- Other open chats contains idle/waiting sessions and sessions whose running status cannot be read.
+  Missing metadata is not treated as proof of active work. The app's reported in-progress turn may
+  include time waiting for a tool; the animation is an activity indicator, not a progress percentage.
 - Recent includes the latest 200 unarchived Codex chats plus retained Claude session entries that are
   no longer confirmed open. Open Codex chats older than those 200 are included separately.
+
+The shimmer follows Windows' animation preference. Reduced motion keeps a static amber surface and
+Running label. Animation requests stop for offscreen cards, unfocused/minimized windows and snapshots
+more than ten seconds old. These statuses do not create Inbox questions or imply approval is needed.
 
 ## Scope and privacy
 
@@ -37,6 +45,8 @@ Codex metadata comes from the newest numbered `state_*.sqlite` database under `C
 create no files and never remove locks. A shared coordination guard prevents the probe from racing
 Codex's own writer creation/removal. The ownership interpretation follows Codex's
 [writer-lock implementation](https://github.com/openai/codex/blob/main/codex-rs/rollout/src/writer_lock.rs).
+Running-state lookup reads only status, start and completion columns from the latest `thread_turns`
+row in the newest `thread_history_*.sqlite` database. No thread items, transcripts or messages are read.
 
 Claude metadata comes from `CLAUDE_CONFIG_DIR\sessions\<pid>.json` (default
 `%USERPROFILE%\.claude\sessions`). Process IDs alone are insufficient: Windows creation time and

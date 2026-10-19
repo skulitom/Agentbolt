@@ -1,4 +1,4 @@
-//! The session switcher: open chats first, searchable recent chats behind a disclosure.
+//! The session switcher: running work first; idle and recent chats stay collapsed.
 
 use crate::app::AccessibleCollapsingHeader;
 use crate::sessions::{Session, Snapshot, Worker};
@@ -25,6 +25,7 @@ pub struct Page {
     app: AppFilter,
     background: bool,
     recent_open: Option<bool>,
+    other_open: Option<bool>,
 }
 
 impl Page {
@@ -38,12 +39,14 @@ impl Page {
             app: AppFilter::All,
             background: false,
             recent_open: None,
+            other_open: None,
         }
     }
 
     pub fn enter(&mut self) {
         self.last = None;
         self.recent_open = None;
+        self.other_open = None;
     }
 
     pub fn poll(&mut self, visible: bool) {
@@ -56,7 +59,7 @@ impl Page {
             && !self.busy
             && self
                 .last
-                .is_none_or(|t| t.elapsed() >= Duration::from_secs(5))
+                .is_none_or(|t| t.elapsed() >= Duration::from_secs(2))
         {
             self.busy = self.worker.refresh();
         }
@@ -116,20 +119,46 @@ impl Page {
                     }
             })
             .collect();
-        let open: Vec<_> = items.iter().copied().filter(|s| s.open).collect();
+        let running: Vec<_> = items.iter().copied().filter(|s| s.running()).collect();
+        let other: Vec<_> = items
+            .iter()
+            .copied()
+            .filter(|s| s.open && !s.running())
+            .collect();
         let recent: Vec<_> = items.iter().copied().filter(|s| !s.open).collect();
+        let animate = ui.style().animation_time > 0.0
+            && self
+                .last
+                .is_some_and(|t| t.elapsed() < Duration::from_secs(10))
+            && ui.input(|i| {
+                i.viewport().focused.unwrap_or(i.focused)
+                    && !i.viewport().minimized.unwrap_or(false)
+            });
         let mut chosen = None;
         egui::ScrollArea::vertical().id_salt("session-list").auto_shrink([false, false]).show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.strong(format!("Open sessions ({})", open.len()));
+                ui.strong(format!("Running now ({})", running.len()));
                 if self.busy { ui.spinner(); }
             });
             ui.add_space(4.0);
-            if open.is_empty() && !self.busy {
-                ui.weak(if query.is_empty() { "No open sessions found for this view." } else { "No open sessions match your search." });
+            if running.is_empty() && !self.busy {
+                ui.weak(if query.is_empty() { "No sessions are currently reporting active work." } else { "No running sessions match your search." });
             }
-            for item in &open {
-                if let Some(target) = session_card(ui, item) { chosen = Some(target); }
+            for item in &running {
+                if let Some(target) = session_card(ui, item, animate) { chosen = Some(target); }
+            }
+            if !other.is_empty() {
+                ui.add_space(12.0);
+                let header = egui::CollapsingHeader::new(format!("Other open chats ({})", other.len()))
+                    .id_salt("other-open-sessions")
+                    .open(if self.other_open.is_none() { Some(false) } else { None })
+                    .show_accessible(ui, |ui| {
+                        ui.weak("Idle, waiting, or without a confirmed running status.");
+                        for item in &other {
+                            if let Some(target) = session_card(ui, item, false) { chosen = Some(target); }
+                        }
+                    });
+                self.other_open = Some(egui::collapsing_header::CollapsingState::load(ui.ctx(), header.header_response.id).is_some_and(|s| s.is_open()));
             }
             if !recent.is_empty() {
                 ui.add_space(12.0);
@@ -139,7 +168,7 @@ impl Page {
                     .show_accessible(ui, |ui| {
                         ui.weak("Not confirmed open. These chats do not imply a reply is needed.");
                         for item in &recent {
-                            if let Some(target) = session_card(ui, item) { chosen = Some(target); }
+                            if let Some(target) = session_card(ui, item, false) { chosen = Some(target); }
                         }
                     });
                 self.recent_open = Some(egui::collapsing_header::CollapsingState::load(ui.ctx(), header.header_response.id).is_some_and(|s| s.is_open()));
@@ -154,7 +183,8 @@ impl Page {
             ui.add_space(12.0);
             egui::CollapsingHeader::new("About session discovery").id_salt("session-discovery-help").show_accessible(ui, |ui| {
                 ui.add(egui::Label::new("Shows local Codex and Claude Code sessions, including Code chats in Claude Desktop. Browser chats and sessions on other computers are not discovered.").wrap());
-                ui.add(egui::Label::new("Open means the app has the session loaded or its process is still running. It does not mean an agent is working or needs your reply. Recent chats include the latest 200 unarchived Codex chats and retained Claude session entries.").wrap());
+                ui.add(egui::Label::new("Running means Codex reports an unfinished turn in a loaded chat, or Claude reports working in a verified live process. The shimmer indicates activity, not how much work is complete. Status refreshes every two seconds.").wrap());
+                ui.add(egui::Label::new("Other open chats are idle, waiting or have an unavailable status. Recent chats include the latest 200 unarchived Codex chats and retained Claude session entries. Neither group implies that a reply is needed.").wrap());
                 ui.add(egui::Label::new("Desktop chats open in their app. A terminal session offers a resume action in a new terminal; it does not focus an existing terminal. Background agents are available under View.").wrap());
                 ui.weak("Session titles and project folders stay on this computer. Conversation contents are not read.");
             });
@@ -163,10 +193,17 @@ impl Page {
     }
 }
 
-fn session_card(ui: &mut egui::Ui, item: &Session) -> Option<(ChatTarget, String)> {
+fn session_card(ui: &mut egui::Ui, item: &Session, animate: bool) -> Option<(ChatTarget, String)> {
     let mut chosen = None;
     ui.push_id((item.app(), item.target.id()), |ui| {
-        theme::surface(ui).inner_margin(10).show(ui, |ui| {
+        let background = ui.painter().add(egui::Shape::Noop);
+        let mut frame = theme::surface(ui).inner_margin(10);
+        if item.running() {
+            frame = frame
+                .fill(egui::Color32::TRANSPARENT)
+                .stroke(egui::Stroke::NONE);
+        }
+        let card = frame.show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.add(egui::Label::new(RichText::new(&item.title).strong()).wrap());
             ui.horizontal_wrapped(|ui| {
@@ -198,9 +235,13 @@ fn session_card(ui: &mut egui::Ui, item: &Session) -> Option<(ChatTarget, String
                     }
                 });
                 ui.add(
-                    egui::Label::new(
-                        RichText::new(format!("{} · {}", item.app(), item.status)).weak(),
-                    )
+                    egui::Label::new(if item.running() {
+                        RichText::new(format!("{} · Running", item.app()))
+                            .strong()
+                            .color(ui.visuals().selection.stroke.color)
+                    } else {
+                        RichText::new(format!("{} · {}", item.app(), item.status())).weak()
+                    })
                     .extend(),
                 );
                 if let Some(project) = std::path::Path::new(&item.cwd)
@@ -215,6 +256,9 @@ fn session_card(ui: &mut egui::Ui, item: &Session) -> Option<(ChatTarget, String
                 }
             });
         });
+        if item.running() {
+            theme::running_surface(ui, card.response.rect, background, animate);
+        }
         ui.add_space(6.0);
     });
     chosen

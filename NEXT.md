@@ -21,6 +21,9 @@ Interaction animations now respect Windows' reduced-motion setting. Session navi
 shortcuts are direct, feedback no longer resizes the page, and unsaved notification edits survive
 navigation. The new [Sessions view](docs/SESSIONS.md) discovers local Codex and Claude Code sessions
 without requiring an Agentbolt connection, with title/project search and collapsed recent chats.
+Sessions now separates confirmed running work from loaded-but-idle chats. Only running cards have an
+amber background animation; other open chats and recent chats start collapsed. Reduced motion uses
+a static highlight. These are UI improvements; the broader testing pause remains in effect.
 
 **Current scope (Artem, 2026-10-18): implement the full plan, including M2–M7.** This overrides the older
 handoff's M0/M1 limit and the evidence gate before building the Board. Finish all features before heavy
