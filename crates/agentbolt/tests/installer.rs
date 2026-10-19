@@ -450,6 +450,15 @@ fn install_then_uninstall_on_a_throwaway_channel() {
     let _cleanup = Cleanup(&n);
     let (from, real) = source(&n);
     let desk_upgrade = real && std::env::var("AGENTBOLT_DESK_UPGRADE_TEST").as_deref() == Ok("1");
+    let legacy = if real && std::env::var("AGENTBOLT_SCHEMA_UPGRADE_TEST").as_deref() == Ok("1") {
+        assert!(
+            desk_upgrade,
+            "schema fixture requires the isolated Desk upgrade path"
+        );
+        Some(seed_expanded_schema13(&n))
+    } else {
+        None
+    };
     let from_s = from.display().to_string();
     let mut args = vec!["install", "--channel", &n.channel, "--from", &from_s];
     if !real || desk_upgrade {
@@ -805,6 +814,19 @@ fn install_then_uninstall_on_a_throwaway_channel() {
             json!({"handle":registered["handle"],"ids":[id]}),
         );
         assert_eq!(answers["answers"][0]["answer"]["choice"], "Yes");
+        if let Some(legacy) = &legacy {
+            let messages = session.tool("board_read", json!({"after":0}));
+            let message = messages["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|m| m["id"] == legacy.message)
+                .expect("legacy Board message survived");
+            assert!(message["sender_machine"].is_null());
+            assert_eq!(message["body"], "Preserve this older handoff");
+            assert_eq!(message["references"], json!(["C:/synthetic/evidence.md"]));
+            verify_expanded_schema_upgrade(&n, legacy);
+        }
         eprintln!(
             "MCP reconnect, retained ask and new Desk answer verified; visible Desk test={desk_upgrade}, Desk session={test_session}, daemon session={daemon_session}, channel {}",
             n.channel
@@ -855,6 +877,191 @@ fn install_then_uninstall_on_a_throwaway_channel() {
     if !real {
         let _ = std::fs::remove_dir_all(&from);
     }
+}
+
+struct LegacyExpanded {
+    answer: String,
+    message: String,
+    baseline: String,
+}
+
+/// A schema-13-shaped snapshot, prepared before any installed process starts. It is deliberately not
+/// described as an older executable run: the installed daemon must perform migrations 14 and 15.
+fn seed_expanded_schema13(n: &Names) -> LegacyExpanded {
+    use agentbolt_core::{
+        board::{BoardOp, PostInput},
+        model::{AskInput, AskKind, Priority},
+        protocol::{AskResult, DeskOp, McpOp, RegisterResult},
+        service::{ClientInfo, Service},
+        service_impl::StoreService,
+    };
+    assert!(!n.data.exists(), "legacy fixture data must be fresh");
+    let path = n.data.join("agentbolt.db");
+    let before = time::OffsetDateTime::now_utc() - time::Duration::minutes(5);
+    let service = StoreService::open(&path)
+        .unwrap()
+        .with_channel(&n.channel)
+        .with_machine("legacy-fixture")
+        .with_clock(std::sync::Arc::new(move || before));
+    let call = |op| service.mcp(&ClientInfo::default(), op).unwrap().0;
+    let owner: RegisterResult = serde_json::from_value(call(McpOp::Register {
+        owner: Some("schema-migration-fixture".into()),
+        client: "Schema fixture".into(),
+        session_ref: None,
+        cwd: None,
+        doing: None,
+        provisional_key: None,
+    }))
+    .unwrap();
+    let ask: AskResult = serde_json::from_value(call(McpOp::Ask {
+        handle: owner.handle.clone(),
+        ask: AskInput {
+            kind: AskKind::Choose,
+            title: "Older measured question".into(),
+            body: "Synthetic schema migration history".into(),
+            evidence: vec![],
+            options: vec!["Keep".into(), "Change".into()],
+            fields: vec![],
+            default: json!("Keep"),
+            deadline: (before + time::Duration::days(1))
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap(),
+            reversible: true,
+            priority: Priority::P2,
+            p0_reason: None,
+            dedupe_key: None,
+        },
+    }))
+    .unwrap();
+    service.desk(DeskOp::List).unwrap();
+    service
+        .desk(DeskOp::Answer {
+            ask_id: ask.id.clone(),
+            choice: Some("Keep".into()),
+            values: None,
+            note: Some("Synthetic saved answer".into()),
+            one_click: None,
+        })
+        .unwrap();
+    let post = call(McpOp::Board {
+        handle: owner.handle,
+        action: BoardOp::Post {
+            input: PostInput {
+                to: Default::default(),
+                title: "Older Board reference".into(),
+                body: "Preserve this older handoff".into(),
+                references: vec!["C:/synthetic/evidence.md".into()],
+                thread: None,
+                dedupe_key: None,
+            },
+        },
+    });
+    service
+        .desk(DeskOp::StartBaseline {
+            label: "Synthetic old baseline".into(),
+        })
+        .unwrap();
+    drop(service);
+    let db = agentbolt_core::store::open_file(&path).unwrap();
+    let old: String = db
+        .query_row(
+            "SELECT value FROM meta WHERE key='adoption_baseline'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let mut baseline: Value = serde_json::from_str(&old).unwrap();
+    baseline["period"]
+        .as_object_mut()
+        .unwrap()
+        .remove("one_click");
+    let baseline = baseline.to_string();
+    db.execute(
+        "UPDATE meta SET value=?1 WHERE key='adoption_baseline'",
+        [&baseline],
+    )
+    .unwrap();
+    db.execute_batch("ALTER TABLE board_messages DROP COLUMN sender_machine; ALTER TABLE answers DROP COLUMN one_click; PRAGMA user_version=13;").unwrap();
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
+            .unwrap(),
+        13
+    );
+    eprintln!(
+        "Prepared schema 13 fixture with older answer, Board reference and baseline on {}",
+        n.channel
+    );
+    LegacyExpanded {
+        answer: ask.id,
+        message: post["id"].as_str().unwrap().into(),
+        baseline,
+    }
+}
+
+fn verify_expanded_schema_upgrade(n: &Names, legacy: &LegacyExpanded) {
+    // Stop only this installation's verified images before inspecting its sole-writer database.
+    let processes = agentbolt_ipc::windows_util::running_images(&[
+        n.install.join("agentbolt-daemon.exe"),
+        n.install.join("agentbolt-desk.exe"),
+    ])
+    .unwrap();
+    assert!(schtasks(&["/End", "/TN", &n.task]).status.success());
+    let start = std::time::Instant::now();
+    while processes.iter().any(|p| !p.exited().unwrap()) {
+        assert!(start.elapsed() < std::time::Duration::from_secs(10));
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let path = n.data.join("agentbolt.db");
+    // Open with SQLite, not store::open_file: the verifier must not itself apply the migrations.
+    let db =
+        rusqlite::Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap();
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
+            .unwrap(),
+        15
+    );
+    let (choice, direct): (String, Option<bool>) = db
+        .query_row(
+            "SELECT choice,one_click FROM answers WHERE ask_id=?1",
+            [&legacy.answer],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(choice, "Keep");
+    assert_eq!(direct, None);
+    let origin: Option<String> = db
+        .query_row(
+            "SELECT sender_machine FROM board_messages WHERE id=?1",
+            [&legacy.message],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(origin, None);
+    let baseline: String = db
+        .query_row(
+            "SELECT value FROM meta WHERE key='adoption_baseline'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        baseline, legacy.baseline,
+        "the saved baseline must remain byte-for-byte unchanged"
+    );
+    let report = agentbolt_core::metrics::report(
+        &db,
+        (time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000) as i64,
+    )
+    .unwrap();
+    assert!(report.baseline.unwrap().period.one_click.is_none());
+    let direct = report.current.one_click.unwrap();
+    assert!(direct.unmeasured_human_answers >= 1);
+    assert!(direct.share.is_none());
+    eprintln!(
+        "Installed schema 13 -> 15 migration and subsequent reinstall preserved answer/Board history, unknown evidence and exact baseline on {}",
+        n.channel
+    );
 }
 
 fn register_task_xml(n: &Names, name: &str, xml: &str) {

@@ -410,3 +410,59 @@ the lease was released. Automatic approval review rejected the exact-path native
 of `C:\Users\artem\AppData\Local\Agentbolt\claude-wait-107156` before execution (“blocked by policy”).
 That stopped data folder remains; cleanup was not retried through another mechanism. No install,
 handler or task was registered. The main connection, real notes, accounts and schedules were unchanged.
+
+## Installed expanded-schema preservation (2026-10-19)
+
+The opt-in installer fixture now accepts `AGENTBOLT_SCHEMA_UPGRADE_TEST=1` together with
+`AGENTBOLT_DESK_UPGRADE_TEST=1`. Before starting any installed process, it prepares a schema-13-shaped
+database containing an answer, Board reference and saved baseline. The real installed daemon applies
+migrations 14 and 15. The existing current-binary reinstall path then exercises a visible Desk with an
+unsent draft and an MCP connection held open. Read-only SQLite inspection cannot apply migrations itself.
+
+On `insttest-1d5801d5aec50`, job `j_60f9f6a214ad425ca369eb794adde458` passed in 10.60 seconds in Anode
+session 4. The old answer and Board reference survived; their missing interaction/origin evidence stayed
+null, the saved baseline remained byte-for-byte unchanged, and Activity withheld the unmeasured share.
+The retained draft, MCP reconnection and subsequent Desk answer also passed. Uninstall removed the
+fixture's registrations, programs, shortcut and data; no owned window remained and the lease was released.
+Focused installer Clippy passed. This uses a schema-shaped snapshot and the current binaries, not an
+actual older-release executable. Final-candidate packaging and real prior-release upgrades remain open.
+
+## Native origins, clipboard and expandable sections (2026-10-19)
+
+The new opt-in `origin_gui` fixture seeds a remote question and local, remote and unknown-origin Board
+messages. Its synthetic file exists locally even for the remote reference, which catches accidental
+local path opening. An initial native check on `gui-origin-115200` found that Copy controls left the OS
+clipboard empty: the eframe build omitted its clipboard feature. That feature is now enabled. The initial
+fixture's completion signal was not a clipboard assertion and is not counted as a clipboard pass.
+
+After the fix, `gui-origin-120712` / job `j_1e40687d909647a28886d5f2d4f38cad` passed in 304.38 seconds:
+
+- Remote ask/Board file and chat references offered copy controls; the remote chat launch stayed
+  disabled in both the question and Agents row. Unknown Board origins stayed copy-only with an explanation.
+- Local Board references offered Show in Explorer and chat/web hyperlinks. Synthetic links were not
+  launched; this verifies their controls, not a real chat destination.
+- File and session copies reached a separate Windows PowerShell clipboard reader exactly. Unicode
+  text placed on the system clipboard pasted into the Desk note and survived tab changes.
+- Activity's Copy report as JSON produced parseable clipboard JSON with two submitted/shown questions
+  and no baseline. No adoption period was started.
+
+The fixture now asserts the final clipboard session ID through a separate OS process and the exact pasted
+Unicode note in the saved Desk answer. It seeds questions and reads results; answers still come through
+the native Desk controls.
+
+The same review found that egui advertised expandable headers while ignoring native Expand/Collapse.
+An initial adapter calculated the ID outside the header's internal child UI and did not fix the problem;
+the final adapter uses the actual response ID, preserves existing state and requests a repaint. Native
+Board remote/local headers now expand independently and collapse correctly; Activity's methodology
+header displays and hides its full text through accessibility commands. All eight header sites use the
+adapter. A headless regression also covers repeated requests, distinct same-title headers and disabled
+controls. Windows UI Automation refuses a redundant Expand on an already expanded node; the header
+stays open, and the repeated-action regression verifies the underlying app's idempotence directly.
+
+The final native run on `gui-origin-122008`, job `j_c65c1c32cee948fdab851f21fe82e780`, passed its
+clipboard/answer assertions in 131.13 seconds alongside those observed accessibility actions. All owned
+processes and data from the origin fixtures were removed, no owned window remained and the lease was
+released. No install, handler, task, main-channel setting or external account was changed by these runs.
+The Desk's 23 unit tests, Desk all-target Clippy and both repository guards pass. Packages and dependency
+notices have not been rebuilt for the new clipboard dependency graph; licensing and heavy release
+checks remain deferred in the feature-first work order.

@@ -956,7 +956,7 @@ impl DeskApp {
                         self.recent.len()
                     ))
                     .default_open(self.inbox.is_empty())
-                    .show(ui, |ui| {
+                    .show_accessible(ui, |ui| {
                         for a in &self.recent {
                             let said = a
                                 .answer
@@ -1667,7 +1667,7 @@ impl DeskApp {
                         for request in &self.board.requests {
                             egui::CollapsingHeader::new(format!("{} · {}", request.status, request.input.title))
                                 .id_salt(&request.id)
-                                .show(ui, |ui| {
+                                .show_accessible(ui, |ui| {
                                     ui.weak(format!("From {} · {}", request.owner, request.created_at));
                                     if let Some(role) = &request.input.to_role { ui.label(format!("For {role}")); }
                                     if let Some(repo) = &request.input.repo { ui.label(format!("{repo} · {}", request.input.paths.join(", "))); }
@@ -1748,7 +1748,7 @@ impl DeskApp {
                                 a.roles.join(", ")
                             ))
                             .id_salt(&a.id)
-                            .show(ui, |ui| {
+                            .show_accessible(ui, |ui| {
                                 ui.label(format!("{} on {}", a.client, a.machine));
                                 if let Some(doing) = &a.doing {
                                     ui.add(egui::Label::new(doing).wrap());
@@ -1827,7 +1827,7 @@ impl DeskApp {
                         for m in &self.board.messages {
                             egui::CollapsingHeader::new(format!("{} · {}", m.owner, m.input.title))
                                 .id_salt(&m.id)
-                                .show(ui, |ui| {
+                                .show_accessible(ui, |ui| {
                                     use agentbolt_core::board::Destination;
                                     let to = match &m.input.to {
                                         Destination::Everyone => "everyone".into(),
@@ -1872,7 +1872,7 @@ impl DeskApp {
             ui.heading("Is the Desk helping?");
             ui.weak("Recorded activity only. Missing history is unknown; defaults are separate from human answers.");
             let Some(report)=&self.metrics else {ui.label("Loading recorded activity…");return;};
-            egui::CollapsingHeader::new("How these measures are calculated").show(ui, |ui| {
+            egui::CollapsingHeader::new("How these measures are calculated").show_accessible(ui, |ui| {
                 ui.add(egui::Label::new(&report.explanation).wrap());
             });
             let current=report.observation.as_ref().unwrap_or(&report.current);
@@ -1908,7 +1908,7 @@ impl DeskApp {
             ui.label(format!("{} reversible questions have waited over 48 hours.",report.reversible_waiting_over_48h));
             ui.label(format!("{} irreversible questions are still open{}.",report.irreversible_open,report.oldest_irreversible_hours.map(|h|format!("; oldest {h:.1} hours")).unwrap_or_default()));
             ui.separator();
-            egui::CollapsingHeader::new("By agent owner").show(ui, |ui| {
+            egui::CollapsingHeader::new("By agent owner").show_accessible(ui, |ui| {
             egui::ScrollArea::both().id_salt("activity-owners-scroll").max_height(220.0).show(ui, |ui| {
             egui::Grid::new("activity-owners").striped(true).show(ui,|ui| {
                 for title in ["Owner","Submitted","Not needed / submitted","Missed deadlines"] {ui.strong(title);}ui.end_row();
@@ -1918,7 +1918,7 @@ impl DeskApp {
             });
             });
             });
-            egui::CollapsingHeader::new("Questions submitted by day (UTC)").show(ui,|ui| {
+            egui::CollapsingHeader::new("Questions submitted by day (UTC)").show_accessible(ui,|ui| {
                 for (day,count) in &current.submissions_by_day {ui.label(format!("{day}: {count}"));}
             });
             ui.separator();ui.heading("Adoption baseline");
@@ -2002,7 +2002,7 @@ impl DeskApp {
                 }else{ui.weak("Waiting for the first scan; overlap status is unknown.");}
             }
             for hold in &self.holds.holds {
-                egui::CollapsingHeader::new(format!("{} · {} · {} paths",hold.owner,hold.repo,hold.paths.len())).id_salt(&hold.id).show(ui,|ui|{
+                egui::CollapsingHeader::new(format!("{} · {} · {} paths",hold.owner,hold.repo,hold.paths.len())).id_salt(&hold.id).show_accessible(ui,|ui|{
                     ui.label(&hold.note);
                     if let Some(until)=&hold.until{ui.weak(format!("Until {until}, renewed while the agent is active"));}
                     for path in &hold.paths{ui.add(egui::Label::new(path).selectable(true).wrap());}
@@ -2291,6 +2291,50 @@ fn mute_control(ui: &mut egui::Ui, owner: &str, muted: bool) -> Option<Req> {
         );
     });
     request
+}
+
+/// Honor native Expand/Collapse requests against the actual header ID. CollapsingHeader
+/// creates an internal child UI, so its response is the authority for that ID.
+trait AccessibleCollapsingHeader {
+    fn show_accessible<R>(
+        self,
+        ui: &mut egui::Ui,
+        body: impl FnOnce(&mut egui::Ui) -> R,
+    ) -> egui::collapsing_header::CollapsingResponse<R>;
+}
+
+impl AccessibleCollapsingHeader for egui::CollapsingHeader {
+    fn show_accessible<R>(
+        self,
+        ui: &mut egui::Ui,
+        body: impl FnOnce(&mut egui::Ui) -> R,
+    ) -> egui::collapsing_header::CollapsingResponse<R> {
+        let mut response = self.show(ui, body);
+        let id = response.header_response.id;
+        let mut open = None;
+        if response.header_response.enabled() {
+            ui.input_mut(|input| {
+                input.consume_accesskit_action_requests(id, |request| {
+                    open = match request.action {
+                        egui::accesskit::Action::Expand => Some(true),
+                        egui::accesskit::Action::Collapse => Some(false),
+                        _ => return false,
+                    };
+                    true
+                });
+            });
+        }
+        if let Some(open) = open
+            && let Some(mut state) = egui::collapsing_header::CollapsingState::load(ui.ctx(), id)
+            && state.is_open() != open
+        {
+            state.set_open(open);
+            state.store(ui.ctx());
+            response.header_response.mark_changed();
+            ui.request_repaint();
+        }
+        response
+    }
 }
 
 fn chat_button(
@@ -2604,5 +2648,65 @@ impl eframe::App for DeskApp {
             crate::startup::mark("first_ui_complete");
         }
         upgrade.draft_error = self.draft_error.clone();
+    }
+}
+
+#[cfg(test)]
+mod accessibility_tests {
+    use super::{AccessibleCollapsingHeader, egui};
+    use egui::{Context, Event, Id, RawInput, accesskit};
+
+    fn frame(ctx: &Context, event: Option<Event>, enabled: bool) -> [(Id, bool); 2] {
+        let mut headers = [(Id::NULL, false); 2];
+        let mut output = ctx.run_ui(
+            RawInput {
+                events: event.into_iter().collect(),
+                ..Default::default()
+            },
+            |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    for (index, slot) in headers.iter_mut().enumerate() {
+                        let result = egui::CollapsingHeader::new("Same title")
+                            .id_salt(index)
+                            .enabled(enabled)
+                            .show_accessible(ui, |ui| ui.label("Details"));
+                        let id = result.header_response.id;
+                        let state =
+                            egui::collapsing_header::CollapsingState::load(ctx, id).unwrap();
+                        *slot = (id, state.is_open());
+                    }
+                });
+            },
+        );
+        output.textures_delta.clear();
+        headers
+    }
+
+    #[test]
+    fn native_expand_collapse_targets_the_actual_header_and_respects_disabled_state() {
+        let ctx = Context::default();
+        ctx.enable_accesskit();
+        let initial = frame(&ctx, None, true);
+        assert!(!initial[0].1 && !initial[1].1);
+        assert_ne!(initial[0].0, initial[1].0);
+        let request = |action| {
+            Some(Event::AccessKitActionRequest(accesskit::ActionRequest {
+                action,
+                target_tree: accesskit::TreeId::ROOT,
+                target_node: initial[1].0.accesskit_id(),
+                data: None,
+            }))
+        };
+        for _ in 0..2 {
+            let expanded = frame(&ctx, request(accesskit::Action::Expand), true);
+            assert!(!expanded[0].1 && expanded[1].1);
+        }
+        assert!(frame(&ctx, None, true)[1].1, "expansion persists");
+        let disabled = frame(&ctx, request(accesskit::Action::Collapse), false);
+        assert!(disabled[1].1, "disabled controls ignore actions");
+        for _ in 0..2 {
+            let collapsed = frame(&ctx, request(accesskit::Action::Collapse), true);
+            assert!(!collapsed[0].1 && !collapsed[1].1);
+        }
     }
 }

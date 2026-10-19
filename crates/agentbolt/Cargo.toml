@@ -24,6 +24,9 @@ tokio.workspace = true
 rmcp.workspace = true
 time.workspace = true
 
+[dev-dependencies]
+rusqlite.workspace = true
+
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true, features = [
     "Win32_Foundation",

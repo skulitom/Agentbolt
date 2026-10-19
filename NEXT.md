@@ -51,7 +51,13 @@ The full-plan audit also added the missing one-click adoption measure. Activity 
 edited/batch and unmeasured answers, includes older backlog first shown during the period, and preserves
 unknown evidence in older drafts, answers and saved baselines. See [Activity methodology](docs/ADOPTION.md).
 Native interaction checks now confirm direct choice/form/reply/Not needed submissions, retained edits
-after a restart or clearing a note, and the Activity total. Schema 15 installed upgrade remains open.
+after a restart or clearing a note, and the Activity total. An installed schema-13-shaped fixture now
+migrates to schema 15, preserving old answers, unknown origins/interaction evidence and the exact saved
+baseline through reinstall. This does not replace an actual older-release binary upgrade check.
+Native origin checks found and fixed missing system clipboard support. File/session copies, Unicode
+paste and Activity JSON export now reach the Windows clipboard. Remote/unknown references remain
+copy-only. Board and Activity sections now honor native accessibility Expand/Collapse commands;
+the same adapter covers recent questions, handoffs, agents and work holds.
 No phone account, scan, adoption period or live workflow has been activated.
 
 
