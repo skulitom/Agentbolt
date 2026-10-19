@@ -15,6 +15,7 @@ anyhow.workspace = true
 time.workspace = true
 tokio.workspace = true
 eframe.workspace = true
+rusqlite.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 raw-window-handle = "0.6"

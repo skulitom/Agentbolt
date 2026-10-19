@@ -52,6 +52,9 @@ agent ──stdio──► agentbolt mcp ──user-only pipe──► agentbolt
   and Open chat, including when the Inbox is empty.
 - **Chat navigation:** open the originating chat, or copy a validated Claude/Codex resume command for an
   existing terminal. Remote sessions and older questions with no recorded source computer stay copy-only.
+- **Sessions:** find open local Codex and Claude Code sessions, including Claude Desktop Code chats,
+  even when they haven't connected to Agentbolt. Search by title or project and open a desktop chat
+  directly. Recent chats stay collapsed; terminal sessions offer resume. [Discovery and limits](docs/SESSIONS.md).
 - **Agent Board:** roles and current work, routed messages, deduplicated handoffs, one claimant per request,
   and renewable leases with fencing tokens. A stale claimant cannot overwrite a later claimant's result.
 - **Work holds:** explicitly allowlisted working copies expose dirty/unpushed paths; agents can check for

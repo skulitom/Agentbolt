@@ -22,7 +22,7 @@ use crate::worker::{self, Req, Resp, Worker};
 
 const POLL: Duration = Duration::from_millis(1500);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Tab {
     Inbox,
     History,
@@ -30,6 +30,7 @@ enum Tab {
     Activity,
     Holds,
     Agents,
+    Sessions,
     Settings,
 }
 
@@ -192,6 +193,7 @@ pub struct DeskApp {
     sending: HashSet<String>,
     agents: Vec<Agent>,
     agents_directory: DirectoryState,
+    sessions: crate::session_view::Page,
     board: agentbolt_core::board::Snapshot,
     board_query: agentbolt_core::board::DeskQuery,
     board_search: String,
@@ -239,6 +241,8 @@ pub struct DeskApp {
     was_seen: bool,
     /// Whether the selected ask's local evidence paths exist, checked once per selection.
     paths: view::PathCache,
+    motion_enabled: bool,
+    last_motion_check: Instant,
 }
 
 /// Open the window and run until it closes.
@@ -287,7 +291,8 @@ pub fn run(names: Names, warm: bool) -> anyhow::Result<()> {
             crate::startup::mark("renderer_ready");
             let ctx = cc.egui_ctx.clone();
             let worker = worker::spawn(names.clone(), move || ctx.request_repaint());
-            let app = DeskApp::new(names.clone(), worker);
+            let app = DeskApp::new(names.clone(), worker, cc.egui_ctx.clone());
+            theme::motion(&cc.egui_ctx, app.motion_enabled);
             crate::upgrade::serve(
                 names,
                 app.upgrade.clone(),
@@ -303,7 +308,7 @@ pub fn run(names: Names, warm: bool) -> anyhow::Result<()> {
 }
 
 impl DeskApp {
-    fn new(names: Names, worker: Worker) -> Self {
+    fn new(names: Names, worker: Worker, ctx: egui::Context) -> Self {
         let (draft_store, state) = DraftStore::load(
             &names
                 .data_dir()
@@ -312,6 +317,7 @@ impl DeskApp {
         let draft_error = draft_store.load_error().map(str::to_owned);
         Self {
             upgrade: crate::upgrade::gate(draft_error.clone()),
+            sessions: crate::session_view::Page::new(&names, ctx),
             names,
             worker,
             tab: Tab::Inbox,
@@ -391,6 +397,8 @@ impl DeskApp {
             last_owners: None,
             was_seen: false,
             paths: view::PathCache::default(),
+            motion_enabled: os::animations_enabled(),
+            last_motion_check: Instant::now(),
         }
     }
 
@@ -404,6 +412,67 @@ impl DeskApp {
             error,
             at: Instant::now(),
         });
+    }
+
+    /// Feedback floats above the page rather than resizing the list or moving answer buttons.
+    fn feedback(&mut self, ctx: &egui::Context) {
+        let Some(notice) = &self.notice else {
+            return;
+        };
+        let age = notice.at.elapsed().as_secs_f32();
+        if !notice.error && age >= 6.0 {
+            self.notice = None;
+            return;
+        }
+        let alpha = if self.motion_enabled && !notice.error {
+            (age / 0.16).min(1.0) * ((6.0 - age) / 0.25).min(1.0)
+        } else {
+            1.0
+        };
+        if !notice.error {
+            if alpha < 1.0 {
+                ctx.request_repaint();
+            } else {
+                ctx.request_repaint_after(Duration::from_secs_f32((5.75 - age).max(0.01)));
+            }
+        }
+        let mut dismiss = false;
+        egui::Area::new(egui::Id::unique("desk-feedback"))
+            .order(egui::Order::Foreground)
+            .movable(false)
+            .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -16.0))
+            .show(ctx, |ui| {
+                ui.set_max_width((ctx.content_rect().width() - 64.0).clamp(200.0, 440.0));
+                ui.set_opacity(alpha);
+                let color = if notice.error {
+                    ui.visuals().error_fg_color
+                } else {
+                    ui.visuals().text_color()
+                };
+                theme::surface(ui).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.strong(if notice.error {
+                            "Needs attention"
+                        } else {
+                            "Update"
+                        });
+                        dismiss = ui.small_button("Dismiss").clicked();
+                    });
+                    egui::ScrollArea::vertical()
+                        .id_salt("feedback-text")
+                        .max_height(140.0)
+                        .show(ui, |ui| {
+                            ui.add(
+                                egui::Label::new(RichText::new(&notice.text).color(color))
+                                    .wrap()
+                                    .selectable(true),
+                            );
+                        });
+                });
+            });
+        if dismiss {
+            self.notice = None;
+        }
     }
 
     fn drain(&mut self) {
@@ -649,10 +718,17 @@ impl DeskApp {
                     self.last_list = None;
                 }
                 Resp::Settings(s) => {
-                    self.settings_draft = SettingsDraft {
-                        ntfy: s.ntfy_topic_url.clone().unwrap_or_default(),
-                        toasts_off: s.toasts_off,
-                    };
+                    let clean = self.settings.as_ref().is_none_or(|saved| {
+                        saved.toasts_off == self.settings_draft.toasts_off
+                            && saved.ntfy_topic_url.as_deref().unwrap_or_default()
+                                == self.settings_draft.ntfy.trim()
+                    });
+                    if clean {
+                        self.settings_draft = SettingsDraft {
+                            ntfy: s.ntfy_topic_url.clone().unwrap_or_default(),
+                            toasts_off: s.toasts_off,
+                        };
+                    }
                     self.settings = Some(s);
                 }
                 Resp::Phone(status) => {
@@ -735,6 +811,7 @@ impl DeskApp {
             self.last_list = None;
         }
         self.was_seen = seen;
+        self.sessions.poll(seen && self.tab == Tab::Sessions);
         if !self.list_inflight && self.last_list.is_none_or(|t| t.elapsed() >= POLL) {
             self.list_inflight = true;
             self.last_list = Some(Instant::now());
@@ -843,6 +920,7 @@ impl DeskApp {
                 self.last_owners = None;
             }
             Tab::Agents => self.last_agents = None,
+            Tab::Sessions => self.sessions.enter(),
             Tab::Board => self.last_board = None,
             Tab::Activity => self.last_metrics = None,
             Tab::Holds => self.last_holds = None,
@@ -876,11 +954,6 @@ impl DeskApp {
         });
         ui.add_space(4.0);
         ui.horizontal_wrapped(|ui| {
-            let pending = self
-                .owners
-                .iter()
-                .filter(|o| o.requested_owner.is_some() || o.binding == "pending")
-                .count();
             for (tab, label) in [
                 (
                     Tab::Inbox,
@@ -889,21 +962,12 @@ impl DeskApp {
                         self.open_count.unwrap_or(self.inbox.len() as u32)
                     ),
                 ),
+                (Tab::Sessions, "Sessions".into()),
                 (Tab::Agents, "Agents".into()),
                 (Tab::Board, "Board".into()),
-                (
-                    Tab::Settings,
-                    if pending == 0 {
-                        "Settings".into()
-                    } else {
-                        format!("Settings · {pending} to review")
-                    },
-                ),
+                (Tab::Settings, "Settings".into()),
             ] {
-                if ui
-                    .add(egui::Button::selectable(self.tab == tab, label))
-                    .clicked()
-                {
+                if theme::nav_button(ui, ("main-tab", tab), &label, self.tab == tab).clicked() {
                     self.switch_to(tab);
                 }
             }
@@ -914,6 +978,7 @@ impl DeskApp {
                 _ => "More",
             };
             ui.menu_button(more_label, |ui| {
+                ui.set_min_width(180.0);
                 for (tab, label) in [
                     (Tab::History, "History"),
                     (Tab::Holds, "Work holds"),
@@ -925,6 +990,17 @@ impl DeskApp {
                     }
                 }
             });
+            if self
+                .owners
+                .iter()
+                .any(|o| o.requested_owner.is_some() || o.binding == "pending")
+                && !(self.tab == Tab::Settings && self.settings_section == SettingsSection::Owners)
+                && ui.button("Review owners").clicked()
+            {
+                self.settings_section = SettingsSection::Owners;
+                self.switch_to(Tab::Settings);
+                self.last_owners = None;
+            }
         });
     }
 
@@ -1010,87 +1086,91 @@ impl DeskApp {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 for a in &asks {
-                    let selected = &mut self.selected_inbox;
-                    let is_sel = selected.as_deref() == Some(a.id.as_str())
-                        && self.selected_recent.is_none()
-                        && !self.review_batch;
-                    let (due, overdue) = view::relative_deadline(&a.input.deadline, now);
-                    let frame = theme::surface(ui).inner_margin(10).fill(if is_sel {
-                        ui.visuals().selection.bg_fill
-                    } else {
-                        ui.visuals().extreme_bg_color
-                    });
-                    let resp = frame
-                        .show(ui, |ui| {
-                            ui.set_width(ui.available_width());
-                            if self.batch_mode {
-                                ui.horizontal(|ui| {
-                                    let mut checked = self.batch_selection.contains(&a.id);
-                                    let allowed =
-                                        checked || self.batch_selection.len() < MAX_BATCH_ANSWERS;
-                                    let checkbox = ui.add_enabled(
-                                        allowed,
-                                        egui::Checkbox::new(&mut checked, "Select"),
-                                    );
-                                    checkbox.widget_info(|| {
-                                        egui::WidgetInfo::selected(
-                                            egui::accesskit::Role::CheckBox,
+                    ui.push_id(&a.id, |ui| {
+                        let selected = &mut self.selected_inbox;
+                        let is_sel = selected.as_deref() == Some(a.id.as_str())
+                            && self.selected_recent.is_none()
+                            && !self.review_batch;
+                        let (due, overdue) = view::relative_deadline(&a.input.deadline, now);
+                        let background = ui.painter().add(egui::Shape::Noop);
+                        let frame = theme::surface(ui)
+                            .inner_margin(10)
+                            .fill(Color32::TRANSPARENT)
+                            .stroke(egui::Stroke::NONE);
+                        let resp = frame
+                            .show(ui, |ui| {
+                                ui.set_width(ui.available_width());
+                                if self.batch_mode {
+                                    ui.horizontal(|ui| {
+                                        let mut checked = self.batch_selection.contains(&a.id);
+                                        let allowed = checked
+                                            || self.batch_selection.len() < MAX_BATCH_ANSWERS;
+                                        let checkbox = ui.add_enabled(
                                             allowed,
-                                            checked,
-                                            format!("Select {} for batch answer", a.input.title),
-                                        )
-                                    });
-                                    if checkbox.changed() {
-                                        if checked {
-                                            self.batch_selection.insert(a.id.clone());
-                                        } else {
-                                            self.batch_selection.remove(&a.id);
+                                            egui::Checkbox::new(&mut checked, "Select"),
+                                        );
+                                        checkbox.widget_info(|| {
+                                            egui::WidgetInfo::selected(
+                                                egui::accesskit::Role::CheckBox,
+                                                allowed,
+                                                checked,
+                                                format!(
+                                                    "Select {} for batch answer",
+                                                    a.input.title
+                                                ),
+                                            )
+                                        });
+                                        if checkbox.changed() {
+                                            if checked {
+                                                self.batch_selection.insert(a.id.clone());
+                                            } else {
+                                                self.batch_selection.remove(&a.id);
+                                            }
                                         }
+                                    });
+                                }
+                                ui.add(
+                                    egui::Label::new(RichText::new(&a.input.title).strong()).wrap(),
+                                );
+                                ui.horizontal_wrapped(|ui| {
+                                    if a.input.priority != Priority::P2 {
+                                        priority_tag(ui, a.input.priority);
                                     }
+                                    ui.weak(&a.owner);
+                                    if a.muted {
+                                        ui.weak("Muted");
+                                    }
+                                    ui.weak("·");
+                                    let c = if overdue {
+                                        ui.visuals().error_fg_color
+                                    } else {
+                                        ui.visuals().weak_text_color()
+                                    };
+                                    ui.add(egui::Label::new(RichText::new(due).color(c)).extend());
                                 });
-                            }
-                            ui.add(egui::Label::new(RichText::new(&a.input.title).strong()).wrap());
-                            ui.horizontal_wrapped(|ui| {
-                                if a.input.priority != Priority::P2 {
-                                    priority_tag(ui, a.input.priority);
-                                }
-                                ui.weak(&a.owner);
-                                if a.muted {
-                                    ui.weak("Muted");
-                                }
-                                ui.weak("·");
-                                let c = if overdue {
-                                    ui.visuals().error_fg_color
-                                } else {
-                                    ui.visuals().weak_text_color()
-                                };
-                                ui.colored_label(c, due);
-                            });
-                        })
-                        .response;
-                    let resp = resp.interact(egui::Sense::click());
-                    resp.widget_info(|| {
-                        egui::WidgetInfo::selected(
-                            egui::accesskit::Role::Button,
-                            ui.is_enabled(),
-                            is_sel,
-                            &a.input.title,
-                        )
-                    });
-                    if is_sel {
-                        ui.painter().rect_stroke(
+                            })
+                            .response;
+                        let resp = ui.interact(
                             resp.rect,
-                            4.0,
-                            ui.visuals().selection.stroke,
-                            egui::StrokeKind::Inside,
+                            ui.scope_id().with("question-card"),
+                            egui::Sense::click(),
                         );
-                    }
-                    if resp.clicked() {
-                        *selected = Some(a.id.clone());
-                        self.selected_recent = None;
-                        self.review_batch = false;
-                    }
-                    ui.add_space(2.0);
+                        resp.widget_info(|| {
+                            egui::WidgetInfo::selected(
+                                egui::accesskit::Role::Button,
+                                ui.is_enabled(),
+                                is_sel,
+                                &a.input.title,
+                            )
+                        });
+                        theme::selection_surface(ui, &resp, is_sel, background, true);
+                        if resp.clicked() {
+                            *selected = Some(a.id.clone());
+                            self.selected_recent = None;
+                            self.review_batch = false;
+                        }
+                        ui.add_space(2.0);
+                    });
                 }
                 if !self.recent.is_empty() {
                     ui.add_space(12.0);
@@ -1158,11 +1238,13 @@ impl DeskApp {
                 if active {
                 let (due, overdue) = view::relative_deadline(&ask.input.deadline, now);
                 let c = if overdue { ui.visuals().error_fg_color } else { ui.visuals().text_color() };
-                ui.colored_label(c, due).on_hover_text(&ask.input.deadline);
+                ui.add(egui::Label::new(RichText::new(due).color(c)).extend()).on_hover_text(&ask.input.deadline);
                 let tag = view::reversible_tag(ask);
                 let c = if ask.input.reversible { ui.visuals().weak_text_color() } else { ui.visuals().warn_fg_color };
-                ui.colored_label(c, tag);
+                ui.add(egui::Label::new(RichText::new(tag).color(c)).extend());
                 }
+                if let Some(target) = quick_chat_button(ui, ask.asking_client.as_deref().unwrap_or_default(), ask.asking_session.as_deref(), ask.asking_machine.as_deref())
+                    && let Err(error) = os::open_chat(&target, ask.asking_cwd.as_deref()) { self.note(error, true); }
             });
             if active && let Some(why) = &ask.input.p0_reason {
                 ui.label(format!("Why it's urgent: {why}"));
@@ -1758,7 +1840,7 @@ impl DeskApp {
         let now = time::OffsetDateTime::now_utc();
         let mut open = None;
         let mut mute = None;
-        let mut review_owners = false;
+        let mut review_owner = None;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
@@ -1782,11 +1864,19 @@ impl DeskApp {
                                     format!("Name needs review: {proposed}"),
                                 );
                                 if ui.button("Review name").clicked() {
-                                    review_owners = true;
+                                    review_owner = Some(a.owner.clone());
                                 }
                             }
                             if let Some(doing) = a.doing.as_deref().filter(|s| !s.is_empty()) {
                                 ui.add(egui::Label::new(doing).wrap());
+                            }
+                            if let Some(target) = quick_chat_button(
+                                ui,
+                                &a.client,
+                                a.session_ref.as_deref(),
+                                Some(&a.machine),
+                            ) {
+                                open = Some((target, a.cwd.clone()));
                             }
                             egui::CollapsingHeader::new("Details and actions")
                                 .id_salt(("agent-details", &a.handle))
@@ -1814,9 +1904,11 @@ impl DeskApp {
         if let Some(req) = mute {
             self.send(req);
         }
-        if review_owners {
+        if let Some(owner) = review_owner {
             self.settings_section = SettingsSection::Owners;
             self.owners_directory = DirectoryState::default();
+            self.owners_directory.search = owner.clone();
+            self.owners_directory.query.search = owner;
             self.last_owners = None;
             self.switch_to(Tab::Settings);
         }
@@ -1854,11 +1946,16 @@ impl DeskApp {
                     self.board.total_agents,
                 ),
             ] {
-                ui.selectable_value(
-                    &mut self.board_section,
-                    section,
-                    format!("{label} ({count})"),
-                );
+                if theme::nav_button(
+                    ui,
+                    ("board-tab", section),
+                    &format!("{label} ({count})"),
+                    self.board_section == section,
+                )
+                .clicked()
+                {
+                    self.board_section = section;
+                }
             }
         });
         if self.board_section != BoardSection::Agents {
@@ -2300,8 +2397,19 @@ impl DeskApp {
             "See where work overlaps before agents open or merge a PR. Holds are advisory; they do not lock files.",
         );
         ui.horizontal_wrapped(|ui| {
-            ui.selectable_value(&mut self.configure_holds, false, "Active holds");
-            ui.selectable_value(&mut self.configure_holds, true, "Configure working copies");
+            for (configure, label) in [(false, "Active holds"), (true, "Configure working copies")]
+            {
+                if theme::nav_button(
+                    ui,
+                    ("holds-tab", configure),
+                    label,
+                    self.configure_holds == configure,
+                )
+                .clicked()
+                {
+                    self.configure_holds = configure;
+                }
+            }
         });
         if !self.configure_holds {
             ui.horizontal_wrapped(|ui| {
@@ -2538,30 +2646,34 @@ impl DeskApp {
             "Manage notifications, phone replies and the agents allowed to reach you.",
         );
         ui.horizontal_wrapped(|ui| {
-            ui.selectable_value(
-                &mut self.settings_section,
-                SettingsSection::Notifications,
-                "Notifications",
-            );
-            ui.selectable_value(
-                &mut self.settings_section,
-                SettingsSection::Phone,
-                "Phone replies",
-            );
             let pending = self
                 .owners
                 .iter()
                 .filter(|owner| owner.requested_owner.is_some() || owner.binding == "pending")
                 .count();
-            ui.selectable_value(
-                &mut self.settings_section,
-                SettingsSection::Owners,
-                if pending == 0 {
-                    "Owners".into()
-                } else {
-                    format!("Owners · {pending} to review")
-                },
-            );
+            for (section, label) in [
+                (SettingsSection::Notifications, "Notifications".into()),
+                (SettingsSection::Phone, "Phone replies".into()),
+                (
+                    SettingsSection::Owners,
+                    if pending == 0 {
+                        "Owners".into()
+                    } else {
+                        format!("Owners · {pending} to review")
+                    },
+                ),
+            ] {
+                if theme::nav_button(
+                    ui,
+                    ("settings-tab", section),
+                    &label,
+                    self.settings_section == section,
+                )
+                .clicked()
+                {
+                    self.settings_section = section;
+                }
+            }
         });
         ui.separator();
         egui::ScrollArea::vertical().id_salt(("settings-page", self.settings_section)).auto_shrink([false, false]).show(ui, |ui| {
@@ -2571,6 +2683,12 @@ impl DeskApp {
                     theme::surface(ui).show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.strong("Desktop notifications");
+                        if let Some(warning) = &self.notification_warning {
+                            ui.colored_label(ui.visuals().warn_fg_color, warning);
+                            if cfg!(windows) && ui.button("Open Windows notification settings").clicked()
+                                && let Err(error) = os::open_notification_settings() { self.note(error, true); }
+                            ui.add_space(8.0);
+                        }
                         ui.checkbox(&mut self.settings_draft.toasts_off, "Pause desktop notifications");
                         ui.weak("Questions still arrive in your Inbox while notifications are paused.");
                         ui.add_space(12.0);
@@ -2681,11 +2799,26 @@ impl DeskApp {
 
 fn priority_tag(ui: &mut egui::Ui, p: Priority) {
     let (text, color) = match p {
-        Priority::P0 => ("P0", ui.visuals().error_fg_color),
-        Priority::P1 => ("P1", ui.visuals().warn_fg_color),
-        Priority::P2 => ("P2", ui.visuals().weak_text_color()),
+        Priority::P0 => ("Urgent", ui.visuals().error_fg_color),
+        Priority::P1 => ("Important", ui.visuals().warn_fg_color),
+        Priority::P2 => ("Routine", ui.visuals().weak_text_color()),
     };
-    ui.label(RichText::new(text).monospace().strong().color(color));
+    ui.label(RichText::new(text).strong().color(color));
+}
+
+/// Only a known local chat gets a direct action. Remote or unknown origins keep their copy controls.
+fn quick_chat_button(
+    ui: &mut egui::Ui,
+    client: &str,
+    session: Option<&str>,
+    machine: Option<&str>,
+) -> Option<agentbolt_core::navigation::ChatTarget> {
+    let machine = machine.filter(|value| !value.is_empty() && !value.starts_with("remote:"))?;
+    let target = agentbolt_core::navigation::ChatTarget::from_host(client, session)?;
+    ui.small_button(target.label())
+        .on_hover_text(format!("Open the source conversation on {machine}"))
+        .clicked()
+        .then_some(target)
 }
 
 fn mute_control(ui: &mut egui::Ui, owner: &str, muted: bool) -> Option<Req> {
@@ -2733,7 +2866,7 @@ fn mute_control(ui: &mut egui::Ui, owner: &str, muted: bool) -> Option<Req> {
 
 /// Honor native Expand/Collapse requests against the actual header ID. CollapsingHeader
 /// creates an internal child UI, so its response is the authority for that ID.
-trait AccessibleCollapsingHeader {
+pub(crate) trait AccessibleCollapsingHeader {
     fn show_accessible<R>(
         self,
         ui: &mut egui::Ui,
@@ -2851,7 +2984,8 @@ fn evidence_row(
             ui.label(format!("{label}:"));
             ui.add(
                 egui::Label::new(RichText::new(p.display().to_string()).monospace())
-                    .selectable(true),
+                    .selectable(true)
+                    .wrap(),
             );
             // Board references are checked on click; selected ask paths have a cached existence result.
             let exists = exists.get(&p).copied().unwrap_or(true);
@@ -2866,7 +3000,11 @@ fn evidence_row(
         }
         Link::Text => {
             ui.label(format!("{label}:"));
-            ui.add(egui::Label::new(RichText::new(url).monospace()).selectable(true));
+            ui.add(
+                egui::Label::new(RichText::new(url).monospace())
+                    .selectable(true)
+                    .wrap(),
+            );
             if ui.small_button("Copy reference").clicked() {
                 ui.ctx().copy_text(url.to_owned());
             }
@@ -3018,6 +3156,14 @@ impl eframe::App for DeskApp {
             return;
         }
         self.drain();
+        if self.last_motion_check.elapsed() >= Duration::from_secs(5) {
+            self.last_motion_check = Instant::now();
+            let enabled = os::animations_enabled();
+            if self.motion_enabled != enabled {
+                self.motion_enabled = enabled;
+                theme::motion(ctx, enabled);
+            }
+        }
         self.poll(ctx);
         // Draining an already-sent answer may clear a draft before the next UI frame.
         upgrade.draft_error = self.save_drafts().err();
@@ -3043,12 +3189,21 @@ impl eframe::App for DeskApp {
             .show(ui, |ui| {
                 ui.add_space(4.0);
                 self.top_bar(ui);
-                if let Some(warning) = &self.notification_warning {
-                    ui.colored_label(
-                        ui.visuals().warn_fg_color,
-                        "Desktop notifications need attention. You can still answer in the Desk.",
-                    )
-                    .on_hover_text(warning);
+                if let Some(warning) = self.notification_warning.clone()
+                    && !(self.tab == Tab::Settings
+                        && self.settings_section == SettingsSection::Notifications)
+                {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.colored_label(
+                            ui.visuals().warn_fg_color,
+                            "Desktop notifications need attention.",
+                        )
+                        .on_hover_text(warning);
+                        if ui.small_button("Review notifications").clicked() {
+                            self.settings_section = SettingsSection::Notifications;
+                            self.switch_to(Tab::Settings);
+                        }
+                    });
                 }
                 if let Some(error) = &self.draft_error {
                     ui.colored_label(
@@ -3056,32 +3211,15 @@ impl eframe::App for DeskApp {
                         format!("Unsent drafts are not being saved. {error}"),
                     );
                 }
+                if let Conn::Down(error) = &self.conn {
+                    egui::CollapsingHeader::new("Connection details")
+                        .id_salt("offline-details")
+                        .show_accessible(ui, |ui| {
+                            ui.add(egui::Label::new(error).wrap().selectable(true));
+                        });
+                }
                 ui.add_space(2.0);
             });
-        if let Some(n) = &self.notice
-            && n.at.elapsed() > Duration::from_secs(if n.error { 20 } else { 6 })
-        {
-            self.notice = None;
-        }
-        let down = match &self.conn {
-            Conn::Down(e) => Some(e.clone()),
-            _ => None,
-        };
-        if self.notice.is_some() || down.is_some() {
-            egui::Panel::bottom("notice").show(ui, |ui| {
-                if let Some(e) = &down {
-                    ui.colored_label(ui.visuals().error_fg_color, e);
-                }
-                if let Some(n) = &self.notice {
-                    let c = if n.error {
-                        ui.visuals().error_fg_color
-                    } else {
-                        Color32::from_rgb(0x3c, 0x9a, 0x5f)
-                    };
-                    ui.colored_label(c, &n.text);
-                }
-            });
-        }
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
@@ -3096,7 +3234,15 @@ impl eframe::App for DeskApp {
                 Tab::Activity => self.activity_tab(ui),
                 Tab::Holds => self.holds_tab(ui),
                 Tab::Settings => self.settings_tab(ui),
+                Tab::Sessions => {
+                    if let Some((target, cwd)) = self.sessions.show(ui)
+                        && let Err(error) = os::open_chat(&target, Some(&cwd))
+                    {
+                        self.note(error, true);
+                    }
+                }
             });
+        self.feedback(ui.ctx());
         if self
             .draft_retry
             .is_none_or(|at| at.elapsed() >= Duration::from_secs(1))

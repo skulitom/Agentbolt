@@ -17,6 +17,10 @@ default, separates them from active selection, labels closed outcomes “No repl
 selection an explicit mode. App-wide decluttering also puts routine permissions, phone setup, delivery
 records and detailed reports behind named disclosures, while approvals and problems stay visible.
 Secondary pages are available through More; paging controls appear only when needed.
+Interaction animations now respect Windows' reduced-motion setting. Session navigation and review
+shortcuts are direct, feedback no longer resizes the page, and unsaved notification edits survive
+navigation. The new [Sessions view](docs/SESSIONS.md) discovers local Codex and Claude Code sessions
+without requiring an Agentbolt connection, with title/project search and collapsed recent chats.
 
 **Current scope (Artem, 2026-10-18): implement the full plan, including M2–M7.** This overrides the older
 handoff's M0/M1 limit and the evidence gate before building the Board. Finish all features before heavy

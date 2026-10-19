@@ -131,6 +131,37 @@ mod imp {
 
 pub use imp::{first_window, message, open_url, show_in_explorer};
 
+/// Follow Windows' accessibility setting; a failed query conservatively disables motion.
+pub fn animations_enabled() -> bool {
+    #[cfg(windows)]
+    {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SPI_GETCLIENTAREAANIMATION, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SystemParametersInfoW,
+        };
+        use windows::core::BOOL;
+        let mut enabled = BOOL(0);
+        unsafe {
+            SystemParametersInfoW(
+                SPI_GETCLIENTAREAANIMATION,
+                0,
+                Some((&mut enabled as *mut BOOL).cast()),
+                SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+            )
+        }
+        .is_ok()
+            && enabled.as_bool()
+    }
+    #[cfg(not(windows))]
+    false
+}
+
+pub fn open_notification_settings() -> Result<(), String> {
+    #[cfg(windows)]
+    return imp::open_url("ms-settings:notifications");
+    #[cfg(not(windows))]
+    Err("Open your system notification settings to manage Agentbolt notifications.".into())
+}
+
 /// Match the installed Start-menu shortcut so Windows groups the running Desk under Agentbolt.
 pub fn set_app_identity(names: &Names) -> Result<(), String> {
     #[cfg(windows)]

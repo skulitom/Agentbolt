@@ -8,6 +8,8 @@ mod chat;
 mod drafts;
 mod os;
 mod resident;
+mod session_view;
+mod sessions;
 mod startup;
 mod theme;
 mod upgrade;

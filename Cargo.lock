@@ -172,6 +172,7 @@ dependencies = [
  "anyhow",
  "eframe",
  "raw-window-handle",
+ "rusqlite",
  "serde",
  "serde_json",
  "time",

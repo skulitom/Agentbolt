@@ -19,6 +19,7 @@ pub fn apply(ctx: &egui::Context) {
         style.spacing.button_padding = egui::vec2(12.0, 7.0);
         style.spacing.interact_size.y = 32.0;
         style.spacing.text_edit_width = 300.0;
+        style.spacing.menu_width = 220.0;
         let v = &mut style.visuals;
         let dark = v.dark_mode;
         let (background, surface, text, muted, border, accent, selected) = if dark {
@@ -79,6 +80,97 @@ pub fn apply(ctx: &egui::Context) {
             Color32::from_rgb(175, 40, 40)
         };
     });
+}
+
+/// Only interaction feedback animates. The system's reduced-motion choice also covers disclosures.
+pub fn motion(ctx: &egui::Context, enabled: bool) {
+    ctx.all_styles_mut(|style| {
+        style.animation_time = if enabled { 0.18 } else { 0.0 };
+        style.scroll_animation = if enabled {
+            egui::style::ScrollAnimation::duration(0.18)
+        } else {
+            egui::style::ScrollAnimation::none()
+        };
+    });
+}
+
+fn mix(from: Color32, to: Color32, amount: f32) -> Color32 {
+    Color32::from_rgb(
+        egui::lerp(from.r() as f32..=to.r() as f32, amount) as u8,
+        egui::lerp(from.g() as f32..=to.g() as f32, amount) as u8,
+        egui::lerp(from.b() as f32..=to.b() as f32, amount) as u8,
+    )
+}
+
+/// Fill a reserved shape behind the contents, so selection never moves a control or fades its text.
+pub fn selection_surface(
+    ui: &egui::Ui,
+    response: &egui::Response,
+    selected: bool,
+    shape: egui::layers::ShapeIdx,
+    card: bool,
+) {
+    let duration = ui.style().animation_time;
+    let selected =
+        ui.ctx()
+            .animate_bool_with_time(response.id.with("selected"), selected, duration);
+    let hovered =
+        ui.ctx()
+            .animate_bool_with_time(response.id.with("hovered"), response.hovered(), duration);
+    let base = if card {
+        ui.visuals().extreme_bg_color
+    } else {
+        ui.visuals().panel_fill
+    };
+    let fill = mix(
+        base,
+        ui.visuals().selection.bg_fill,
+        selected.max(hovered * 0.45),
+    );
+    let emphasis = if response.has_focus() {
+        1.0
+    } else {
+        selected.max(hovered * 0.6)
+    };
+    let border = if card {
+        ui.visuals().widgets.noninteractive.bg_stroke.color
+    } else {
+        base
+    };
+    ui.painter().set(
+        shape,
+        egui::epaint::RectShape::new(
+            response.rect,
+            6,
+            fill,
+            Stroke::new(
+                1.0,
+                mix(border, ui.visuals().selection.stroke.color, emphasis),
+            ),
+            egui::StrokeKind::Inside,
+        ),
+    );
+}
+
+pub fn nav_button(
+    ui: &mut egui::Ui,
+    key: impl std::hash::Hash + std::fmt::Debug,
+    label: &str,
+    selected: bool,
+) -> egui::Response {
+    ui.push_id(key, |ui| {
+        let shape = ui.painter().add(egui::Shape::Noop);
+        let response = ui.add(
+            egui::Button::new(label)
+                .selected(selected)
+                .frame(false)
+                .fill(Color32::TRANSPARENT)
+                .stroke(Stroke::NONE),
+        );
+        selection_surface(ui, &response, selected, shape, false);
+        response
+    })
+    .inner
 }
 
 pub fn page_heading(ui: &mut egui::Ui, title: &str, description: &str) {
