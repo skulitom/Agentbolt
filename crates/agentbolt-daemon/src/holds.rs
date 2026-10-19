@@ -4,11 +4,12 @@ use agentbolt_core::holds::{Config, Scan, WorkingCopy};
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
-    process::Stdio,
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::io::AsyncReadExt;
+mod git;
+#[cfg(test)]
+use git::fixture_git as git;
 
 pub async fn run(shared: Arc<Shared>) {
     loop {
@@ -31,59 +32,6 @@ pub async fn run(shared: Arc<Shared>) {
             }
         }
         tokio::time::sleep(Duration::from_secs(60)).await;
-    }
-}
-
-async fn git(path: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
-    let mut command = tokio::process::Command::new("git");
-    command
-        .current_dir(path)
-        .args([
-            "--no-optional-locks",
-            "-c",
-            "core.fsmonitor=false",
-            "-c",
-            "core.hooksPath=",
-            "-c",
-            "core.untrackedCache=false",
-        ])
-        .args(args)
-        .env("GIT_OPTIONAL_LOCKS", "0")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true);
-    // No visible console and no shell interpretation of working-copy paths or arguments.
-    #[cfg(windows)]
-    command.creation_flags(0x0800_0000);
-    let mut child = command
-        .spawn()
-        .map_err(|e| format!("cannot start Git: {e}"))?;
-    let mut stdout = child.stdout.take().ok_or("Git stdout unavailable")?;
-    let read = async {
-        let mut bytes = Vec::new();
-        (&mut stdout)
-            .take(1_048_577)
-            .read_to_end(&mut bytes)
-            .await
-            .map_err(|e| e.to_string())?;
-        if bytes.len() > 1_048_576 {
-            return Err("Git output exceeded 1 MiB; scan is incomplete".into());
-        }
-        let status = child.wait().await.map_err(|e| e.to_string())?;
-        if !status.success() {
-            return Err(format!(
-                "Git {} failed (exit {:?}); check the working copy and upstream",
-                args.first().unwrap_or(&"read"),
-                status.code()
-            ));
-        }
-        Ok(bytes)
-    };
-    match tokio::time::timeout(Duration::from_secs(20), read).await {
-        Ok(result) => result,
-        Err(_) => Err("Git scan timed out after 20 seconds".into()),
     }
 }
 
@@ -204,14 +152,9 @@ async fn scan(source: &WorkingCopy, config: &Config) -> Scan {
         if agentbolt_core::holds::excluded(&canonical, config) {
             return Err("working copy resolves into an excluded root".into());
         }
-        if std::fs::symlink_metadata(path.join(".git")).is_ok_and(|metadata| is_link(&metadata)) {
-            return Err(
-                "repository metadata is a symbolic link or reparse point and will not be scanned"
-                    .into(),
-            );
-        }
+        let repository = git::Repository::open(&path, source, config).await?;
         // The chosen folder must be the repository root; never silently scan a parent or a nested repository.
-        let root = git(&path, &["rev-parse", "--show-toplevel"]).await?;
+        let root = repository.read(&["rev-parse", "--show-toplevel"]).await?;
         let root = std::str::from_utf8(&root)
             .map_err(|_| "Git root is not UTF-8")?
             .trim();
@@ -219,13 +162,15 @@ async fn scan(source: &WorkingCopy, config: &Config) -> Scan {
         if root != path {
             return Err("configured path is not the Git working-copy root".into());
         }
-        let remote = git(&path, &["config", "--get", "remote.origin.url"]).await?;
+        let remote = repository
+            .read(&["config", "--get", "remote.origin.url"])
+            .await?;
         if remote_repo(&remote)? != source.repo {
             return Err("origin does not match the configured repository".into());
         }
         // Read gitlinks from this repository's index, without opening a nested checkout. Status below
         // deliberately ignores submodules, so their paths must be held conservatively, not called clean.
-        let index = git(&path, &["ls-files", "--stage", "-z"]).await?;
+        let index = repository.read(&["ls-files", "--stage", "-z"]).await?;
         let mut submodules = BTreeSet::new();
         for record in index
             .split(|b| *b == 0)
@@ -250,21 +195,19 @@ async fn scan(source: &WorkingCopy, config: &Config) -> Scan {
         tokio::task::spawn_blocking(move || check_tree_boundaries(&checked_path, &submodules))
             .await
             .map_err(|e| format!("working-copy boundary check failed: {e}"))??;
-        let status = git(
-            &path,
-            &[
+        repository.check_attributes(&index).await?;
+        let status = repository
+            .read(&[
                 "status",
                 "--porcelain=v2",
                 "-z",
                 "--untracked-files=all",
                 "--ignore-submodules=all",
-            ],
-        )
-        .await?;
+            ])
+            .await?;
         dirty(&status, &mut paths)?;
-        let log = git(
-            &path,
-            &[
+        let log = repository
+            .read(&[
                 "log",
                 "--no-ext-diff",
                 "--no-textconv",
@@ -274,9 +217,8 @@ async fn scan(source: &WorkingCopy, config: &Config) -> Scan {
                 "--no-renames",
                 "@{upstream}..HEAD",
                 "--",
-            ],
-        )
-        .await?;
+            ])
+            .await?;
         for path in log.split(|b| *b == 0) {
             add_path(&mut paths, path.strip_prefix(b"\n").unwrap_or(path))?;
         }
@@ -376,7 +318,9 @@ mod tests {
     #[tokio::test]
     async fn real_git_scan_includes_dirty_untracked_rename_and_unpushed_paths_without_writing() {
         let (dir, source, config) = setup().await;
-        assert!(scan(&source, &config).await.paths.is_empty());
+        let clean = scan(&source, &config).await;
+        assert!(clean.error.is_none(), "{:?}", clean.error);
+        assert!(clean.paths.is_empty());
         std::fs::write(dir.path().join("unpushed.rs"), "new commit\n").unwrap();
         git(dir.path(), &["add", "--all"]).await.unwrap();
         git(dir.path(), &["commit", "-m", "unpushed"])
@@ -415,8 +359,12 @@ mod tests {
         assert!(scan(&source, &config).await.error.is_some());
         let mut wrong = source.clone();
         wrong.repo = "other/project".into();
+        let wrong_config = Config {
+            working_copies: vec![wrong.clone()],
+            ..config.clone()
+        };
         assert!(
-            scan(&wrong, &config)
+            scan(&wrong, &wrong_config)
                 .await
                 .error
                 .unwrap()
@@ -461,6 +409,211 @@ mod tests {
         assert!(result.paths.contains(&"vendor/module".into()));
         assert!(result.paths.contains(&"vendor/module/**".into()));
         assert!(!dir.path().join("vendor/module").exists());
+    }
+
+    #[tokio::test]
+    async fn content_filters_and_config_includes_are_refused_before_repository_git() {
+        for kind in ["clean", "process"] {
+            let (dir, source, config) = setup().await;
+            std::fs::write(
+                dir.path().join(".gitattributes"),
+                "tracked.rs filter=probe\n",
+            )
+            .unwrap();
+            git(
+                dir.path(),
+                &[
+                    "config",
+                    &format!("filter.probe.{kind}"),
+                    "echo executed > scanner-filter-ran; cat",
+                ],
+            )
+            .await
+            .unwrap();
+            std::fs::write(dir.path().join("tracked.rs"), "modified\n").unwrap();
+            let result = scan(&source, &config).await;
+            assert!(result.error.unwrap().contains("content filter"));
+            assert!(!dir.path().join("scanner-filter-ran").exists());
+        }
+        for key in ["include.path", "includeIf.gitdir:**.path"] {
+            let (dir, source, config) = setup().await;
+            let outside = TempDir::new("holds-excluded-config");
+            let forbidden = outside.path().join("private-config");
+            // If Git follows this before --no-includes, parsing fails instead of returning our
+            // policy refusal. No actual private file is used by the fixture.
+            std::fs::write(&forbidden, "[not valid config").unwrap();
+            git(dir.path(), &["config", key, forbidden.to_str().unwrap()])
+                .await
+                .unwrap();
+            let result = scan(&source, &config).await;
+            assert!(result.error.unwrap().contains("includes other files"));
+        }
+    }
+
+    #[tokio::test]
+    async fn attributes_cannot_silently_fall_back_when_a_filter_is_defined_elsewhere() {
+        let (dir, source, config) = setup().await;
+        // No local filter definition: it could be in global config, which scanning never reads.
+        std::fs::write(dir.path().join(".gitattributes"), "tracked.rs filter=lfs\n").unwrap();
+        assert!(
+            scan(&source, &config)
+                .await
+                .error
+                .unwrap()
+                .contains("paths use content filters")
+        );
+        std::fs::write(dir.path().join(".gitattributes"), "tracked.rs -filter\n").unwrap();
+        let result = scan(&source, &config).await;
+        assert!(result.error.is_none(), "{:?}", result.error);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn metadata_symlinks_are_refused_without_following_the_target() {
+        let (dir, source, config) = setup().await;
+        let outside = TempDir::new("holds-metadata-link-target");
+        let forbidden = outside.path().join("invalid-config");
+        std::fs::write(&forbidden, "[not valid config").unwrap();
+        std::fs::rename(
+            dir.path().join(".git/config"),
+            dir.path().join("saved-config"),
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(&forbidden, dir.path().join(".git/config")).unwrap();
+        assert!(
+            scan(&source, &config)
+                .await
+                .error
+                .unwrap()
+                .contains("symbolic link")
+        );
+    }
+
+    #[tokio::test]
+    async fn separate_git_metadata_is_refused_before_reading_excluded_or_unlisted_targets() {
+        let (dir, source, mut config) = setup().await;
+        let outside = TempDir::new("holds-separate-metadata");
+        let metadata = outside.path().join("metadata");
+        git(
+            dir.path(),
+            &["init", "--separate-git-dir", metadata.to_str().unwrap()],
+        )
+        .await
+        .unwrap();
+        // Invalid config distinguishes our preflight refusal from a Git read of the target.
+        std::fs::write(metadata.join("config"), "[not valid config").unwrap();
+        assert!(
+            scan(&source, &config)
+                .await
+                .error
+                .unwrap()
+                .contains("outside the allowed")
+        );
+        config
+            .excluded_paths
+            .push(outside.path().display().to_string());
+        assert!(
+            scan(&source, &config)
+                .await
+                .error
+                .unwrap()
+                .contains("excluded root")
+        );
+    }
+
+    #[tokio::test]
+    async fn linked_worktrees_require_allowed_common_metadata_and_keep_index_unchanged() {
+        let (dir, source, mut config) = setup().await;
+        let linked_dir = TempDir::new("holds-linked");
+        let linked = linked_dir.path().join("tree");
+        git(
+            dir.path(),
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "linked",
+                linked.to_str().unwrap(),
+                "main",
+            ],
+        )
+        .await
+        .unwrap();
+        git(&linked, &["config", "branch.linked.remote", "origin"])
+            .await
+            .unwrap();
+        git(
+            &linked,
+            &["config", "branch.linked.merge", "refs/heads/main"],
+        )
+        .await
+        .unwrap();
+        let linked_source = WorkingCopy {
+            path: linked.display().to_string(),
+            repo: source.repo.clone(),
+        };
+        let linked_only = Config {
+            working_copies: vec![linked_source.clone()],
+            ..Default::default()
+        };
+        assert!(
+            scan(&linked_source, &linked_only)
+                .await
+                .error
+                .unwrap()
+                .contains("outside the allowed")
+        );
+        config.working_copies.push(linked_source.clone());
+        std::fs::write(linked.join("tracked.rs"), "modified\n").unwrap();
+        let index_path = dir.path().join(".git/worktrees/tree/index");
+        let index = std::fs::read(&index_path).unwrap();
+        let result = scan(&linked_source, &config).await;
+        assert!(result.error.is_none(), "{:?}", result.error);
+        assert_eq!(result.paths, vec!["tracked.rs"]);
+        assert_eq!(std::fs::read(&index_path).unwrap(), index);
+        // A valid per-worktree config is supported, but cannot smuggle a filter into the scan.
+        git(dir.path(), &["config", "extensions.worktreeConfig", "true"])
+            .await
+            .unwrap();
+        std::fs::write(
+            dir.path().join(".git/worktrees/tree/config.worktree"),
+            "[filter \"probe\"]\nclean = echo executed > scanner-filter-ran; cat\n",
+        )
+        .unwrap();
+        assert!(
+            scan(&linked_source, &config)
+                .await
+                .error
+                .unwrap()
+                .contains("content filter")
+        );
+        assert!(!linked.join("scanner-filter-ran").exists());
+    }
+
+    #[tokio::test]
+    async fn alternate_objects_and_partial_clones_are_unknown_without_fetching() {
+        for relative in [
+            "objects/info/alternates",
+            "objects/info/http-alternates",
+            "objects/pack/example.promisor",
+        ]
+        .into_iter()
+        .chain(cfg!(windows).then_some("objects/info/ALTERNATES"))
+        {
+            let (dir, source, config) = setup().await;
+            std::fs::write(
+                dir.path().join(".git").join(relative),
+                "not-an-object-directory",
+            )
+            .unwrap();
+            assert!(
+                scan(&source, &config)
+                    .await
+                    .error
+                    .unwrap()
+                    .contains("partial-clone objects")
+            );
+        }
     }
 
     #[test]

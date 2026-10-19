@@ -35,15 +35,29 @@ An empty allowlist disables scanning. Excluded roots are checked lexically befor
 again after resolving its path. A source containing an excluded subtree is refused too, so Git cannot
 walk into a closed folder while collecting untracked files. A configured folder must be the repository root with the matching origin.
 
+Metadata destinations are checked before Git runs in the repository. A `.git` file and a linked
+worktree's `commondir` may point only inside explicitly allowed working-copy folders for the same
+repository, with no excluded overlap or symbolic links/reparse points along the path. To scan a linked
+worktree, also allow its main checkout. Separate metadata outside those folders remains unknown.
+
 The daemon reads Git state without writing: `git --no-optional-locks -c core.fsmonitor=false status --porcelain=v2`
 and unpushed commit paths from `git log @{upstream}..HEAD`, with NUL-separated paths. It does not fetch,
-refresh the index, run hooks, modify files or scan unlisted repositories. Scans have time/output bounds;
+refresh the index, run hooks/content filters, modify repository files or scan unlisted repositories. Scans have time/output bounds;
 errors, missing upstreams, overflow and results older than three minutes remain unknown. Dirty and unpushed
 paths become Artem's advisory holds. Gitlinks are read from the parent index only; each submodule path
 and its descendants are held conservatively without inspecting the nested checkout. Agent holds are separate and expire with handle inactivity.
 
-Before collecting status, a bounded directory-entry walk refuses symbolic links/reparse points and
-unlisted nested repositories. It skips Git metadata and indexed submodule contents. Unreadable entries
+Local and worktree configuration are parsed with includes disabled in an isolated temporary directory,
+before any repository Git command. Config includes, content filters, redirected work trees, alternate
+object stores, grafts and partial clones make a scan unknown. Tracked paths with filter attributes
+(including LFS) also remain unknown, even if their filter is defined only in global config. The scanner
+clears inherited Git overrides and does not load global/system config or attributes/excludes files;
+this can produce additional holds compared with an interactive Git command. Fetch protocols and lazy
+fetching are disabled. The empty configuration-reader directory is removed after use.
+
+Before collecting status, bounded directory-entry walks refuse symbolic links/reparse points in both
+metadata and the working tree, and refuse unlisted nested repositories. The working-tree walk skips
+already-checked Git metadata and indexed submodule contents. Unreadable entries
 or more than 100,000 entries/two seconds make the scan unknown; large or linked working trees may therefore
 need a smaller dedicated checkout. This protects ordinary path boundaries, not malicious same-user
 directory replacement races. Actual Windows junction behavior still needs a fixture check.

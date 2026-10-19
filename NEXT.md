@@ -39,7 +39,10 @@ and three focused reruns pass. See the [evaluation evidence](docs/PLUGIN-EVAL-20
 Real Claude long waits, host navigation and authorized dispatcher/workflow rollout remain open.
 Phone delivery now rechecks topic privacy after a backward clock change; a future-dated check cannot
 authorize a new notification.
-Expanded security, final-candidate and live host validation remain open.
+The expanded security review found two scanner issues: configured filter execution and metadata reads
+into excluded folders. Both are fixed with metadata/configuration preflight, isolated Git settings
+and conservative unknown results for unsupported repositories. Allowed linked worktrees remain supported.
+See [the security record](docs/SECURITY-EXPANDED-2026-10-19.md). Final-candidate and live host validation remain open.
 No phone account, scan, adoption period or live workflow has been activated.
 
 

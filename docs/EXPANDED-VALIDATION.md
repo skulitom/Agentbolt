@@ -319,3 +319,27 @@ that a fresh check restores notification preparation, and that the one-minute re
 publication boundaries expire exactly. Core/daemon all-target Clippy passes on Windows. These checks
 use an in-memory store and a controlled clock; the computer's clock and phone configuration were not
 changed, and no external service was contacted.
+
+## Scanner metadata and executable configuration (2026-10-19)
+
+The [expanded security review](SECURITY-EXPANDED-2026-10-19.md) confirmed two P2 issues: a configured
+Git content filter could execute during background status collection, and `.git` file indirection could
+read metadata in an excluded root. The scanner now validates `.git`/`commondir` destinations, metadata
+entries and bounded local/worktree configuration before any repository Git command. Linked worktrees
+remain supported when both their working folder and the main checkout owning their metadata are allowed.
+
+Configuration parsing happens in an empty temporary directory with repository discovery isolated and
+includes disabled. Filter definitions/includes, alternate object stores, grafts and partial clones
+return unknown. Inherited Git path/config/trace overrides, global/system configuration, external
+attributes/excludes, hooks, fsmonitor and fetching are disabled. A separate attribute read refuses
+tracked files naming content filters, including filters whose definition would come from elsewhere.
+No target repository configuration is rewritten. Unsupported scans cannot provide clearance.
+
+Twelve focused scanner tests pass on Windows and thirteen on Linux, including Linux metadata symlinks.
+The checks cover both reported reproductions and allowed linked-worktree behavior, unchanged indexes,
+dirty/untracked/rename/unpushed paths, gitlinks, configuration includes/worktree filters, attribute-only
+filters, inherited config/trace injection, excluded/unlisted metadata and alternate/partial objects.
+Daemon all-target Clippy passes on both platforms. Tests use synthetic temporary repositories and a
+throwaway channel; no installation, real working-copy configuration, private folder, phone or SSH
+service was changed. Actual Windows junction/permission fixtures, same-user path replacement races and
+installed/live integration checks are not established by this evidence.
