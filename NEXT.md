@@ -199,6 +199,15 @@ covered by live regression fixtures. The follow-up review found no remaining act
   migration verify the account, executable, arguments and working folder; changed task snapshots are refused.
 
 ## Release work
+- **Desktop updated at Artem's request (2026-10-19):** the real installed app was 0.1.0. Its old open
+  Desk could not prepare drafts, so the installer refused before replacing files. After Artem confirmed
+  he had closed it, the remaining Desk process was closed and a private SQLite backup passed its integrity
+  check. The normal installer then upgraded the main installation to the `d33c261` 0.2.0 build, migrated
+  its historical sign-in task and started the supervisor, daemon and warm Desk. All three installed hashes
+  match the preserved build; status reports an intact event chain, and the existing MCP connection still
+  reads its durable answers. This was the requested app update, not a synthetic main-channel test. Older
+  connected MCP hosts may need reconnection to discover the expanded tool catalog. Final release checks
+  remain outstanding; the original working clones were not changed.
 - **Current implementation build — `d33c261`:** all three Windows release programs and the Linux CLI
   compile from the locked dependency graph. Both CLIs report version 0.2.0. Copies and checksums are preserved
   under `target/prepared-d33c261`; [the build record](docs/BUILD-d33c261.json) pins their source and scope.
