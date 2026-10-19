@@ -1,7 +1,14 @@
 # Preparing a release
 
-The 0.2 candidate is not ready to tag or publish until the outstanding checks in
-[PRODUCTION-READINESS.md](PRODUCTION-READINESS.md) pass. Keep generated artifacts under `target/`.
+The 0.2 candidate is not ready to tag or publish until the outstanding checks in [NEXT.md](../NEXT.md)
+pass. The [feature inventory](FEATURE-INVENTORY.md) and [expanded validation](EXPANDED-VALIDATION.md)
+cover the full M2–M7 scope; [PRODUCTION-READINESS.md](PRODUCTION-READINESS.md) retains the earlier
+M0/M1 release evidence. Keep generated artifacts under `target/`.
+
+The packager includes tracked Markdown and JSON documentation, so local evidence links remain readable
+in the main ZIP. The standalone Claude plugin ZIP points its repository documentation links at the
+same source revision as the binaries. Those hosted links become available when that revision is pushed;
+packaging does not push, tag or publish it.
 
 ## Third-party notices
 

@@ -84,7 +84,7 @@ fn main() -> Result<()> {
     files.insert("NEXT.md".into(), fs::read(root.join("NEXT.md"))?);
     for path in git(&root, &["ls-files", "--", "docs"])?
         .lines()
-        .filter(|p| p.ends_with(".md"))
+        .filter(|p| p.ends_with(".md") || p.ends_with(".json"))
     {
         files.insert(path.to_owned(), fs::read(root.join(path))?);
     }
@@ -116,7 +116,15 @@ fn main() -> Result<()> {
             let name = path
                 .strip_prefix("plugins/agentbolt/")
                 .context("unexpected plugin path")?;
-            plugin_files.insert(name.to_owned(), fs::read(root.join(path))?);
+            let mut bytes = fs::read(root.join(path))?;
+            if name == "README.md" {
+                // The standalone plugin ZIP has no repository parent. Keep its documentation links
+                // useful and tied to the same source revision as the release binaries.
+                bytes = String::from_utf8(bytes)?
+                    .replace("](../../docs/", &format!("]({REPO}/blob/{revision}/docs/"))
+                    .into_bytes();
+            }
+            plugin_files.insert(name.to_owned(), bytes);
         }
         ensure!(
             plugin_files.contains_key(".claude-plugin/plugin.json"),

@@ -1,12 +1,17 @@
 # Agentbolt 0.2.0 — unsigned release candidate
 
-This candidate is still being implemented against the expanded M2–M7 scope. It has not been tagged or published. See
-[NEXT.md](../NEXT.md) and [the evidence log](PRODUCTION-READINESS.md) for outstanding checks.
+The expanded M2–M7 features are implemented, with integration fixes and release validation still in
+progress. This candidate has not been tagged or published. See [NEXT.md](../NEXT.md), the
+[feature inventory](FEATURE-INVENTORY.md) and [expanded validation](EXPANDED-VALIDATION.md) for current
+coverage and outstanding checks. Earlier [release evidence](PRODUCTION-READINESS.md) describes older code.
 
 The expanded candidate adds Board handoffs/claims, advisory working-copy holds, adoption reporting,
 protected phone choices, an SSH relay for other machines, Beads issue links and durable Reception/PR
-workflow adapters. These additions have compile feedback only; earlier M0/M1 validation is historical.
-Feature completion and its audit come before the final validation run.
+workflow adapters. Focused Windows/Linux checks cover their service behavior, the generated twelve-tool
+catalog, mocked Claude scenarios, synthetic Desk navigation and encrypted local SSH transport. Remote
+evidence stays on its originating computer, and SSH accounts can select PowerShell command syntax.
+These results do not establish a deployed phone service, an actual second computer, live Claude waits,
+dispatcher/PR workflow rollout, or the final candidate's installation and reliability checks.
 
 The Desk stays warm so opening it is fast. Every question goes directly into the Inbox, ordered by priority
 and deadline. Daily budgets and the Digest are gone. **Not needed** tells an agent that a question was unnecessary;
