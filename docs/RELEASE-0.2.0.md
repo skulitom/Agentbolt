@@ -8,21 +8,31 @@ coverage and outstanding checks. Earlier [release evidence](PRODUCTION-READINESS
 The expanded candidate adds Board handoffs/claims, advisory working-copy holds, adoption reporting,
 protected phone choices, an SSH relay for other machines, Beads issue links and durable Reception/PR
 workflow adapters. Focused Windows/Linux checks cover their service behavior, the generated twelve-tool
-catalog, mocked Claude scenarios, synthetic Desk navigation and encrypted local SSH transport. Remote
-evidence stays on its originating computer, and SSH accounts can select PowerShell command syntax.
-These results do not establish a deployed phone service, an actual second computer, live Claude waits,
-dispatcher/PR workflow rollout, or the final candidate's installation and reliability checks.
+catalog, mocked Claude scenarios, synthetic Desk navigation and encrypted local SSH transport. Real Claude
+Code waiting and recovery in a new process now pass, as do real Beads 1.3.1 imports in a disposable
+workspace. Remote evidence stays on its originating computer, and SSH accounts can select PowerShell
+command syntax. These results do not establish a deployed phone service, an actual second computer,
+Claude Desktop navigation, dispatcher/PR workflow rollout, or the final candidate's installation and
+reliability checks. The full Claude wait timeout and background transition remain unverified.
 
 The Desk stays warm so opening it is fast. Every question goes directly into the Inbox, ordered by priority
 and deadline. Daily budgets and the Digest are gone. **Not needed** tells an agent that a question was unnecessary;
 **Mute this agent** keeps its questions silent and at the bottom. Notifications remain silent and are grouped
 per agent. **Open chat** links questions and agents to their originating session where the host supplies one.
+Local CLI sessions also offer **Copy resume command**, with the original folder in its tooltip. Remote
+sessions and older questions without a recorded source computer remain copy-only. Automatic terminal
+resume still needs confirmation on this PC, whose default Terminal profile requests administrator consent.
 
 Edited answers can be sent as an atomic batch. Unsent drafts survive restarts and coordinated upgrades.
 Optional yes/no fields retain “Not answered” unless a value is chosen or supplied as the question's default.
 Owner-name proposals require approval in the Desk. A supervisor restarts a failed daemon; installed tasks and
 pipe discovery are isolated by Windows account. Upgrades preserve open MCP clients and reopen visible Desks
 in their original Windows sessions. Windows Installed Apps can detect and remove the installation.
+
+Board and Activity sections support native accessibility Expand/Collapse actions. File/session copies,
+Unicode paste and Activity exports use the system clipboard. Activity records direct versus edited/batch
+answers; historical answers without interaction evidence remain unknown. Linked Beads handoffs preserve
+the exact issue identity even when titles match, and imports disable Beads write commands and automatic pushes.
 
 Codex answer wake remains explicitly opt-in per owner. Live checks confirm receipt in active and idle loaded
 chats with their original sandbox and approval policy. An unloaded chat did not automatically resume on the

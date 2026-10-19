@@ -82,6 +82,7 @@ fn main() -> Result<()> {
     files.insert("LICENSE".into(), fs::read(root.join("LICENSE"))?);
     files.insert("README.md".into(), fs::read(root.join("README.md"))?);
     files.insert("NEXT.md".into(), fs::read(root.join("NEXT.md"))?);
+    files.insert("AGENTS.md".into(), fs::read(root.join("AGENTS.md"))?);
     for path in git(&root, &["ls-files", "--", "docs"])?
         .lines()
         .filter(|p| p.ends_with(".md") || p.ends_with(".json"))
