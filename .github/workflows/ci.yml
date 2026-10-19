@@ -30,10 +30,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: rustup show
-      - name: Core, repo guard and the complete MCP front-end suite
-        run: cargo test -p agentbolt-core -p agentbolt --locked
+      - name: Core, IPC, daemon, MCP and packaging checks
+        run: cargo test -p agentbolt-core -p agentbolt-ipc -p agentbolt-daemon -p agentbolt -p xtask --locked
       - name: Clippy
-        run: cargo clippy -p agentbolt-core -p agentbolt --all-targets --locked -- -D warnings
+        run: cargo clippy -p agentbolt-core -p agentbolt-ipc -p agentbolt-daemon -p agentbolt -p xtask --all-targets --locked -- -D warnings
 
   licenses:
     runs-on: ubuntu-24.04

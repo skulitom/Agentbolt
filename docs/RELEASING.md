@@ -9,7 +9,9 @@ For a local Windows candidate:
 
 ```powershell
 $env:AGENTBOLT_CHANNEL = 'release-check'
-cargo deny check licenses
+cargo deny --locked --workspace --target x86_64-pc-windows-msvc check licenses
+cargo about generate --workspace --locked --fail --target x86_64-pc-windows-msvc --format json -o target/license-report.json
+cargo run --locked -p xtask -- check-notices target/license-report.json
 cargo about generate --locked --fail --target x86_64-pc-windows-msvc about.hbs --output-file target/THIRD_PARTY_NOTICES.md
 cargo run --locked -p xtask -- package windows-x64 target/THIRD_PARTY_NOTICES.md target/dist
 winget validate --manifest target/dist/winget --disable-interactivity

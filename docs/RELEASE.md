@@ -18,10 +18,12 @@ each shipped target. For the Windows bundle:
 
 ```powershell
 cargo about generate --workspace --locked --fail --target x86_64-pc-windows-msvc --format json -o target/license-report.json
+cargo run --locked -p xtask -- check-notices target/license-report.json
 cargo about generate --workspace --locked --fail --target x86_64-pc-windows-msvc -o target/THIRD_PARTY_NOTICES.md about.hbs
 ```
 
-Reject the report if any licence has empty text or no `source_path`. A successful cargo-about exit alone
+The `check-notices` command rejects empty text, absent `source_path` and crates without a corresponding
+notice. The release workflow runs the same gate. A successful cargo-about exit alone
 does not establish this: otherwise it can substitute an SPDX template containing placeholder copyright
 holders. Include the generated notices and Agentbolt's `LICENSE` in the bundle.
 
@@ -35,6 +37,12 @@ updates rather than copying a new hash without reviewing the licence text.
 
 The rmcp entries preserve the complete upstream licence file, including its licensing-transition notice
 and retained MIT terms. The dpi entry preserves both Apache terms and its bundled libm MIT notices.
+
+Clipboard support adds `clipboard-win` 5.4.1, whose published crate omits its license file. Its clarification
+uses the [upstream file at the packaged commit](https://github.com/DoumanAsh/clipboard-win/blob/3b27cf2bfd1adcfa6e0264eb51c1025ddaf0f342/LICENSE).
+The Linux workspace graph's `accesskit_atspi_common` 0.21.0 and `accesskit_unix` 0.24.0 similarly use
+[their upstream MIT text](https://github.com/AccessKit/accesskit/blob/ce8164ba92995cfa86005b6259115e08c8244253/LICENSE-MIT)
+from the commit in their package metadata. Each is hash checked; none uses generic fallback text.
 
 Initial verification on Windows: 204 crates, 129 distinct notice texts, no empty texts and no generic
 fallbacks. `cargo deny check licenses` also passed. Regenerate after the version bump or dependency changes.

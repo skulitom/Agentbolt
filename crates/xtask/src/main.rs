@@ -2,7 +2,7 @@
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -19,9 +19,15 @@ fn main() -> Result<()> {
         ensure!(args[1] == format!("v{VERSION}"), "tag must be v{VERSION}");
         return Ok(());
     }
+    if args.first().map(String::as_str) == Some("check-notices") && args.len() == 2 {
+        let report = serde_json::from_slice(&fs::read(&args[1])?)?;
+        check_notices(&report)?;
+        println!("Every reported crate has nonempty notice text from a source file.");
+        return Ok(());
+    }
     if args.len() != 4 || args[0] != "package" {
         bail!(
-            "Usage: cargo run -p xtask -- package <windows-x64|linux-x64> <notices.md> <new-output-folder>\n       cargo run -p xtask -- check-tag <tag>"
+            "Usage: cargo run -p xtask -- package <windows-x64|linux-x64> <notices.md> <new-output-folder>\n       cargo run -p xtask -- check-tag <tag>\n       cargo run -p xtask -- check-notices <cargo-about-report.json>"
         );
     }
     let target = args[1].as_str();
@@ -161,6 +167,63 @@ fn main() -> Result<()> {
     println!(
         "Prepared unsigned {target} candidate {VERSION} from {revision} in {}",
         output.display()
+    );
+    Ok(())
+}
+
+/// cargo-about can succeed with generic SPDX text when a package omits its license file.
+/// Release notices must use real source text and cover every crate in its selected graph.
+fn check_notices(report: &Value) -> Result<()> {
+    let crates = report["crates"]
+        .as_array()
+        .context("notice report has no crates")?;
+    let licenses = report["licenses"]
+        .as_array()
+        .context("notice report has no licenses")?;
+    ensure!(
+        !crates.is_empty() && !licenses.is_empty(),
+        "notice report is empty"
+    );
+    let mut required = BTreeSet::new();
+    for entry in crates {
+        let id = entry["package"]["id"]
+            .as_str()
+            .filter(|id| !id.trim().is_empty())
+            .context("notice report has an unidentified crate")?;
+        required.insert(id);
+    }
+    let mut covered = BTreeSet::new();
+    for entry in licenses {
+        let name = entry["id"].as_str().unwrap_or("unknown license");
+        ensure!(
+            entry["text"].as_str().is_some_and(|s| !s.trim().is_empty()),
+            "{name}: notice text is empty"
+        );
+        ensure!(
+            entry["source_path"]
+                .as_str()
+                .is_some_and(|s| !s.trim().is_empty()),
+            "{name}: no source file; replace generic SPDX fallback with verified source text"
+        );
+        let users = entry["used_by"]
+            .as_array()
+            .context("notice has no crate references")?;
+        ensure!(!users.is_empty(), "{name}: notice has no crate references");
+        for user in users {
+            let id = user["crate"]["id"]
+                .as_str()
+                .context("notice has an unidentified crate reference")?;
+            ensure!(
+                required.contains(id),
+                "notice refers to an unreported crate: {id}"
+            );
+            covered.insert(id);
+        }
+    }
+    ensure!(
+        required == covered,
+        "some reported crates have no source-backed notice: {:?}",
+        required.difference(&covered).collect::<Vec<_>>()
     );
     Ok(())
 }
@@ -335,6 +398,33 @@ fn scoop_manifest(url: &str, digest: &str) -> Value {
 mod tests {
     use super::*;
     use std::io::Read;
+
+    #[test]
+    fn notices_refuse_generic_text_empty_sources_and_uncovered_crates() {
+        let valid = json!({
+            "crates": [{"package": {"id": "crate-a"}}, {"package": {"id": "crate-b"}}],
+            "licenses": [{"id": "MIT", "text": "Upstream license text", "source_path": "LICENSE",
+                "used_by": [{"crate": {"id": "crate-a"}}, {"crate": {"id": "crate-b"}}]}]
+        });
+        check_notices(&valid).unwrap();
+        for missing in [Value::Null, json!(""), json!(" \n ")] {
+            for field in ["source_path", "text"] {
+                let mut invalid = valid.clone();
+                invalid["licenses"][0][field] = missing.clone();
+                assert!(check_notices(&invalid).is_err(), "{field}: {missing}");
+            }
+        }
+        let mut uncovered = valid.clone();
+        uncovered["licenses"][0]["used_by"]
+            .as_array_mut()
+            .unwrap()
+            .pop();
+        assert!(check_notices(&uncovered).is_err());
+        let mut unknown = valid.clone();
+        unknown["licenses"][0]["used_by"][0]["crate"]["id"] = json!("crate-c");
+        assert!(check_notices(&unknown).is_err());
+        assert!(check_notices(&json!({"crates": [], "licenses": []})).is_err());
+    }
 
     #[test]
     fn archive_round_trip_is_reproducible_and_keeps_linux_executable_mode() {

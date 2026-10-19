@@ -541,3 +541,35 @@ including their synthetic Beads databases and Agentbolt channel data, remain:
 
 Cleanup was not retried by another method. No sign-in task, protocol handler or main-channel state was
 created or changed. Other Beads releases and external database configurations remain unverified.
+
+## Full local preflight and current notices (2026-10-19)
+
+After the named full-plan features and integration repairs, the standard suites ran on `63f90a5`:
+
+- Windows: `cargo fmt --all --check`, `cargo test --workspace --locked --quiet` and
+  `cargo clippy --workspace --all-targets --locked -- -D warnings` pass. Cargo reports 249 passed and
+  ten ignored tests. Two opt-in installer bodies return without running when their enable flag is absent;
+  this count does not establish installed/native behavior. Test channel: `candidate-check-1019`.
+- WSL Ubuntu: the locked core, IPC, daemon, CLI/MCP and xtask tests report 200 passed and one ignored;
+  all-target Clippy for those packages passes. Test channel: `candidate-linux-1019`.
+- The separate native GUI, encrypted SSH, installed upgrade and long-running probes were not rerun as
+  part of this standard-suite pass. It does not replace their final packaged checks.
+
+Cargo-deny 0.20.2 passes the policy for both explicit workspace targets, `x86_64-pc-windows-msvc` and
+`x86_64-unknown-linux-gnu`, with `--locked`. Cargo-about 0.9.2 initially succeeded while using generic
+SPDX fallback text for clipboard-win and two Linux AccessKit packages. Hash-checked clarifications now
+use their actual packaged revisions' upstream license files; [source details](RELEASE.md). The refreshed
+Windows report covers 212 crates with 135 distinct notice texts, and Linux covers 280 with 163 texts.
+Every entry has nonempty text and a source path, and every reported crate is covered. The Linux notice
+scope deliberately includes the selected workspace, including dependencies beyond the shipped CLI.
+
+`xtask check-notices` now makes that report check executable. It rejects empty reports/text/source paths,
+generic fallbacks, unknown crate references and uncovered crates. Its three packaging tests and all-target
+Clippy pass on Windows and Linux, and it accepts both complete current reports. The release workflow
+runs it before rendering notices and applies license policy to its actual target. Linux CI and release
+checks now include IPC, daemon and packaging code as well as core/MCP. No hosted workflow was run.
+
+All changes after this suite pass are release tooling, workflow configuration and documentation; the
+installed app programs still correspond to `d33c261`. No additional main-channel operation or heavy
+idle/reliability run was part of these checks. Packaging is the next step; production readiness remains
+unproven until the remaining installation, native, live-service and reliability gates are satisfied.

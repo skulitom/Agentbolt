@@ -199,6 +199,10 @@ covered by live regression fixtures. The follow-up review found no remaining act
   migration verify the account, executable, arguments and working folder; changed task snapshots are refused.
 
 ## Release work
+- **Full local preflight passes (2026-10-19):** Windows workspace tests and Linux core/IPC/daemon/MCP/
+  packaging tests pass, with all-target Clippy on both platforms. Current target-specific license policy
+  and notice reports pass too. The release workflow now rejects generic notice fallbacks and uncovered
+  crates, and Linux CI covers the expanded daemon/IPC/packager code. [Scope and exclusions](docs/EXPANDED-VALIDATION.md#full-local-preflight-and-current-notices-2026-10-19).
 - **Desktop updated at Artem's request (2026-10-19):** the real installed app was 0.1.0. Its old open
   Desk could not prepare drafts, so the installer refused before replacing files. After Artem confirmed
   he had closed it, the remaining Desk process was closed and a private SQLite backup passed its integrity
@@ -212,7 +216,7 @@ covered by live regression fixtures. The follow-up review found no remaining act
   compile from the locked dependency graph. Both CLIs report version 0.2.0. Copies and checksums are preserved
   under `target/prepared-d33c261`; [the build record](docs/BUILD-d33c261.json) pins their source and scope.
   These are raw unsigned binaries, not new release ZIPs. The named feature implementation is present;
-  next come final Windows/Linux checks, current notices and packaging, followed by packaged/native/live
+  local checks and current notices now pass; next comes packaging, followed by packaged/native/live
   checks and a fresh idle/reliability run. Existing archives below remain historical evidence.
 - **Deferred by Artem (Desk answer, 2026-10-18 20:33 UTC):** code signing may wait until after 0.2.
   Label the 0.2 candidate unsigned; do not claim signed-build validation.
