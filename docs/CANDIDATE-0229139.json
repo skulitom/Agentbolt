@@ -1,0 +1,134 @@
+{
+  "date": "2026-10-19",
+  "sourceRevision": "0229139d03678a758f99cdfd2d29250dee36cc43",
+  "version": "0.2.0",
+  "status": "unsigned local review candidate; production readiness not yet proven",
+  "applicationSourceMatches": "d33c261a3aa7b47547c58c17b5ae8c9448147aee",
+  "artifacts": {
+    "agentbolt-0.2.0-claude-plugin.zip": {
+      "path": "target/dist-0229139/windows-x64/agentbolt-0.2.0-claude-plugin.zip",
+      "bytes": 20502,
+      "sha256": "50fcef49f20532e582f076ca8bb3073f8504f1fa3e68925f798516346578460f"
+    },
+    "agentbolt-0.2.0-windows-x64.zip": {
+      "path": "target/dist-0229139/windows-x64/agentbolt-0.2.0-windows-x64.zip",
+      "bytes": 9452569,
+      "sha256": "5182be3ad86e002c09c068dcb5572460f8ec1fab1a0680fc147570ee13dffb86"
+    },
+    "agentbolt-0.2.0-linux-x64.zip": {
+      "path": "target/dist-0229139/linux-x64/agentbolt-0.2.0-linux-x64.zip",
+      "bytes": 1612860,
+      "sha256": "56a67856fc25a24ef2de49f3018175235b77adbbf50de73e70666b46b6d2fc97"
+    }
+  },
+  "packagedPrograms": {
+    "windows-x64": {
+      "platform": "windows-x64",
+      "revision": "0229139d03678a758f99cdfd2d29250dee36cc43",
+      "archiveSha256": "5182be3ad86e002c09c068dcb5572460f8ec1fab1a0680fc147570ee13dffb86",
+      "entries": 38,
+      "binarySha256": {
+        "agentbolt-daemon.exe": "2998156485895e6054ef284275c61cb1e344d5cd2f1d756967f83ebb0c07bcbd",
+        "agentbolt-desk.exe": "c0bfcf5b55ea5648d64e914c5afe13f8d12f39919a3c3e955c9b77b4910cb864",
+        "agentbolt.exe": "edf19bb67052305a7be48fdea3b4c2f3430ce9656c55e39a74562cc09c41a820"
+      },
+      "version": "agentbolt 0.2.0",
+      "discovery": [
+        {
+          "protocol": "2025-06-18",
+          "tools": 12,
+          "outputSchema": false
+        },
+        {
+          "protocol": "2026-07-28",
+          "tools": 12,
+          "outputSchema": false
+        }
+      ],
+      "checksums": "match",
+      "extraction": "target/dist-0229139/extracted-windows-x64",
+      "daemonStarted": false,
+      "installed": false
+    },
+    "linux-x64": {
+      "platform": "linux-x64",
+      "revision": "0229139d03678a758f99cdfd2d29250dee36cc43",
+      "archiveSha256": "56a67856fc25a24ef2de49f3018175235b77adbbf50de73e70666b46b6d2fc97",
+      "entries": 36,
+      "binarySha256": {
+        "agentbolt": "05c5f9383f820156fc6d796267815e2669b37382267108b356ce886096093de0"
+      },
+      "version": "agentbolt 0.2.0",
+      "discovery": [
+        {
+          "protocol": "2025-06-18",
+          "tools": 12,
+          "outputSchema": false
+        },
+        {
+          "protocol": "2026-07-28",
+          "tools": 12,
+          "outputSchema": false
+        }
+      ],
+      "checksums": "match",
+      "extraction": "target/dist-0229139/extracted-linux-x64",
+      "daemonStarted": false,
+      "installed": false
+    }
+  },
+  "notices": {
+    "windows": {
+      "crates": 212,
+      "texts": 135,
+      "genericFallbacks": 0,
+      "uncoveredCrates": 0,
+      "policy": "passed",
+      "allTextsPresentInArchive": true
+    },
+    "linux": {
+      "crates": 280,
+      "texts": 163,
+      "genericFallbacks": 0,
+      "uncoveredCrates": 0,
+      "policy": "passed",
+      "allTextsPresentInArchive": true
+    }
+  },
+  "standardSuites": {
+    "sourceRevision": "63f90a5ff23eea19014c0cf266ceafc103fbaae1",
+    "windows": {
+      "reportedPassed": 249,
+      "ignored": 10,
+      "installerOptInBodiesSkipped": 2
+    },
+    "linux": {
+      "reportedPassed": 200,
+      "ignored": 1
+    },
+    "allTargetClippy": "passed on both platforms",
+    "format": "passed"
+  },
+  "followupPackagingChecks": {
+    "testsPerPlatform": 3,
+    "allTargetClippy": "passed on both platforms",
+    "wingetSchema": "passed",
+    "scoopSchema": "passed",
+    "mcpRegistrySchema": "passed",
+    "registryManifestIdenticalAcrossPlatforms": true,
+    "wingetValidate": "passed",
+    "extractedClaudePluginStrictValidation": "passed; marketplace-install suggestion is advisory"
+  },
+  "supersedes": {
+    "sourceRevision": "d8198361adb1c5a12b27ca1725e09651ab41633d",
+    "reason": "MCP Registry description exceeded its schema limit; corrected in the generator and regenerated all artifacts"
+  },
+  "limits": [
+    "No tag, push, hosted workflow or publication occurred.",
+    "No installation or synthetic main-channel operation occurred during package checks. The user-requested desktop update is recorded separately in NEXT.md.",
+    "Standard test counts do not establish the ignored native/SSH checks or conditional installer probes.",
+    "These exact archives still need packaged installer/upgrade/uninstall, native Desk and final startup/idle/reliability checks.",
+    "Claude Desktop and visible navigation, actual phone/other-machine services and authorized workflow/adoption rollout remain unverified.",
+    "Source-revision links in the standalone plugin become available only after an authorized push."
+  ]
+}

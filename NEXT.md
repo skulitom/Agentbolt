@@ -199,6 +199,14 @@ covered by live regression fixtures. The follow-up review found no remaining act
   migration verify the account, executable, arguments and working folder; changed task snapshots are refused.
 
 ## Release work
+- **Current packaged review candidate — `0229139`:** Windows, Linux and Claude-plugin ZIPs are in
+  `target/dist-0229139`, with checksums, source/binary manifests and complete current notices. Both
+  extracted CLIs pass twelve-tool discovery under the 2025 and 2026 protocols without output schemas.
+  Official winget/Scoop/MCP Registry schemas, `winget validate` and extracted-plugin strict validation
+  pass. [Candidate hashes and scope](docs/CANDIDATE-0229139.json). The first expanded package attempt
+  exposed an overlong Registry description; the generator is fixed and these archives replace it.
+  Application source is unchanged from the desktop build installed at Artem's request. These exact
+  archives still need packaged/native/live checks and fresh idle/reliability evidence. Nothing was published.
 - **Full local preflight passes (2026-10-19):** Windows workspace tests and Linux core/IPC/daemon/MCP/
   packaging tests pass, with all-target Clippy on both platforms. Current target-specific license policy
   and notice reports pass too. The release workflow now rejects generic notice fallbacks and uncovered
