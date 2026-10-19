@@ -1,6 +1,6 @@
 //! Opt-in real OpenSSH transport fixture. No user account, SSH settings or installed channel is changed.
 //! Requires a sibling daemon binary and AGENTBOLT_SSH_TEST_PYTHON pointing to Python with Paramiko.
-use agentbolt::remote::{Config, Remote};
+use agentbolt::remote::{Config, Remote, Shell};
 use agentbolt_core::{
     board::BoardOp,
     channel::Names,
@@ -297,6 +297,7 @@ async fn encrypted_relay_preserves_identity_state_and_uncertain_write_semantics(
         host: "fixture".into(),
         machine: machine.into(),
         executable: exe.to_str().unwrap().into(),
+        shell: Shell::Sh,
         config_file: Some(dir.join(file)),
     };
     let remote = Arc::new(Remote::new(config("config", "loopback-a"), channel.clone()));

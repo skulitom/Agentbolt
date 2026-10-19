@@ -27,6 +27,9 @@ claimants retain their name and chat context, and pre-install Activity periods s
 Remote MCP hosts can now select their own SSH configuration file. A real encrypted loopback relay
 passes authentication, origin, durable-state, reconnect, uncertain-write and concurrency checks, including
 the MCP command and matching text/structured results. Actual cross-machine deployment remains open.
+`--remote-shell powershell` now supports SSH accounts using PowerShell; Command Prompt and Unix shell
+launches retain their existing syntax. Real local shell checks cover paths with spaces and a PowerShell
+Unicode registration/Board round trip.
 Remote evidence paths and chat links now stay on the originating computer, with copy controls. Board
 messages retain their original machine after sender expiry or retries; legacy origins remain unknown.
 The Claude plugin now covers saved-answer recovery, bounded waits, fenced handoffs and stale work scans

@@ -85,6 +85,7 @@ Usage:
   agentbolt mcp [--owner NAME] [--client NAME] [--max-wait-ms N]   MCP server on stdio
                 [--ssh HOST --machine LABEL --remote-exe PATH]  use the Desk on a trusted SSH host
                 [--ssh-config FILE]  optional absolute SSH config file for this MCP host
+                [--remote-shell sh|cmd|powershell]  SSH account's shell (default: sh; also works with cmd)
   agentbolt relay --machine LABEL [--channel NAME]              MCP-only bridge, normally started by SSH
   agentbolt relay-notes --owner NAME --notes FILE --recipient-owner NAME... [--before ASK_ID] [--write]
                                                 preview or durably append authorized answer handoffs
@@ -219,6 +220,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String>
             };
             let (mut ssh_host, mut machine, mut remote_exe) = (None, None, "agentbolt".to_string());
             let mut ssh_config = None;
+            let mut remote_shell = None;
             while let Some((flag, inline)) = a.next_flag() {
                 match flag.as_str() {
                     "--channel" => m.channel = Some(a.value(&flag, inline)?),
@@ -230,6 +232,9 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String>
                     }
                     "--machine" => machine = Some(a.value(&flag, inline)?),
                     "--remote-exe" => remote_exe = a.value(&flag, inline)?,
+                    "--remote-shell" => {
+                        remote_shell = Some(crate::remote::Shell::parse(&a.value(&flag, inline)?)?)
+                    }
                     "--max-wait-ms" => {
                         let v = a.value(&flag, inline)?;
                         m.max_wait_ms = v
@@ -244,12 +249,19 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String>
                     host,
                     machine: machine.ok_or("--ssh requires --machine to identify this computer")?,
                     executable: remote_exe,
+                    shell: remote_shell.unwrap_or_default(),
                     config_file: ssh_config,
                 };
                 config.validate()?;
                 m.ssh = Some(config);
-            } else if machine.is_some() || remote_exe != "agentbolt" || ssh_config.is_some() {
-                return Err("--machine, --remote-exe and --ssh-config require --ssh".into());
+            } else if machine.is_some()
+                || remote_exe != "agentbolt"
+                || ssh_config.is_some()
+                || remote_shell.is_some()
+            {
+                return Err(
+                    "--machine, --remote-exe, --remote-shell and --ssh-config require --ssh".into(),
+                );
             }
             Ok(Command::Mcp(m))
         }
@@ -661,7 +673,28 @@ mod tests {
             panic!()
         };
         assert_eq!(remote.max_wait_ms, 600_000);
-        assert_eq!(remote.ssh.unwrap().machine, "laptop");
+        let remote = remote.ssh.unwrap();
+        assert_eq!(remote.machine, "laptop");
+        assert_eq!(remote.shell, crate::remote::Shell::Sh);
+        for (name, expected) in [
+            ("sh", crate::remote::Shell::Sh),
+            ("cmd", crate::remote::Shell::Cmd),
+            ("powershell", crate::remote::Shell::PowerShell),
+        ] {
+            let Command::Mcp(remote) = p(&[
+                "mcp",
+                "--ssh",
+                "desk",
+                "--machine",
+                "laptop",
+                "--remote-shell",
+                name,
+            ])
+            .unwrap() else {
+                panic!()
+            };
+            assert_eq!(remote.ssh.unwrap().shell, expected);
+        }
         let temp = crate::testutil::TempDir::new();
         let config = temp.path().join("host ssh config");
         std::fs::write(&config, "Host desk\n").unwrap();
@@ -683,6 +716,16 @@ mod tests {
             vec!["mcp", "--machine", "laptop"],
             vec!["mcp", "--remote-exe", "custom"],
             vec!["mcp", "--ssh-config", "file"],
+            vec!["mcp", "--remote-shell", "sh"],
+            vec![
+                "mcp",
+                "--ssh",
+                "desk",
+                "--machine",
+                "laptop",
+                "--remote-shell",
+                "custom shell",
+            ],
             vec!["relay"],
         ] {
             assert!(p(&flags).is_err(), "{flags:?}");

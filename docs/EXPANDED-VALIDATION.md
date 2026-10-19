@@ -281,3 +281,28 @@ dispatcher rollout and real PR workflow integration remain open. No licensing or
 Automatic approval review rejected cleanup of the 44 evaluation temporary folders as “blocked by policy”
 before execution. No alternate cleanup was attempted. Their exact paths are retained in the evidence
 record; raw reports and HTML reports also remain in ignored local output folders.
+
+## SSH accounts using PowerShell (2026-10-19)
+
+The remote command previously began with a quoted executable, which is valid in sh/Command Prompt but
+is a string expression in PowerShell. `agentbolt mcp --remote-shell powershell` now selects the required
+call operator. `sh` remains the default; `cmd` explicitly selects the same existing invocation syntax.
+The setting describes the remote SSH account's shell, not the local client OS. Unsupported shell names
+and shell settings without `--ssh` fail before connecting. All modes retain the restricted executable,
+channel and machine grammar; shell selection cannot inject arbitrary commands. Connection errors now
+include the shell setting among the configuration items to check.
+
+Focused checks pass: Windows CLI 38 unit tests, Linux CLI 36 unit tests, and the new `remote_shells`
+fixture on both platforms. That fixture copies the actual CLI into a temporary path containing spaces
+and launches its relay through Windows Command Prompt and Windows PowerShell, or `/bin/sh` on WSL.
+The relay sees empty input, exits successfully without stdout/stderr, and creates no daemon data.
+CLI all-target Clippy passes on Windows and Linux; both repository guard checks pass on Windows.
+The existing encrypted SSH fixture was updated for the new config
+field; its prior transport evidence is unchanged, and it was not rerun for this local command change.
+
+A separate local PowerShell protocol check used the real headless daemon on `shell-probe-122036`.
+Registration and a Board directory read preserved `Shell round trip: café — 雪 🚀` through UTF-8 stdin
+and stdout. Both launched processes exited, descendants were reaped, and channel data was removed.
+This did not register a task, protocol handler or install, and did not contact an SSH account or main.
+Actual cross-machine SSH shell/profile behavior remains a rollout check; local shell success does not
+prove that external configuration. No licensing, packaging or long reliability run was started.

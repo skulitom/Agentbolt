@@ -19,11 +19,32 @@ const MAX_REQUEST: usize = 1 << 20;
 const MAX_RESPONSE: usize = 16 << 20;
 const MAX_CONNECTIONS: usize = 4;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Shell {
+    #[default]
+    Sh,
+    Cmd,
+    PowerShell,
+}
+
+impl Shell {
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "sh" => Ok(Self::Sh),
+            "cmd" => Ok(Self::Cmd),
+            "powershell" => Ok(Self::PowerShell),
+            _ => Err("--remote-shell must be sh, cmd or powershell".into()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     pub host: String,
     pub machine: String,
     pub executable: String,
+    /// The SSH account's command shell, which is independent of the local client's OS.
+    pub shell: Shell,
     /// Explicit host-owned SSH configuration, passed as one local argument; never sent remotely.
     pub config_file: Option<PathBuf>,
 }
@@ -56,7 +77,8 @@ impl Config {
             );
         }
         // OpenSSH sends a command through the remote account's shell. Keep its entire command grammar
-        // fixed and allow only a literal executable path, usable by both cmd.exe and POSIX shells.
+        // fixed and allow only a literal executable path. Shell selection changes invocation syntax,
+        // never the allowed characters or the remote program/arguments.
         if self.executable.trim().is_empty()
             || self.executable != self.executable.trim()
             || self.executable.len() > 1024
@@ -79,12 +101,20 @@ impl Config {
         }
         Ok(())
     }
-    fn command(&self, channel: &str) -> Result<String, String> {
+    /// Build the validated, fixed command sent to the configured SSH account's shell.
+    pub fn command(&self, channel: &str) -> Result<String, String> {
         self.validate()?;
         Names::for_channel(channel)?;
         // Forward slashes keep Windows paths intact through a POSIX SSH client/remote shell too.
+        // PowerShell treats a quoted executable as a string unless invoked with its call operator.
+        // sh and cmd use the same command here; all expansion and control characters are refused.
+        let invoke = if self.shell == Shell::PowerShell {
+            "& "
+        } else {
+            ""
+        };
         Ok(format!(
-            "\"{}\" relay --channel {channel} --machine {}",
+            "{invoke}\"{}\" relay --channel {channel} --machine {}",
             self.executable.replace('\\', "/"),
             self.machine
         ))
@@ -292,7 +322,7 @@ impl Connection {
             if response.id!=self.seq{return Err("SSH response sequence mismatch".into());}
             Ok::<_,String>(response)
         }).await.map_err(|_|CallError::Other("SSH relay timed out; the operation may have committed. Reconnect and read its durable state before retrying a write.".into()))?
-            .map_err(|e|CallError::Other(format!("SSH relay failed: {e}. Verify key authentication, the known host and the installed Agentbolt path. A submitted operation may have committed; read its state before retrying.")))?;
+            .map_err(|e|CallError::Other(format!("SSH relay failed: {e}. Verify key authentication, the known host, the installed Agentbolt path and --remote-shell. A submitted operation may have committed; read its state before retrying.")))?;
         if response.ok {
             response
                 .result
@@ -414,6 +444,7 @@ mod tests {
             host: "fixture".into(),
             machine: "test-client".into(),
             executable: "agentbolt".into(),
+            shell: Shell::Sh,
             config_file: Some(path),
         };
         assert_eq!(
@@ -437,11 +468,24 @@ mod tests {
             host: "artem@desk.example.test".into(),
             machine: "laptop-2".into(),
             executable: "C:\\Program Files\\Agentbolt\\agentbolt.exe".into(),
+            shell: Shell::Sh,
             config_file: None,
         };
         assert_eq!(
             base.command("remote-test").unwrap(),
             "\"C:/Program Files/Agentbolt/agentbolt.exe\" relay --channel remote-test --machine laptop-2"
+        );
+        let mut powershell = base.clone();
+        powershell.shell = Shell::PowerShell;
+        assert_eq!(
+            powershell.command("remote-test").unwrap(),
+            "& \"C:/Program Files/Agentbolt/agentbolt.exe\" relay --channel remote-test --machine laptop-2"
+        );
+        let mut cmd = base.clone();
+        cmd.shell = Shell::Cmd;
+        assert_eq!(
+            cmd.command("remote-test").unwrap(),
+            base.command("remote-test").unwrap()
         );
         for host in [
             "-oProxyCommand=bad",
@@ -464,10 +508,20 @@ mod tests {
             "-x",
             " agentbolt",
             "agentbolt\n",
+            "agentbolt`command`",
+            "agentbolt&command",
+            "agentbolt|command",
+            "agentbolt'command",
         ] {
-            let mut cfg = base.clone();
-            cfg.executable = executable.into();
-            assert!(cfg.command("remote-test").is_err(), "{executable}");
+            for shell in [Shell::Sh, Shell::Cmd, Shell::PowerShell] {
+                let mut cfg = base.clone();
+                cfg.shell = shell;
+                cfg.executable = executable.into();
+                assert!(
+                    cfg.command("remote-test").is_err(),
+                    "{shell:?}: {executable}"
+                );
+            }
         }
         for machine in ["", "two machines", "desk;command", "desk\ncommand"] {
             let mut cfg = base.clone();
@@ -484,6 +538,7 @@ mod tests {
                 host: "unused.invalid".into(),
                 machine: "test".into(),
                 executable: "agentbolt".into(),
+                shell: Shell::Sh,
                 config_file: None,
             },
             "remote-test".into(),
@@ -569,6 +624,7 @@ mod tests {
                 host: "unused.invalid".into(),
                 machine: "test".into(),
                 executable: "agentbolt".into(),
+                shell: Shell::Sh,
                 config_file: None,
             },
             "remote-test".into(),
