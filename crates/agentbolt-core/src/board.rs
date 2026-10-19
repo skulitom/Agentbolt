@@ -157,6 +157,9 @@ pub struct BoardMessage {
     pub id: String,
     pub owner: String,
     pub sender: String,
+    /// Immutable origin from the registered sender, never from message arguments. Legacy rows are unknown.
+    #[serde(default)]
+    pub sender_machine: Option<String>,
     #[serde(flatten)]
     pub input: PostInput,
     pub created_at: String,
@@ -502,7 +505,7 @@ fn messages(
     thread: Option<&str>,
 ) -> Result<Vec<BoardMessage>, String> {
     let after = i64::try_from(after).map_err(|_| "cursor is too large")?;
-    let mut stmt = db.prepare("SELECT seq,id,owner,sender,input_json,created_ms FROM board_messages WHERE seq > ?1 AND (?2 IS NULL OR json_extract(input_json,'$.thread') = ?2) ORDER BY seq LIMIT 50").map_err(db_err)?;
+    let mut stmt = db.prepare("SELECT seq,id,owner,sender,input_json,created_ms,sender_machine FROM board_messages WHERE seq > ?1 AND (?2 IS NULL OR json_extract(input_json,'$.thread') = ?2) ORDER BY seq LIMIT 50").map_err(db_err)?;
     stmt.query_map(params![after, thread], |r| {
         let raw: String = r.get(4)?;
         let input = serde_json::from_str(&raw).map_err(|e| {
@@ -513,6 +516,7 @@ fn messages(
             id: r.get(1)?,
             owner: r.get(2)?,
             sender: r.get(3)?,
+            sender_machine: r.get(6)?,
             input,
             created_at: fmt_ms(r.get(5)?),
         })
@@ -587,7 +591,7 @@ pub fn snapshot_page(db: &Connection, now: i64, query: DeskQuery) -> Result<Snap
         .map(i64::try_from)
         .transpose()
         .map_err(|_| "message cursor is too large")?;
-    let mut statement=db.prepare(&format!("SELECT seq,id,owner,sender,input_json,created_ms FROM board_messages WHERE {filter} AND (?2 IS NULL OR seq<?2) ORDER BY seq DESC LIMIT 51")).map_err(db_err)?;
+    let mut statement=db.prepare(&format!("SELECT seq,id,owner,sender,input_json,created_ms,sender_machine FROM board_messages WHERE {filter} AND (?2 IS NULL OR seq<?2) ORDER BY seq DESC LIMIT 51")).map_err(db_err)?;
     let mut messages = statement
         .query_map(params![search, before], |r| {
             let raw: String = r.get(4)?;
@@ -603,6 +607,7 @@ pub fn snapshot_page(db: &Connection, now: i64, query: DeskQuery) -> Result<Snap
                 id: r.get(1)?,
                 owner: r.get(2)?,
                 sender: r.get(3)?,
+                sender_machine: r.get(6)?,
                 input,
                 created_at: fmt_ms(r.get(5)?),
             })
@@ -780,7 +785,7 @@ pub fn run(db: &Connection, now: i64, agent: &Agent, op: BoardOp) -> Result<Valu
                 return Ok(json!({"id":id,"seq":seq,"existing":true,"notice":DATA_NOTICE}));
             }
             let id = format!("msg_{}", tokens::random_hex(12));
-            db.execute("INSERT INTO board_messages(id,owner,sender,input_json,created_ms) VALUES (?1,?2,?3,?4,?5)",params![id,agent.owner,public_id(&agent.handle),json!(input).to_string(),now]).map_err(db_err)?;
+            db.execute("INSERT INTO board_messages(id,owner,sender,input_json,created_ms,sender_machine) VALUES (?1,?2,?3,?4,?5,?6)",params![id,agent.owner,public_id(&agent.handle),json!(input).to_string(),now,agent.machine]).map_err(db_err)?;
             let seq = db.last_insert_rowid();
             event(
                 db,

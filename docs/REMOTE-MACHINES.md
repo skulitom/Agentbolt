@@ -43,6 +43,12 @@ The Desk displays the originating machine. A remote session's folder or chat is 
 computer, and local Codex delivery is disabled for remote asks. Copy the session reference to open it on
 its originating machine. Remote agents receive durable answers through their MCP checkpoint reads.
 
+File paths and app chat links in remote questions and Board messages also stay on their originating
+computer: the Desk offers **Copy reference**, without probing the local filesystem or launching an
+app here. HTTPS evidence still opens normally. Board messages retain the sender's machine when posted,
+including after its registration expires or another machine retries the same deduplicated post.
+Older messages without recorded origin remain readable; their file and chat references are copyable.
+
 SSH account access is the authentication boundary; machine labels describe origin, not separate users.
 The same-user trust limit still applies. For a restricted SSH key, an administrator can configure a forced
 `agentbolt relay` command and restrict forwarding in SSH itself. This repository does not modify account

@@ -1004,6 +1004,9 @@ impl DeskApp {
             ui.horizontal_wrapped(|ui| {
                 priority_tag(ui, ask.input.priority);
                 ui.label(format!("from {}", ask.owner));
+                if let Some(machine) = ask.asking_machine.as_deref().and_then(|m| m.strip_prefix("remote:")) {
+                    ui.label(format!("on {machine}"));
+                }
                 let (due, overdue) = view::relative_deadline(&ask.input.deadline, now);
                 let c = if overdue { ui.visuals().error_fg_color } else { ui.visuals().text_color() };
                 ui.colored_label(c, due).on_hover_text(&ask.input.deadline);
@@ -1025,7 +1028,10 @@ impl DeskApp {
                 ui.strong("Evidence");
                 let exists = self.paths.for_ask(ask, |p| p.exists());
                 for e in &ask.input.evidence {
-                    evidence_row(ui, &e.label, &e.url, exists);
+                    evidence_row(ui, &e.label, &e.url, exists, ask.asking_machine.as_deref());
+                }
+                if ask.asking_machine.is_none() && ask.input.evidence.iter().any(|e| !matches!(view::classify(&e.url), Link::Web(_))) {
+                    ui.weak("Source computer unavailable. Copy file and chat references to open them on the originating computer.");
                 }
             }
             ui.add_space(4.0);
@@ -1820,12 +1826,17 @@ impl DeskApp {
                                         Destination::Agent(s) => s.clone(),
                                     };
                                     ui.weak(format!("To {to} · {}", m.created_at));
+                                    if let Some(machine) = &m.sender_machine {
+                                        ui.weak(format!("From computer: {}", machine.strip_prefix("remote:").unwrap_or(machine)));
+                                    } else if m.input.references.iter().any(|r| !matches!(view::classify(r), Link::Web(_))) {
+                                        ui.weak("Source computer unavailable. Copy file and chat references to open them on the originating computer.");
+                                    }
                                     if let Some(thread) = &m.input.thread {
                                         ui.label(format!("Thread {thread}"));
                                     }
                                     ui.add(egui::Label::new(&m.input.body).selectable(true).wrap());
                                     for reference in &m.input.references {
-                                        evidence_row(ui, reference, reference, &HashMap::new());
+                                        evidence_row(ui, reference, reference, &HashMap::new(), m.sender_machine.as_deref());
                                     }
                                 });
                         }
@@ -2313,8 +2324,9 @@ fn evidence_row(
     label: &str,
     url: &str,
     exists: &HashMap<std::path::PathBuf, bool>,
+    machine: Option<&str>,
 ) {
-    ui.horizontal_wrapped(|ui| match view::classify(url) {
+    ui.horizontal_wrapped(|ui| match view::classify_evidence(url, machine) {
         Link::Web(u) | Link::Session(u) => {
             if ui.link(label).on_hover_text(&u).clicked()
                 && let Err(e) = os::open_url(&u)
@@ -2342,6 +2354,9 @@ fn evidence_row(
         Link::Text => {
             ui.label(format!("{label}:"));
             ui.add(egui::Label::new(RichText::new(url).monospace()).selectable(true));
+            if ui.small_button("Copy reference").clicked() {
+                ui.ctx().copy_text(url.to_owned());
+            }
         }
     });
 }

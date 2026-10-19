@@ -212,3 +212,23 @@ CLI all-target Clippy on Windows and Linux. The opt-in fixture is ignored by ord
 This proves a real encrypted local transport and process integration. It does not prove an external SSH
 account, remote shell quoting, cross-machine operating-system combinations, a deployed phone service,
 or the final-candidate reliability gates. No licensing, packaging or long-running check was started.
+
+## Remote references keep their original computer (2026-10-19)
+
+Source review found that remote chat controls were protected, but evidence paths and app chat links in
+questions and Board messages still used local launch controls. The Desk now treats these as copyable
+references when their origin is remote or unknown. HTTPS references retain their existing browser action.
+Remote question headers and Board messages show the originating computer. Local references with known
+origin retain their Explorer/chat controls. Older unknown-origin records explain the copy behavior.
+
+Schema migration 14 adds nullable `board_messages.sender_machine`. New posts snapshot the registered
+sender's machine in their transaction; retries return the existing post without replacing its source.
+Both MCP reads and Desk pages include that snapshot, independent of a sender still being registered.
+Legacy rows and older wire messages keep an unknown origin instead of inferring one from a shared owner.
+
+Focused verification: 94 core tests pass on Windows and Linux, including legacy-message migration,
+cross-machine dedupe and sender deletion. The Desk's 20 binary unit tests pass, including the evidence
+classification and a filesystem-probe closure that must never run for remote/unknown references, even
+when the cache previously held the same ask as local. Two repository guards and core/Desk Windows
+all-target Clippy pass; Linux core all-target Clippy passes. These changes have not yet had a native UI
+or installed-upgrade check. No external integration, main-channel change or release packaging occurred.

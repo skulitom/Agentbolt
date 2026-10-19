@@ -16,6 +16,90 @@ fn board(t: &T, handle: &str, action: BoardOp) -> Result<Value, String> {
     })
     .map(|r| r.0)
 }
+
+#[test]
+fn board_message_machine_survives_cross_machine_dedupe_and_sender_expiry() {
+    let t = T::new();
+    let remote: RegisterResult = de(t
+        .mcp(McpOp::RegisterRemote {
+            machine: "laptop".into(),
+            registration: crate::protocol::RemoteRegistration {
+                owner: Some("shared-messages".into()),
+                client: "remote-fixture".into(),
+                session_ref: None,
+                cwd: None,
+                doing: None,
+                provisional_key: None,
+            },
+        })
+        .unwrap()
+        .0);
+    let local = t.register("shared-messages");
+    let input = PostInput {
+        to: Default::default(),
+        title: "Read the originating file".into(),
+        body: "Fixture evidence".into(),
+        references: vec![
+            "C:/DEV/evidence.md".into(),
+            "https://example.com/evidence".into(),
+        ],
+        thread: None,
+        dedupe_key: Some("same-message".into()),
+    };
+    let posted = board(
+        &t,
+        &remote.handle,
+        BoardOp::Post {
+            input: input.clone(),
+        },
+    )
+    .unwrap();
+    let deduped = board(&t, &local, BoardOp::Post { input }).unwrap();
+    assert_eq!(deduped["id"], posted["id"]);
+    assert_eq!(deduped["existing"], true);
+    board(
+        &t,
+        &local,
+        BoardOp::Post {
+            input: PostInput {
+                to: Default::default(),
+                title: "Local evidence".into(),
+                body: "Same path, different computer".into(),
+                references: vec!["C:/DEV/evidence.md".into()],
+                thread: None,
+                dedupe_key: None,
+            },
+        },
+    )
+    .unwrap();
+    t.svc
+        .conn_for_tests()
+        .execute("DELETE FROM agents WHERE handle=?1", [&remote.handle])
+        .unwrap();
+    let read = board(
+        &t,
+        &local,
+        BoardOp::Read {
+            after: 0,
+            thread: None,
+        },
+    )
+    .unwrap();
+    assert_eq!(read["messages"][0]["sender_machine"], "remote:laptop");
+    assert_eq!(read["messages"][1]["sender_machine"], "testbox");
+    let snapshot: crate::board::Snapshot = de(t.desk(DeskOp::Board).unwrap().0);
+    let message = snapshot
+        .messages
+        .iter()
+        .find(|m| json!(m.id) == posted["id"])
+        .unwrap();
+    assert_eq!(message.sender_machine.as_deref(), Some("remote:laptop"));
+    assert!(!json!(message).to_string().contains(&remote.handle));
+    let mut legacy = json!(message);
+    legacy.as_object_mut().unwrap().remove("sender_machine");
+    let legacy: crate::board::BoardMessage = de(legacy);
+    assert_eq!(legacy.sender_machine, None);
+}
 fn request(t: &T, handle: &str, title: &str) -> Value {
     board(
         t,

@@ -110,6 +110,19 @@ pub fn classify(url: &str) -> Link {
     Link::Text
 }
 
+/// HTTPS references travel between computers. Files and app sessions belong to a known local sender;
+/// remote or legacy unknown origins remain copyable text and must not probe or launch local resources.
+pub fn classify_evidence(url: &str, machine: Option<&str>) -> Link {
+    match classify(url) {
+        Link::Path(_) | Link::Session(_)
+            if !machine.is_some_and(|m| !m.trim().is_empty() && !m.starts_with("remote:")) =>
+        {
+            Link::Text
+        }
+        link => link,
+    }
+}
+
 /// The buttons for a choose / approve ask.
 pub fn options_for(ask: &Ask) -> Vec<String> {
     match ask.input.kind {
@@ -304,7 +317,7 @@ pub fn fill_reply_once(text: &mut String, filled: &mut bool, default: Option<&st
 /// than on every frame (a missing network drive can make one check slow).
 #[derive(Debug, Default)]
 pub struct PathCache {
-    ask: Option<String>,
+    ask: Option<(String, Option<String>)>,
     exists: HashMap<PathBuf, bool>,
 }
 
@@ -315,16 +328,22 @@ impl PathCache {
         ask: &Ask,
         check: impl Fn(&std::path::Path) -> bool,
     ) -> &HashMap<PathBuf, bool> {
-        if self.ask.as_deref() != Some(ask.id.as_str()) {
-            self.ask = Some(ask.id.clone());
+        if self
+            .ask
+            .as_ref()
+            .is_none_or(|(id, machine)| id != &ask.id || machine != &ask.asking_machine)
+        {
+            self.ask = Some((ask.id.clone(), ask.asking_machine.clone()));
             self.exists = ask
                 .input
                 .evidence
                 .iter()
-                .filter_map(|e| match classify(&e.url) {
-                    Link::Path(p) => Some(p),
-                    _ => None,
-                })
+                .filter_map(
+                    |e| match classify_evidence(&e.url, ask.asking_machine.as_deref()) {
+                        Link::Path(p) => Some(p),
+                        _ => None,
+                    },
+                )
                 .map(|p| {
                     let found = check(&p);
                     (p, found)
@@ -560,6 +579,7 @@ mod tests {
     fn path_checks_run_once_per_selected_ask() {
         use std::cell::Cell;
         let mut a = ask("a", Priority::P1, "x", "0");
+        a.asking_machine = Some("testbox".into());
         a.input.evidence = vec![
             Evidence {
                 label: "Here".into(),
@@ -590,6 +610,49 @@ mod tests {
         assert!(cache.for_ask(&b, check).is_empty());
         cache.for_ask(&a, check);
         assert_eq!(calls.get(), 4, "selecting it again checks again");
+        // A changed/older snapshot of this same id must not reuse local filesystem information.
+        a.asking_machine = Some("remote:laptop".into());
+        assert!(
+            cache
+                .for_ask(&a, |_| panic!("remote reference probed locally"))
+                .is_empty()
+        );
+        a.asking_machine = None;
+        assert!(
+            cache
+                .for_ask(&a, |_| panic!("unknown reference probed locally"))
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn evidence_paths_and_sessions_stay_on_their_originating_computer() {
+        for reference in [
+            "C:/DEV/evidence.md",
+            "claude://session/abc",
+            "codex://threads/abc",
+        ] {
+            assert_eq!(
+                classify_evidence(reference, Some("testbox")),
+                classify(reference)
+            );
+            for machine in [Some("remote:laptop"), Some("remote:"), None, Some("")] {
+                assert_eq!(classify_evidence(reference, machine), Link::Text);
+            }
+        }
+        for machine in [None, Some("remote:laptop"), Some("testbox")] {
+            assert_eq!(
+                classify_evidence("https://example.com/evidence", machine),
+                Link::Web("https://example.com/evidence".into())
+            );
+            for reference in [
+                "/home/person/work/evidence.md",
+                "docs/evidence.md",
+                "javascript:alert(1)",
+            ] {
+                assert_eq!(classify_evidence(reference, machine), Link::Text);
+            }
+        }
     }
 
     #[test]

@@ -200,6 +200,8 @@ CREATE TABLE phone_receipts (
     "ALTER TABLE owners ADD COLUMN muted_until_ms INTEGER; CREATE INDEX owners_mute_expiry ON owners(muted_until_ms) WHERE muted_until_ms IS NOT NULL;",
     "CREATE INDEX asks_history ON asks(closed_ms DESC,id DESC); CREATE INDEX board_request_history ON board_requests(updated_ms DESC,id DESC);",
     "ALTER TABLE phone_receipts ADD COLUMN toast_id TEXT; CREATE UNIQUE INDEX phone_receipt_notification ON phone_receipts(toast_id) WHERE toast_id IS NOT NULL;",
+    // A Board reference belongs to the sender's computer, even after that registration is gone.
+    "ALTER TABLE board_messages ADD COLUMN sender_machine TEXT;",
 ];
 
 pub(crate) fn db_err(e: rusqlite::Error) -> String {
@@ -869,6 +871,35 @@ pub(crate) fn set_settings(conn: &Connection, s: &Settings) -> rusqlite::Result<
 #[cfg(test)]
 mod migration_tests {
     use super::*;
+
+    #[test]
+    fn board_message_origin_upgrade_preserves_legacy_content_without_guessing_a_machine() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        for migration in &MIGRATIONS[..13] {
+            conn.execute_batch(migration).unwrap();
+        }
+        conn.execute_batch("PRAGMA user_version=13;").unwrap();
+        let input = serde_json::json!({"title":"Legacy reference","body":"Keep this message","references":["C:/DEV/evidence.md"]}).to_string();
+        conn.execute("INSERT INTO board_messages(id,owner,sender,input_json,created_ms) VALUES ('msg_old','legacy','agent_old',?1,900)", [&input]).unwrap();
+        migrate(&mut conn).unwrap();
+        migrate(&mut conn).unwrap();
+        let snapshot =
+            crate::board::snapshot_page(&conn, 1000, crate::board::DeskQuery::default()).unwrap();
+        assert_eq!(snapshot.messages.len(), 1);
+        let message = &snapshot.messages[0];
+        assert_eq!(message.id, "msg_old");
+        assert_eq!(message.input.body, "Keep this message");
+        assert_eq!(message.input.references, ["C:/DEV/evidence.md"]);
+        assert_eq!(message.sender_machine, None);
+        let unchanged: String = conn
+            .query_row(
+                "SELECT input_json FROM board_messages WHERE id='msg_old'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(unchanged, input);
+    }
 
     #[test]
     fn phone_receipt_upgrade_preserves_pending_and_completed_legacy_receipts() {
