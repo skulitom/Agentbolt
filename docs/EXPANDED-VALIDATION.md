@@ -573,3 +573,11 @@ All changes after this suite pass are release tooling, workflow configuration an
 installed app programs still correspond to `d33c261`. No additional main-channel operation or heavy
 idle/reliability run was part of these checks. Packaging is the next step; production readiness remains
 unproven until the remaining installation, native, live-service and reliability gates are satisfied.
+
+The first expanded package snapshot, `d819836`, passed archive checksums, binary hashes, Linux executable
+mode, bundled guidance/evidence and plugin-version/catalog checks. Extracted Windows and Linux CLIs
+both exposed twelve tools without output schemas under the 2025 and 2026 discovery paths. Its fresh
+official-schema check then rejected the MCP Registry description for exceeding 100 characters. The
+generator now uses a shorter description, with a regression assertion against that schema limit.
+That snapshot remains a superseded packaging attempt; final artifacts must come from the corrected
+generator. No installed application code changed in this repair.

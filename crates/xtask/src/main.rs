@@ -344,7 +344,7 @@ fn registry_manifest() -> Value {
     // not claim a package is published to Cargo, or that the Windows Desk runs on Linux.
     json!({
         "$schema": SCHEMA, "name": "io.github.skulitom/agentbolt", "title": "Agentbolt",
-        "description": "A Windows desk for durable human answers, agent handoffs and work holds, with optional phone and SSH access.",
+        "description": "A Windows desk for human answers, agent handoffs and work holds, with phone and SSH access.",
         "version": VERSION, "repository": {"url": REPO, "source": "github"},
         "websiteUrl": format!("{REPO}#install")
     })
@@ -478,6 +478,12 @@ mod tests {
 
     #[test]
     fn manifests_reference_the_actual_archive_digest_and_preserve_data_on_removal() {
+        let registry = registry_manifest();
+        assert!(
+            registry["description"].as_str().unwrap().chars().count() <= 100,
+            "the MCP Registry schema limits descriptions to 100 characters"
+        );
+        assert_eq!(registry["version"], VERSION);
         let digest = hash(b"real archive bytes");
         let url =
             format!("{REPO}/releases/download/v{VERSION}/agentbolt-{VERSION}-windows-x64.zip");
