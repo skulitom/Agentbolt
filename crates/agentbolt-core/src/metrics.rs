@@ -11,6 +11,16 @@ const DAY: i64 = 86_400_000;
 const WINDOW: i64 = 14 * DAY;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct OneClickStats {
+    pub shown: u32,
+    pub one_click_answers: u32,
+    pub other_human_answers: u32,
+    pub unmeasured_human_answers: u32,
+    /// Unknown when older human answers lack interaction evidence; never invent a historical rate.
+    pub share: Option<f64>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct OwnerStats {
     pub owner: String,
     pub submitted: u32,
@@ -24,6 +34,9 @@ pub struct OwnerStats {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Period {
+    /// Absent from baselines saved before interaction tracking was introduced.
+    #[serde(default)]
+    pub one_click: Option<OneClickStats>,
     #[serde(default)]
     pub history_span_days: Option<f64>,
     pub from: String,
@@ -161,6 +174,30 @@ fn period(db: &Connection, from: i64, to: i64) -> Result<Period, String> {
     }
     report.unanswered_deadline_share = (report.deadlines_elapsed > 0)
         .then(|| f64::from(report.unanswered_deadlines) / f64::from(report.deadlines_elapsed));
+    // This measure has a shown-question denominator, unlike the submitted-question cohorts above.
+    // Include older backlog first displayed during this period; never count later answers early.
+    let mut direct = db
+        .query_row(
+            "SELECT COUNT(*),
+         COALESCE(SUM(b.answered_ms<?2 AND b.via<>'defaulted' AND b.one_click=1),0),
+         COALESCE(SUM(b.answered_ms<?2 AND b.via<>'defaulted' AND b.one_click=0),0),
+         COALESCE(SUM(b.answered_ms<?2 AND b.via<>'defaulted' AND b.one_click IS NULL),0)
+         FROM asks a LEFT JOIN answers b ON b.ask_id=a.id WHERE a.shown_ms>=?1 AND a.shown_ms<?2",
+            params![from, to],
+            |r| {
+                Ok(OneClickStats {
+                    shown: r.get(0)?,
+                    one_click_answers: r.get(1)?,
+                    other_human_answers: r.get(2)?,
+                    unmeasured_human_answers: r.get(3)?,
+                    share: None,
+                })
+            },
+        )
+        .map_err(db_err)?;
+    direct.share = (direct.shown > 0 && direct.unmeasured_human_answers == 0)
+        .then(|| f64::from(direct.one_click_answers) / f64::from(direct.shown));
+    report.one_click = Some(direct);
     report.owners = owners
         .into_values()
         .map(|mut o| {
@@ -207,7 +244,7 @@ pub fn report(db: &Connection, now: i64) -> Result<Report, String> {
         current:period(db,now-WINDOW,now)?, previous:period(db,now-2*WINDOW,now-WINDOW)?,
         baseline, verdict:saved(db,"adoption_verdict")?, reversible_waiting_over_48h:stale,
         irreversible_open:irreversible,oldest_irreversible_hours:oldest.map(|at|(now-at).max(0) as f64/3_600_000.0),observation_days,observation,
-        explanation:"Each period follows questions submitted during those 14 days, using outcomes recorded by the period's end. Answer latency measures recorded Desk/notification/phone answers, including Not needed; defaults are separate. Opening a session does not establish that its required go-ahead was given; that needs the session record. Not needed share uses all submitted asks for each owner. Deadline misses count asks still unanswered at their deadline. Missing history is not a zero-activity baseline. History span starts at the first stored event and does not prove uptime. The adoption comparison uses the fixed first 14 days after the saved baseline; rolling periods remain available separately. Stale and irreversible backlog are current totals across all ages.".into(),
+        explanation:"Submission and latency measures follow questions submitted during those 14 days, using outcomes recorded by the period's end. Answer latency measures recorded Desk/notification/phone answers, including Not needed; defaults are separate. Opening a session does not establish that its required go-ahead was given; that needs the session record. Not needed share uses all submitted asks for each owner. One-click share uses questions first shown during the period, including older backlog, with answers recorded before its end: direct submissions without note/text/form edits, including untouched prefilled answers and notification/phone buttons. Opening questions and reading evidence are not answer entry. Edited or batch submissions and defaults do not count as one-click answers. Older unmeasured human answers make the percentage unknown; missing saved-baseline telemetry is not recorded. The plan target is at least 80%. Deadline misses count asks still unanswered at their deadline. Missing history is not a zero-activity baseline. History span starts at the first stored event and does not prove uptime. The adoption comparison uses the fixed first 14 days after the saved baseline; rolling periods remain available separately. Stale and irreversible backlog are current totals across all ages.".into(),
     })
 }
 

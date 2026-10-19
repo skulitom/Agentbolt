@@ -250,6 +250,9 @@ pub enum DeskOp {
         choice: Option<String>,
         values: Option<serde_json::Value>,
         note: Option<String>,
+        /// Optional Desk interaction telemetry. Missing from older clients; never grants authority.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        one_click: Option<bool>,
     },
     /// All answers are validated and committed together; a stale or invalid item writes nothing.
     AnswerBatch {
@@ -263,6 +266,8 @@ pub enum DeskOp {
     NotNeeded {
         ask_id: String,
         note: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        one_click: Option<bool>,
     },
     SetMuted {
         owner: String,

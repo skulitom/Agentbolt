@@ -235,6 +235,7 @@ async fn encrypted_relay_preserves_identity_state_and_uncertain_write_semantics(
         .0;
     service
         .desk(DeskOp::Answer {
+            one_click: None,
             ask_id: seeded["id"].as_str().unwrap().into(),
             choice: Some("Yes".into()),
             values: None,

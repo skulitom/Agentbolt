@@ -31,10 +31,12 @@ pub enum Req {
         choice: Option<String>,
         values: Option<Value>,
         note: Option<String>,
+        one_click: Option<bool>,
     },
     NotNeeded {
         ask_id: String,
         note: Option<String>,
+        one_click: Option<bool>,
     },
     SetMuted {
         owner: String,
@@ -353,12 +355,14 @@ async fn run(
                 choice,
                 values,
                 note,
+                one_click,
             } => {
                 let op = DeskOp::Answer {
                     ask_id: ask_id.clone(),
                     choice,
                     values,
                     note,
+                    one_click,
                 };
                 // An answer is never retried blindly: the daemon may have recorded it.
                 let result = match conn.call(&op, false).await {
@@ -400,10 +404,15 @@ async fn run(
                     .map_err(|e| e.to_string()),
                 )
             }
-            Req::NotNeeded { ask_id, note } => {
+            Req::NotNeeded {
+                ask_id,
+                note,
+                one_click,
+            } => {
                 let op = DeskOp::NotNeeded {
                     ask_id: ask_id.clone(),
                     note,
+                    one_click,
                 };
                 let result = match conn.call(&op, false).await {
                     Ok(v) => serde_json::from_value(v).map_err(|e| e.to_string()),

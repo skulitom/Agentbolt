@@ -169,6 +169,7 @@ fn approved_names_preserve_caps_dedupe_mute_and_toast_cooldown() {
             .all(|a| a.muted && a.owner == "preserved")
     );
     t.desk(DeskOp::NotNeeded {
+        one_click: None,
         ask_id: first.id,
         note: None,
     })
@@ -426,6 +427,7 @@ impl T {
 
     fn answer(&self, id: &str, choice: &str) -> Result<(Answer, Vec<Effect>), String> {
         let op = DeskOp::Answer {
+            one_click: None,
             ask_id: id.into(),
             choice: Some(choice.into()),
             values: None,
@@ -544,6 +546,7 @@ fn not_needed_is_a_durable_desk_only_answer_for_every_kind_and_not_an_approval()
         }
         let id = t.ask(&h, input).id;
         let op = DeskOp::NotNeeded {
+            one_click: None,
             ask_id: id.clone(),
             note: Some("Please decide routine details yourself".into()),
         };
@@ -711,6 +714,7 @@ fn not_needed_revokes_existing_toast_tokens() {
         .unwrap();
     let token = toasts(&fx)[0].1[0].1.clone();
     t.desk(DeskOp::NotNeeded {
+        one_click: None,
         ask_id: ask.id.clone(),
         note: None,
     })
@@ -1280,6 +1284,7 @@ fn desk_answers_are_checked_against_the_ask() {
     };
     let text = t.ask(&a, text);
     let op = |values: Value| DeskOp::Answer {
+        one_click: None,
         ask_id: text.id.clone(),
         choice: None,
         values: Some(values),
@@ -1313,6 +1318,7 @@ fn desk_answers_are_checked_against_the_ask() {
     };
     let form = t.ask(&a, form);
     let op = |values: Value| DeskOp::Answer {
+        one_click: None,
         ask_id: form.id.clone(),
         choice: None,
         values: Some(values),

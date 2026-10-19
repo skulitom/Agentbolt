@@ -1321,6 +1321,7 @@ impl Ctx<'_> {
         values: Option<Value>,
         note: Option<String>,
         not_needed: bool,
+        one_click: Option<bool>,
     ) -> Result<AnswerResult, String> {
         let row = self
             .row(ask_id)?
@@ -1351,7 +1352,18 @@ impl Ctx<'_> {
         } else {
             AnswerVia::Desk
         };
+        // A note requires entry even if a client mistakenly labels it a direct button response.
+        let one_click = one_click.map(|direct| direct && note.is_none());
         let answer = self.write_answer(&row, via, choice, values, note)?;
+        if let Some(direct) = one_click {
+            self.db
+                .execute(
+                    "UPDATE answers SET one_click=?1 WHERE ask_id=?2",
+                    params![direct, ask_id],
+                )
+                .map_err(db_err)?;
+            self.event("answer.interaction", ask_id, json!({"one_click": direct}))?;
+        }
         Ok(AnswerResult { answer })
     }
 
@@ -1827,7 +1839,8 @@ impl Service for StoreService {
                 choice,
                 values,
                 note,
-            } => self.write_json(now, |c| c.desk_answer(&ask_id, choice, values, note, false)),
+                one_click,
+            } => self.write_json(now, |c| c.desk_answer(&ask_id, choice, values, note, false, one_click)),
             DeskOp::AnswerBatch { answers } => self.write_json(now, |c| {
                 if answers.is_empty() || answers.len() > crate::protocol::MAX_BATCH_ANSWERS {
                     return Err("Select between 1 and 32 asks to answer together".into());
@@ -1839,7 +1852,7 @@ impl Service for StoreService {
                 let answers = answers
                     .into_iter()
                     .map(|a| {
-                        c.desk_answer(&a.ask_id, a.choice, a.values, a.note, false)
+                        c.desk_answer(&a.ask_id, a.choice, a.values, a.note, false, Some(false))
                             .map(|r| r.answer)
                             .map_err(|e| {
                                 format!("{}: {e}; no answers in this batch were saved", a.ask_id)
@@ -1848,8 +1861,8 @@ impl Service for StoreService {
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(crate::protocol::BatchAnswerResult { answers })
             }),
-            DeskOp::NotNeeded { ask_id, note } => {
-                self.write_json(now, |c| c.desk_answer(&ask_id, None, None, note, true))
+            DeskOp::NotNeeded { ask_id, note, one_click } => {
+                self.write_json(now, |c| c.desk_answer(&ask_id, None, None, note, true, one_click))
             }
             DeskOp::SetMuted { owner, muted } => self.write_json(now, |c| {
                 let mut o = store::owner(c.db, &owner)

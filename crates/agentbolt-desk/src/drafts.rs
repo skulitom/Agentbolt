@@ -20,6 +20,20 @@ pub struct Draft {
     /// Clearing a prefilled reply must not fill it again when the Desk restarts.
     pub text_filled: bool,
     pub fields: Option<HashMap<String, FieldInput>>,
+    /// None for restored older drafts. Edits remain recorded even when their text is later cleared.
+    pub one_click: Option<bool>,
+}
+
+impl Draft {
+    pub fn fresh() -> Self {
+        Self {
+            one_click: Some(true),
+            ..Self::default()
+        }
+    }
+    pub fn edited(&mut self) {
+        self.one_click = Some(false);
+    }
 }
 
 #[derive(Default, Clone, PartialEq, Serialize, Deserialize)]
@@ -177,6 +191,23 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn interaction_evidence_survives_edits_restoration_and_legacy_drafts() {
+        let mut draft = Draft::fresh();
+        // Programmatic defaults do not require user entry.
+        crate::view::fill_reply_once(&mut draft.text, &mut draft.text_filled, Some("Suggested"));
+        assert_eq!(draft.one_click, Some(true));
+        draft.edited();
+        draft.text.clear();
+        let restored: Draft =
+            serde_json::from_value(serde_json::to_value(&draft).unwrap()).unwrap();
+        assert_eq!(restored.one_click, Some(false));
+        let legacy: Draft =
+            serde_json::from_value(serde_json::json!({"text":"Older draft","text_filled":true}))
+                .unwrap();
+        assert_eq!(legacy.one_click, None);
+    }
+
     struct Temp(PathBuf);
     impl Drop for Temp {
         fn drop(&mut self) {
@@ -204,6 +235,7 @@ mod tests {
         state.drafts.insert(
             "ask_one".into(),
             Draft {
+                one_click: Some(false),
                 choice: Some("No".into()),
                 note: "Unsent note".into(),
                 text: String::new(),

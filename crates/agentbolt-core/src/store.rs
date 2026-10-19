@@ -202,6 +202,8 @@ CREATE TABLE phone_receipts (
     "ALTER TABLE phone_receipts ADD COLUMN toast_id TEXT; CREATE UNIQUE INDEX phone_receipt_notification ON phone_receipts(toast_id) WHERE toast_id IS NOT NULL;",
     // A Board reference belongs to the sender's computer, even after that registration is gone.
     "ALTER TABLE board_messages ADD COLUMN sender_machine TEXT;",
+    // Older answers have no interaction evidence; do not infer one click from their content.
+    "ALTER TABLE answers ADD COLUMN one_click INTEGER CHECK(one_click IN (0, 1));",
 ];
 
 pub(crate) fn db_err(e: rusqlite::Error) -> String {
@@ -547,9 +549,14 @@ pub(crate) fn insert_answer(
     answered_ms: i64,
 ) -> rusqlite::Result<()> {
     let values = a.values.as_ref().map(|v| v.to_string());
+    let one_click = match a.via {
+        AnswerVia::Toast | AnswerVia::Phone => Some(true),
+        AnswerVia::Defaulted => Some(false),
+        _ => None,
+    };
     conn.execute(
-        "INSERT INTO answers (ask_id, via, choice, values_json, note, answered_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![a.ask_id, via_str(a.via), a.choice, values, a.note, answered_ms],
+        "INSERT INTO answers (ask_id, via, choice, values_json, note, answered_ms, one_click) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![a.ask_id, via_str(a.via), a.choice, values, a.note, answered_ms, one_click],
     )?;
     Ok(())
 }
@@ -871,6 +878,27 @@ pub(crate) fn set_settings(conn: &Connection, s: &Settings) -> rusqlite::Result<
 #[cfg(test)]
 mod migration_tests {
     use super::*;
+
+    #[test]
+    fn interaction_upgrade_preserves_old_answers_as_unmeasured() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        for migration in &MIGRATIONS[..14] {
+            conn.execute_batch(migration).unwrap();
+        }
+        conn.execute_batch("PRAGMA user_version=14;").unwrap();
+        conn.execute_batch("INSERT INTO asks(id,owner,input_json,priority,reversible,deadline_ms,status,created_ms,shown_ms) VALUES ('ask_old','legacy','{}','P1',1,3000,'answered',900,1000); INSERT INTO answers(ask_id,via,choice,answered_ms) VALUES ('ask_old','desk','Yes',1100);").unwrap();
+        migrate(&mut conn).unwrap();
+        migrate(&mut conn).unwrap();
+        let (choice, direct): (String, Option<bool>) = conn
+            .query_row(
+                "SELECT choice,one_click FROM answers WHERE ask_id='ask_old'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(choice, "Yes");
+        assert_eq!(direct, None);
+    }
 
     #[test]
     fn board_message_origin_upgrade_preserves_legacy_content_without_guessing_a_machine() {

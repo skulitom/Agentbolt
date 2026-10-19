@@ -983,6 +983,16 @@ fn phone_receipts_cannot_answer_until_desk_consumption_and_tokens_are_purpose_bo
     let answer = t.answers(&a, &[&id]).answers.remove(0).answer.unwrap();
     assert_eq!(answer.via, AnswerVia::Phone);
     assert_eq!(answer.choice.as_deref(), Some("No"));
+    let direct: Option<bool> = t
+        .svc
+        .conn_for_tests()
+        .query_row(
+            "SELECT one_click FROM answers WHERE ask_id=?1",
+            [&id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(direct, Some(true));
     assert!(t.status().chain_ok);
 }
 
@@ -1115,6 +1125,158 @@ fn activity_before_the_first_stored_event_is_unknown() {
 }
 
 #[test]
+fn one_click_activity_counts_shown_questions_and_keeps_legacy_answers_unknown() {
+    let t = T::new();
+    let a = t.register("interaction-fixture");
+    for (title, note) in [
+        ("Direct response", None),
+        ("Response with a note", Some("Edited".into())),
+    ] {
+        let id = t.ask(&a, t.input(title)).id;
+        t.desk(DeskOp::Answer {
+            ask_id: id,
+            choice: Some("Yes".into()),
+            values: None,
+            note,
+            one_click: Some(true),
+        })
+        .unwrap();
+    }
+    let id = t.ask(&a, t.input("Batch reviewed response")).id;
+    t.desk(DeskOp::AnswerBatch {
+        answers: vec![crate::protocol::DeskAnswer {
+            ask_id: id,
+            choice: Some("No".into()),
+            values: None,
+            note: None,
+        }],
+    })
+    .unwrap();
+    let id = t.ask(&a, t.input("Unnecessary direct dismissal")).id;
+    t.desk(DeskOp::NotNeeded {
+        ask_id: id,
+        note: None,
+        one_click: Some(true),
+    })
+    .unwrap();
+    let notification_owner = t.register("interaction-notification");
+    let (_, effects) = t
+        .try_ask(&notification_owner, urgent(&t, "One notification button"))
+        .unwrap();
+    let token = effects
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Toast { buttons, .. } => buttons.first().map(|(_, token)| token.clone()),
+            _ => None,
+        })
+        .unwrap();
+    t.token(&token).unwrap();
+    let id = t
+        .ask(
+            &a,
+            t.due_in(
+                t.input("Shown default is not a human click"),
+                Duration::minutes(10),
+            ),
+        )
+        .id;
+    t.list();
+    t.advance(Duration::minutes(61));
+    t.tick();
+    assert_eq!(
+        t.answers(&a, &[&id]).answers[0]
+            .answer
+            .as_ref()
+            .unwrap()
+            .via,
+        AnswerVia::Defaulted
+    );
+    t.ask(&a, t.input("Never displayed question"));
+    t.advance(Duration::seconds(1));
+    let report: crate::metrics::Report = de(t.desk(DeskOp::Metrics).unwrap().0);
+    let direct = report.current.one_click.unwrap();
+    assert_eq!(report.current.submitted, 7);
+    assert_eq!(direct.shown, 6);
+    assert_eq!(direct.one_click_answers, 3);
+    assert_eq!(direct.other_human_answers, 2);
+    assert_eq!(direct.unmeasured_human_answers, 0);
+    assert_eq!(direct.share, Some(0.5));
+
+    let id = t.ask(&a, t.input("Answer from an older Desk")).id;
+    let legacy =
+        json!({"op":"answer","args":{"ask_id":id,"choice":"Yes","values":null,"note":null}});
+    let op: DeskOp = de(legacy.clone());
+    assert_eq!(serde_json::to_value(&op).unwrap(), legacy);
+    assert!(serde_json::from_value::<McpOp>(legacy).is_err());
+    t.desk(op).unwrap();
+    t.advance(Duration::seconds(1));
+    let report: crate::metrics::Report = de(t.desk(DeskOp::Metrics).unwrap().0);
+    let direct = report.current.one_click.as_ref().unwrap();
+    assert_eq!(direct.shown, 7);
+    assert_eq!(direct.unmeasured_human_answers, 1);
+    assert_eq!(direct.share, None);
+    let mut old_period = serde_json::to_value(&report.current).unwrap();
+    old_period.as_object_mut().unwrap().remove("one_click");
+    assert!(de::<crate::metrics::Period>(old_period).one_click.is_none());
+    assert!(t.status().chain_ok);
+}
+
+#[test]
+fn one_click_observation_does_not_count_an_answer_at_or_after_the_period_end() {
+    let t = T::new();
+    let a = t.register("interaction-boundary");
+    let id = t.ask(&a, t.input("Answer later")).id;
+    t.list();
+    t.advance(Duration::hours(1));
+    let cutoff = store::to_ms(t.now());
+    t.desk(DeskOp::Answer {
+        ask_id: id,
+        choice: Some("Yes".into()),
+        values: None,
+        note: None,
+        one_click: Some(true),
+    })
+    .unwrap();
+    let db = t.svc.conn_for_tests();
+    let before = crate::metrics::report(&db, cutoff)
+        .unwrap()
+        .current
+        .one_click
+        .unwrap();
+    assert_eq!(before.shown, 1);
+    assert_eq!(before.one_click_answers, 0);
+    assert_eq!(before.share, Some(0.0));
+    let after = crate::metrics::report(&db, cutoff + 1)
+        .unwrap()
+        .current
+        .one_click
+        .unwrap();
+    assert_eq!(after.share, Some(1.0));
+}
+
+#[test]
+fn one_click_share_includes_older_backlog_first_shown_in_the_period() {
+    let t = T::new();
+    let a = t.register("interaction-backlog");
+    let id = t.ask(&a, t.input("Previously unseen backlog")).id;
+    t.advance(Duration::days(15));
+    t.desk(DeskOp::Answer {
+        ask_id: id,
+        choice: Some("Yes".into()),
+        values: None,
+        note: None,
+        one_click: Some(true),
+    })
+    .unwrap();
+    t.advance(Duration::seconds(1));
+    let report: crate::metrics::Report = de(t.desk(DeskOp::Metrics).unwrap().0);
+    assert_eq!(report.current.submitted, 0);
+    let direct = report.current.one_click.unwrap();
+    assert_eq!(direct.shown, 1);
+    assert_eq!(direct.share, Some(1.0));
+}
+
+#[test]
 fn adoption_is_anchored_and_noise_is_a_share_of_submitted_questions() {
     let t = T::new();
     t.desk(DeskOp::StartBaseline {
@@ -1125,6 +1287,7 @@ fn adoption_is_anchored_and_noise_is_a_share_of_submitted_questions() {
     let a = t.register("measured");
     let id = t.ask(&a, t.input("Unnecessary 1")).id;
     t.desk(DeskOp::NotNeeded {
+        one_click: None,
         ask_id: id,
         note: None,
     })

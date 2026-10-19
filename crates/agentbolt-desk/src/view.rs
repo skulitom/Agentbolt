@@ -13,6 +13,52 @@ pub fn parse_time(s: &str) -> Option<OffsetDateTime> {
     OffsetDateTime::parse(s.trim(), &Rfc3339).ok()
 }
 
+pub fn one_click_label(period: &agentbolt_core::metrics::Period) -> String {
+    if period.history_span_days.is_none() {
+        return "Unknown".into();
+    }
+    let Some(stats) = &period.one_click else {
+        return "Not recorded".into();
+    };
+    if stats.shown == 0 {
+        return "No shown questions".into();
+    }
+    match stats.share {
+        Some(share) => format!(
+            "{} / {} ({:.0}%)",
+            stats.one_click_answers,
+            stats.shown,
+            share * 100.0
+        ),
+        None => format!(
+            "{} / {} confirmed; unmeasured: {}",
+            stats.one_click_answers, stats.shown, stats.unmeasured_human_answers
+        ),
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn one_click_display_distinguishes_missing_evidence_from_measured_zero() {
+    use agentbolt_core::metrics::{OneClickStats, Period};
+    let mut period = Period::default();
+    assert_eq!(one_click_label(&period), "Unknown");
+    period.history_span_days = Some(1.0);
+    assert_eq!(one_click_label(&period), "Not recorded");
+    period.one_click = Some(OneClickStats::default());
+    assert_eq!(one_click_label(&period), "No shown questions");
+    period.one_click = Some(OneClickStats {
+        shown: 5,
+        one_click_answers: 4,
+        share: Some(0.8),
+        ..Default::default()
+    });
+    assert_eq!(one_click_label(&period), "4 / 5 (80%)");
+    period.one_click.as_mut().unwrap().unmeasured_human_answers = 1;
+    period.one_click.as_mut().unwrap().share = None;
+    assert_eq!(one_click_label(&period), "4 / 5 confirmed; unmeasured: 1");
+}
+
 /// Inbox order: priority (P0 first), then the nearest deadline, then the oldest.
 pub fn sort_asks(asks: &mut [Ask]) {
     asks.sort_by(|a, b| {

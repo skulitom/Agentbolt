@@ -12,7 +12,7 @@ Do not tag or publish. Do not change the real main-channel installation as part 
 - M2: configurable Claude long waits and durable relay handoff records/instructions for Reception and
   the next owner run. Retain at-least-once checkpoint reads and never treat a queued message as receipt.
 - M3: baseline snapshots and comparison reporting for ask volume, answer latency, overdue/stale asks,
-  irreversible backlog, Not needed by owner, collisions and Artem's verdict. The 14-day observation is
+  one-click answer share, irreversible backlog, Not needed by owner, collisions and Artem's verdict. The 14-day observation is
   a later adoption activity, not a reason to defer feature implementation.
 - M4: explicit working-copy allowlist, lock-free dirty/unpushed Git path holds, freshness/errors visible,
   agent holds and PR/merge collision checking. Never scan outside the configured allowlist.

@@ -375,6 +375,7 @@ async fn fake_desk_child() {
         .expect("connect as the desk");
     desk.call(&DeskOp::List).await.expect("list");
     let answer = DeskOp::Answer {
+        one_click: None,
         ask_id,
         choice: Some("Blue".into()),
         values: None,

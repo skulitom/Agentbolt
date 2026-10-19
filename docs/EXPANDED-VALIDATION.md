@@ -343,3 +343,29 @@ Daemon all-target Clippy passes on both platforms. Tests use synthetic temporary
 throwaway channel; no installation, real working-copy configuration, private folder, phone or SSH
 service was changed. Actual Windows junction/permission fixtures, same-user path replacement races and
 installed/live integration checks are not established by this evidence.
+
+## One-click adoption measurement (2026-10-19)
+
+A fresh full-plan audit found that the 80% one-click criterion had no measurement in Activity. The Desk
+now records whether an answer was submitted without note/reply/form edits, preserving that evidence in
+saved drafts. Untouched prefilled answers can qualify; edits remain edits even if cleared. Reviewed
+batches and automatic defaults do not count as one-click answers. Notification/phone answers count only
+when the installed Desk commits them. The existing human-answer boundary and MCP tool catalog are unchanged.
+
+Activity shows direct-answer counts and share against questions first shown during each period,
+including older backlog, using only answers recorded before its end. This denominator is intentionally
+different from the submitted-question cohorts used by the other measures. Schema migration 15 leaves
+old answer evidence null; older drafts, old clients and saved baselines remain unmeasured rather than
+being assigned an inferred rate. A percentage is withheld when relevant human answers lack evidence.
+The [methodology](ADOPTION.md) describes this operational definition and its limits.
+
+All 99 core tests and both repository guards pass on Windows and Linux. New checks exercise shown versus
+unseen questions, direct/edited/batch/defaulted/notification/legacy responses, phone commitment, the
+period-end boundary, older backlog, missing baseline fields, legacy wire shape and migration from schema
+14. The Desk's 22 binary unit tests pass, including retained draft edits and distinct unknown/not-recorded
+display states. Windows workspace all-target Clippy and Linux core/CLI all-target Clippy pass.
+
+These are local service, migration and headless checks. The new Activity row and edit tracking have not
+yet had a native interaction check, and schema 15 has not yet had an installed upgrade check. No real
+baseline/adoption period was started, and no main-channel install, external account, licensing, package
+or long reliability run was changed.

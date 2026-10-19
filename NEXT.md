@@ -43,6 +43,9 @@ The expanded security review found two scanner issues: configured filter executi
 into excluded folders. Both are fixed with metadata/configuration preflight, isolated Git settings
 and conservative unknown results for unsupported repositories. Allowed linked worktrees remain supported.
 See [the security record](docs/SECURITY-EXPANDED-2026-10-19.md). Final-candidate and live host validation remain open.
+The full-plan audit also added the missing one-click adoption measure. Activity now distinguishes direct,
+edited/batch and unmeasured answers, includes older backlog first shown during the period, and preserves
+unknown evidence in older drafts, answers and saved baselines. See [Activity methodology](docs/ADOPTION.md).
 No phone account, scan, adoption period or live workflow has been activated.
 
 

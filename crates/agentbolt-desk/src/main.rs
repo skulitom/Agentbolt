@@ -121,6 +121,7 @@ fn main() {
             match desk_call(
                 &names,
                 &DeskOp::Answer {
+                    one_click: None,
                     ask_id,
                     choice,
                     values,

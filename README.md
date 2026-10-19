@@ -56,7 +56,8 @@ agent ──stdio──► agentbolt mcp ──user-only pipe──► agentbolt
   overlaps before opening or merging a PR. Scans are read-only. Missing, failed or stale scans stay unknown.
   See [Board and work holds](docs/BOARD-AND-HOLDS.md) for tools and configuration.
 - **Activity:** a saved baseline and 14-day reporting show answer times, missed deadlines, unnecessary
-  questions, old unanswered questions and collision checks. You can record your verdict in the Desk.
+  questions, one-click answer share, old unanswered questions and collision checks. Older unmeasured
+  answers stay unknown. You can record your verdict in the Desk. [Measurement details](docs/ADOPTION.md).
 - **Claude replies:** configurable long waits and prepared relay handoff records support live sessions and
   the next run of a stable owner. See [Claude delivery](docs/CLAUDE-DELIVERY.md).
 - **Phone replies:** opt-in protected ntfy topics carry simple reversible choices. Replies are saved and

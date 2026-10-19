@@ -1061,22 +1061,22 @@ impl DeskApp {
                 return;
             }
             let sending = self.sending.contains(&ask.id);
-            let draft = self.drafts.entry(ask.id.clone()).or_default();
+            let draft = self.drafts.entry(ask.id.clone()).or_insert_with(Draft::fresh);
             ui.add_enabled_ui(!sending, |ui| {
                 // The note comes first: an option button answers at once.
                 ui.horizontal(|ui| {
                     ui.label("Note");
-                    ui.add(
+                    if ui.add(
                         egui::TextEdit::singleline(&mut draft.note)
                             .hint_text("optional, sent with your answer")
                             .desired_width(f32::INFINITY),
-                    );
+                    ).changed() { draft.edited(); }
                 });
                 ui.add_space(4.0);
                 req = answer_controls(ui, ask, draft);
                 ui.add_space(6.0);
                 if ui.button("Not needed").on_hover_text("Tell the agent this question was unnecessary. No option is approved.").clicked() {
-                    req = Some(Req::NotNeeded { ask_id: ask.id.clone(), note: None });
+                    req = Some(Req::NotNeeded { ask_id: ask.id.clone(), note: None, one_click: None });
                 }
             });
             if sending {
@@ -1094,6 +1094,7 @@ impl DeskApp {
             .get(&ask.id)
             .map(|d| d.note.trim().to_string())
             .filter(|n| !n.is_empty());
+        let one_click = self.drafts.get(&ask.id).and_then(|draft| draft.one_click);
         req.map(|r| match r {
             Req::Answer {
                 ask_id,
@@ -1105,8 +1106,13 @@ impl DeskApp {
                 choice,
                 values,
                 note,
+                one_click,
             },
-            Req::NotNeeded { ask_id, .. } => Req::NotNeeded { ask_id, note },
+            Req::NotNeeded { ask_id, .. } => Req::NotNeeded {
+                ask_id,
+                note,
+                one_click,
+            },
             other => other,
         })
     }
@@ -1385,7 +1391,11 @@ impl DeskApp {
                         for e in &ask.input.evidence {
                             ui.label(format!("{}: {}", e.label, e.url));
                         }
-                        let draft = self.drafts.entry(ask.id.clone()).or_default();
+                        let draft = self
+                            .drafts
+                            .entry(ask.id.clone())
+                            .or_insert_with(Draft::fresh);
+                        draft.edited(); // Reviewing a selected batch is not a direct one-click response.
                         let (choice, values) = match ask.input.kind {
                             AskKind::Choose | AskKind::Approve => {
                                 let choice = draft.choice.get_or_insert_with(|| {
@@ -1892,6 +1902,8 @@ impl DeskApp {
                 for p in [current,previous] {ui.label(if p.history_span_days.is_none() { "Unknown".into() } else {p.median_answer_hours.map_or("No human answers".into(),|h|format!("{h:.1} hours"))});}ui.end_row();
                 ui.label("Unanswered at deadline");
                 for p in [current,previous] {ui.label(if p.history_span_days.is_none() { "Unknown".into() } else {p.unanswered_deadline_share.map_or("No elapsed deadlines".into(),|v|format!("{:.0}%",v*100.0))});}ui.end_row();
+                ui.label("One-click answers / shown");
+                for p in [current,previous] { ui.label(view::one_click_label(p)); } ui.end_row();
             });
             ui.label(format!("{} reversible questions have waited over 48 hours.",report.reversible_waiting_over_48h));
             ui.label(format!("{} irreversible questions are still open{}.",report.irreversible_open,report.oldest_irreversible_hours.map(|h|format!("; oldest {h:.1} hours")).unwrap_or_default()));
@@ -2362,6 +2374,7 @@ fn evidence_row(
 }
 
 fn form_controls(ui: &mut egui::Ui, ask: &Ask, draft: &mut Draft) -> Result<Value, String> {
+    let mut edited = false;
     let inputs = draft
         .fields
         .get_or_insert_with(|| view::prefill(&ask.input.fields, &ask.input.default));
@@ -2381,22 +2394,24 @@ fn form_controls(ui: &mut egui::Ui, ask: &Ask, draft: &mut Draft) -> Result<Valu
                     .or_insert_with(|| FieldInput::Text(String::new()));
                 match (f.field_type.as_str(), input) {
                     ("boolean", FieldInput::Bool(b)) => {
-                        ui.checkbox(b, "");
+                        edited |= ui.checkbox(b, "").changed();
                     }
                     ("choice", FieldInput::Text(t)) => {
                         egui::ComboBox::from_id_salt(("field", &ask.id, &f.id))
                             .selected_text(t.clone())
                             .show_ui(ui, |ui| {
                                 for o in f.options.iter().flatten() {
-                                    ui.selectable_value(t, o.clone(), o);
+                                    edited |= ui.selectable_value(t, o.clone(), o).changed();
                                 }
                             });
                     }
                     (_, FieldInput::Text(t)) => {
-                        ui.add(egui::TextEdit::singleline(t).desired_width(280.0));
+                        edited |= ui
+                            .add(egui::TextEdit::singleline(t).desired_width(280.0))
+                            .changed();
                     }
                     (_, FieldInput::Bool(b)) => {
-                        ui.checkbox(b, "");
+                        edited |= ui.checkbox(b, "").changed();
                     }
                     (_, FieldInput::OptionalBool(value)) => {
                         egui::ComboBox::from_id_salt(("optional-bool", &ask.id, &f.id))
@@ -2406,16 +2421,21 @@ fn form_controls(ui: &mut egui::Ui, ask: &Ask, draft: &mut Draft) -> Result<Valu
                                 Some(false) => "No",
                             })
                             .show_ui(ui, |ui| {
-                                ui.selectable_value(value, None, "Not answered");
-                                ui.selectable_value(value, Some(true), "Yes");
-                                ui.selectable_value(value, Some(false), "No");
+                                edited |=
+                                    ui.selectable_value(value, None, "Not answered").changed();
+                                edited |= ui.selectable_value(value, Some(true), "Yes").changed();
+                                edited |= ui.selectable_value(value, Some(false), "No").changed();
                             });
                     }
                 }
                 ui.end_row();
             }
         });
-    view::form_values(&ask.input.fields, inputs)
+    let result = view::form_values(&ask.input.fields, inputs);
+    if edited {
+        draft.edited();
+    }
+    result
 }
 
 /// The buttons, text box or form for one ask. Returns the answer to send (note added by the caller).
@@ -2425,6 +2445,7 @@ fn answer_controls(ui: &mut egui::Ui, ask: &Ask, draft: &mut Draft) -> Option<Re
         choice,
         values,
         note: None,
+        one_click: None, // Filled from the retained draft's interaction history by details().
     };
     match ask.input.kind {
         AskKind::Choose | AskKind::Approve => {
@@ -2451,11 +2472,16 @@ fn answer_controls(ui: &mut egui::Ui, ask: &Ask, draft: &mut Draft) -> Option<Re
                 ask.input.default.as_str(),
             );
             ui.label("Your reply");
-            ui.add(
-                egui::TextEdit::multiline(&mut draft.text)
-                    .desired_rows(4)
-                    .desired_width(f32::INFINITY),
-            );
+            if ui
+                .add(
+                    egui::TextEdit::multiline(&mut draft.text)
+                        .desired_rows(4)
+                        .desired_width(f32::INFINITY),
+                )
+                .changed()
+            {
+                draft.edited();
+            }
             if let Some(d) = ask.input.default.as_str() {
                 ui.weak(format!("Recommended: {d}"));
             }

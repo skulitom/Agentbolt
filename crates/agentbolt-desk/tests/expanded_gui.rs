@@ -121,6 +121,7 @@ fn expanded_tabs_and_drafts_through_the_real_desk() {
         .unwrap();
         service
             .desk(DeskOp::Answer {
+                one_click: None,
                 ask_id: archived.id.clone(),
                 choice: Some("Yes".into()),
                 values: None,

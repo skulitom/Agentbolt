@@ -226,6 +226,7 @@ async fn the_desk_pipe_drops_a_client_that_isnt_the_desk() {
         .await
         .expect("the pipe itself opens");
     let answer = DeskOp::Answer {
+        one_click: None,
         ask_id: "a1".into(),
         choice: Some("yes".into()),
         values: None,
