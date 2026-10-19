@@ -844,6 +844,7 @@ mod win {
                     let link: IShellLinkW =
                         CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
                     link.SetPath(&HSTRING::from(target.as_os_str()))?;
+                    link.SetIconLocation(&HSTRING::from(target.as_os_str()), 0)?;
                     link.SetArguments(&HSTRING::from(args))?;
                     link.SetWorkingDirectory(&HSTRING::from(workdir.as_os_str()))?;
                     link.SetDescription(&HSTRING::from(

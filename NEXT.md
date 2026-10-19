@@ -9,6 +9,11 @@ tests from the older checklists or readiness answers below. The normal-desktop f
 results remain evidence, while Claude Desktop/navigation and the uninterrupted 72-hour check remain
 unverified. Resume only when Artem asks. His normal desktop app remains updated to 0.2.0.
 
+**UX polish (2026-10-19):** the Desk now has consistent spacing and typography, organized Settings,
+readable agent/owner cards, clearer answer controls and a shared window/taskbar/executable icon.
+See the [UX implementation and review record](docs/UX-POLISH-2026-10-19.md). This development pass does
+not resume the paused release tests.
+
 **Current scope (Artem, 2026-10-18): implement the full plan, including M2–M7.** This overrides the older
 handoff's M0/M1 limit and the evidence gate before building the Board. Finish all features before heavy
 testing, licensing or release validation. [Full feature work](docs/FULL-PLAN.md) tracks the expanded scope.

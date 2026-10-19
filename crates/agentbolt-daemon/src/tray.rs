@@ -18,9 +18,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::daemon::{Shared, Ui};
-use crate::icon;
 use crate::log::{info, warning};
 use crate::winutil::HandlerKey;
+use agentbolt_core::icon;
 
 pub enum UiCmd {
     Counts(u32),

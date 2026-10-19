@@ -17,15 +17,12 @@ mod codex;
 mod daemon;
 mod delivery;
 mod holds;
-#[cfg(windows)]
-mod supervisor;
-// The tray icon and toast XML are drawn and built everywhere (and tested on Linux CI), but shown only on Windows.
-#[cfg_attr(not(windows), allow(dead_code))]
-mod icon;
 mod log;
 mod ntfy;
 mod phone;
 mod store;
+#[cfg(windows)]
+mod supervisor;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod toast;
 #[cfg(windows)]

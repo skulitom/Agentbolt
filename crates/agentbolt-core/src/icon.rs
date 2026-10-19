@@ -1,5 +1,5 @@
-//! The tray icon, drawn in code (no image files in the repo): a 32x32 amber lightning bolt with a dark outline that
-//! reads on light and dark taskbars, and a red count badge while asks wait.
+//! Shared Agentbolt artwork. Pure RGBA pixels, with no OS, GUI or image-library dependency.
+//! The tray adds a count badge; the Desk and executable use the same unbadged amber bolt.
 
 pub const SIZE: usize = 32;
 
@@ -21,16 +21,27 @@ const BOLT: [(f32, f32); 7] = [
 
 /// RGBA pixels, row by row. `badge` = the number of open asks (0 or None = no badge; above 9 shows "+").
 pub fn rgba(badge: Option<u32>) -> Vec<u8> {
-    let mut out = vec![0u8; SIZE * SIZE * 4];
+    let mut out = rgba_at(SIZE);
+    if let Some(n) = badge.filter(|n| *n > 0) {
+        draw_badge(&mut out, n);
+    }
+    out
+}
+
+/// Render at the requested size rather than scaling a small bitmap on high-DPI displays.
+pub fn rgba_at(size: usize) -> Vec<u8> {
+    assert!((1..=256).contains(&size));
+    let mut out = vec![0u8; size * size * 4];
+    let scale = SIZE as f32 / size as f32;
     const SS: usize = 4;
-    for y in 0..SIZE {
-        for x in 0..SIZE {
+    for y in 0..size {
+        for x in 0..size {
             let (mut fill, mut outline) = (0u32, 0u32);
             for sy in 0..SS {
                 for sx in 0..SS {
                     let p = (
-                        x as f32 + (sx as f32 + 0.5) / SS as f32,
-                        y as f32 + (sy as f32 + 0.5) / SS as f32,
+                        (x as f32 + (sx as f32 + 0.5) / SS as f32) * scale,
+                        (y as f32 + (sy as f32 + 0.5) / SS as f32) * scale,
                     );
                     if inside(p, &BOLT) {
                         if edge_distance(p, &BOLT) < 1.0 {
@@ -49,7 +60,7 @@ pub fn rgba(badge: Option<u32>) -> Vec<u8> {
                 let mix = |c: usize| {
                     ((FILL[c] as u32 * fill + OUTLINE[c] as u32 * outline) / covered) as u8
                 };
-                let i = (y * SIZE + x) * 4;
+                let i = (y * size + x) * 4;
                 out[i..i + 4].copy_from_slice(&[
                     mix(0),
                     mix(1),
@@ -58,9 +69,6 @@ pub fn rgba(badge: Option<u32>) -> Vec<u8> {
                 ]);
             }
         }
-    }
-    if let Some(n) = badge.filter(|n| *n > 0) {
-        draw_badge(&mut out, n);
     }
     out
 }

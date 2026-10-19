@@ -9,6 +9,7 @@ mod drafts;
 mod os;
 mod resident;
 mod startup;
+mod theme;
 mod upgrade;
 mod view;
 mod worker;

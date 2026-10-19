@@ -6,6 +6,7 @@ pub mod board;
 pub mod channel;
 pub mod events;
 pub mod holds;
+pub mod icon;
 pub mod metrics;
 pub mod model;
 pub mod navigation;

@@ -16,6 +16,7 @@ use serde_json::Value;
 
 use crate::drafts::{Draft, Snapshot as DraftSnapshot, Store as DraftStore};
 use crate::os;
+use crate::theme;
 use crate::view::{self, FieldInput, Link};
 use crate::worker::{self, Req, Resp, Worker};
 
@@ -37,6 +38,13 @@ enum BoardSection {
     Handoffs,
     Messages,
     Agents,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum SettingsSection {
+    Notifications,
+    Phone,
+    Owners,
 }
 
 enum Conn {
@@ -72,18 +80,32 @@ impl DirectoryState {
         let mut changed = false;
         ui.push_id(label, |ui| {
             ui.horizontal_wrapped(|ui| {
-                ui.label(format!(
-                    "{} {label} · page {}",
-                    self.total,
-                    self.back.len() + 1
-                ));
-                ui.add(egui::TextEdit::singleline(&mut self.search).hint_text("Search"));
-                if ui.button("Search").clicked() {
+                let field = ui.add(
+                    egui::TextEdit::singleline(&mut self.search)
+                        .hint_text(format!("Search {label}"))
+                        .desired_width(ui.available_width().min(320.0)),
+                );
+                if ui.add_enabled(!busy, egui::Button::new("Search")).clicked()
+                    || (!busy
+                        && field.lost_focus()
+                        && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                {
                     self.query.search = self.search.trim().into();
                     self.query.after = None;
                     self.back.clear();
                     changed = true;
                 }
+                if !self.search.is_empty()
+                    && ui.add_enabled(!busy, egui::Button::new("Clear")).clicked()
+                {
+                    self.search.clear();
+                    self.query.search.clear();
+                    self.query.after = None;
+                    self.back.clear();
+                    changed = true;
+                }
+            });
+            ui.horizontal_wrapped(|ui| {
                 if ui
                     .add_enabled(
                         !busy && !self.back.is_empty(),
@@ -95,20 +117,32 @@ impl DirectoryState {
                     changed = true;
                 }
                 if ui
-                    .add_enabled(!busy && self.more, egui::Button::new("More"))
+                    .add_enabled(!busy && self.more, egui::Button::new("Next"))
                     .clicked()
                 {
                     self.back.push(self.query.after.clone());
                     self.query.after = self.next.clone();
                     changed = true;
                 }
-                if ui.button("First page / refresh").clicked() {
+                if ui
+                    .add_enabled(!busy, egui::Button::new("Refresh"))
+                    .clicked()
+                {
                     self.query.after = None;
                     self.back.clear();
                     changed = true;
                 }
+                ui.weak(format!(
+                    "{} {label} · Page {}",
+                    self.total,
+                    self.back.len() + 1
+                ));
+                if busy {
+                    ui.spinner();
+                }
             });
         });
+        ui.add_space(8.0);
         changed
     }
 }
@@ -125,6 +159,7 @@ pub struct DeskApp {
     names: Names,
     worker: Worker,
     tab: Tab,
+    settings_section: SettingsSection,
     inbox: Vec<Ask>,
     inbox_after: Option<agentbolt_core::protocol::InboxCursor>,
     inbox_back: Vec<Option<agentbolt_core::protocol::InboxCursor>>,
@@ -204,6 +239,7 @@ pub struct DeskApp {
 
 /// Open the window and run until it closes.
 pub fn run(names: Names, warm: bool) -> anyhow::Result<()> {
+    os::set_app_identity(&names).map_err(anyhow::Error::msg)?;
     let title = if names.is_main() {
         "Agentbolt".to_string()
     } else {
@@ -223,8 +259,13 @@ pub fn run(names: Names, warm: bool) -> anyhow::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(title.clone())
+            .with_icon(egui::IconData {
+                rgba: agentbolt_core::icon::rgba_at(64),
+                width: 64,
+                height: 64,
+            })
             .with_active(!warm || restore_visible)
-            .with_inner_size([900.0, 620.0])
+            .with_inner_size([1040.0, 700.0])
             .with_min_inner_size([640.0, 420.0]),
         centered: true,
         persistence_path: Some(
@@ -237,6 +278,7 @@ pub fn run(names: Names, warm: bool) -> anyhow::Result<()> {
         &title,
         options,
         Box::new(move |cc| {
+            theme::apply(&cc.egui_ctx);
             crate::resident::prepare(cc, warm, restore_visible)?;
             crate::startup::mark("renderer_ready");
             let ctx = cc.egui_ctx.clone();
@@ -269,6 +311,7 @@ impl DeskApp {
             names,
             worker,
             tab: Tab::Inbox,
+            settings_section: SettingsSection::Notifications,
             inbox: Vec::new(),
             inbox_after: None,
             inbox_back: Vec::new(),
@@ -784,8 +827,39 @@ impl DeskApp {
     }
 
     fn top_bar(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            theme::brand(ui);
+            ui.label(RichText::new("Agentbolt").size(19.0).strong());
+            ui.weak("Your agent desk");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                match &self.conn {
+                    Conn::Up => {
+                        ui.weak("Connected");
+                    }
+                    Conn::Unknown => {
+                        ui.weak("Connecting…");
+                        ui.spinner();
+                    }
+                    Conn::Down(_) => {
+                        if ui.button("Start Agentbolt").clicked() {
+                            self.send(Req::StartDaemon);
+                        }
+                        ui.colored_label(ui.visuals().error_fg_color, "Disconnected");
+                    }
+                }
+                if !self.names.is_main() {
+                    ui.weak(&self.names.channel);
+                }
+            });
+        });
+        ui.add_space(4.0);
         ui.horizontal_wrapped(|ui| {
-            let tabs = [
+            let pending = self
+                .owners
+                .iter()
+                .filter(|o| o.requested_owner.is_some())
+                .count();
+            for (tab, label) in [
                 (
                     Tab::Inbox,
                     format!(
@@ -793,85 +867,66 @@ impl DeskApp {
                         self.open_count.unwrap_or(self.inbox.len() as u32)
                     ),
                 ),
-                (Tab::Agents, "Agents".to_string()),
-                (Tab::History, "History".to_string()),
-                (Tab::Board, "Board".to_string()),
-                (Tab::Activity, "Activity".to_string()),
-                (Tab::Holds, "Work holds".to_string()),
-                (Tab::Settings, {
-                    let pending = self
-                        .owners
-                        .iter()
-                        .filter(|o| o.requested_owner.is_some())
-                        .count();
+                (Tab::History, "History".into()),
+                (Tab::Agents, "Agents".into()),
+                (Tab::Board, "Board".into()),
+                (Tab::Holds, "Work holds".into()),
+                (Tab::Activity, "Activity".into()),
+                (
+                    Tab::Settings,
                     if pending == 0 {
                         "Settings".into()
                     } else {
-                        format!("Settings ({pending} names to review)")
-                    }
-                }),
-            ];
-            for (tab, label) in tabs {
+                        format!("Settings ({pending})")
+                    },
+                ),
+            ] {
                 if ui
-                    .selectable_label(self.tab == tab, RichText::new(label).size(15.0))
+                    .add(egui::Button::selectable(self.tab == tab, label))
                     .clicked()
                 {
                     self.switch_to(tab);
                 }
             }
-            ui.with_layout(
-                egui::Layout::right_to_left(egui::Align::Center),
-                |ui| match &self.conn {
-                    Conn::Up => {
-                        ui.weak(format!("connected, channel {}", self.names.channel));
-                    }
-                    Conn::Unknown => {
-                        ui.weak("connecting...");
-                    }
-                    Conn::Down(_) => {
-                        if ui.button("Start Agentbolt").clicked() {
-                            self.send(Req::StartDaemon);
-                        }
-                        ui.colored_label(ui.visuals().error_fg_color, "Agentbolt isn't running");
-                    }
-                },
-            );
         });
     }
 
     fn ask_list(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal_wrapped(|ui| {
-            ui.weak(format!("Page {}", self.inbox_back.len() + 1));
-            if ui
-                .add_enabled(
-                    !self.list_inflight && !self.inbox_back.is_empty(),
-                    egui::Button::new("Previous"),
-                )
-                .clicked()
-            {
-                self.inbox_after = self.inbox_back.pop().flatten();
-                self.last_list = None;
-                self.batch_selection.clear();
-            }
-            if ui
-                .add_enabled(
-                    !self.list_inflight && self.inbox_more,
-                    egui::Button::new("More"),
-                )
-                .clicked()
-            {
-                self.inbox_back.push(self.inbox_after.clone());
-                self.inbox_after = self.inbox_next.clone();
-                self.last_list = None;
-                self.batch_selection.clear();
-            }
-            if ui.button("First page").clicked() {
-                self.inbox_after = None;
-                self.inbox_back.clear();
-                self.last_list = None;
-                self.batch_selection.clear();
-            }
-        });
+        ui.strong("Waiting for you");
+        if self.inbox_more || self.inbox_after.is_some() || !self.inbox_back.is_empty() {
+            ui.horizontal_wrapped(|ui| {
+                ui.weak(format!("Page {}", self.inbox_back.len() + 1));
+                if ui
+                    .add_enabled(
+                        !self.list_inflight && !self.inbox_back.is_empty(),
+                        egui::Button::new("Previous"),
+                    )
+                    .clicked()
+                {
+                    self.inbox_after = self.inbox_back.pop().flatten();
+                    self.last_list = None;
+                    self.batch_selection.clear();
+                }
+                if ui
+                    .add_enabled(
+                        !self.list_inflight && self.inbox_more,
+                        egui::Button::new("Next"),
+                    )
+                    .clicked()
+                {
+                    self.inbox_back.push(self.inbox_after.clone());
+                    self.inbox_after = self.inbox_next.clone();
+                    self.last_list = None;
+                    self.batch_selection.clear();
+                }
+                if ui.button("First page").clicked() {
+                    self.inbox_after = None;
+                    self.inbox_back.clear();
+                    self.last_list = None;
+                    self.batch_selection.clear();
+                }
+            });
+        }
         if !self.batch_selection.is_empty() {
             if ui
                 .button(format!("Review {} answers", self.batch_selection.len()))
@@ -893,7 +948,11 @@ impl DeskApp {
                     let selected = &mut self.selected_inbox;
                     let is_sel = selected.as_deref() == Some(a.id.as_str());
                     let (due, overdue) = view::relative_deadline(&a.input.deadline, now);
-                    let frame = egui::Frame::new().inner_margin(egui::Margin::symmetric(6, 4));
+                    let frame = theme::surface(ui).inner_margin(10).fill(if is_sel {
+                        ui.visuals().selection.bg_fill
+                    } else {
+                        ui.visuals().extreme_bg_color
+                    });
                     let resp = frame
                         .show(ui, |ui| {
                             ui.set_width(ui.available_width());
@@ -901,13 +960,19 @@ impl DeskApp {
                                 let mut checked = self.batch_selection.contains(&a.id);
                                 let allowed =
                                     checked || self.batch_selection.len() < MAX_BATCH_ANSWERS;
-                                if ui
-                                    .add_enabled(
+                                let checkbox = ui.add_enabled(
+                                    allowed,
+                                    egui::Checkbox::new(&mut checked, "Select"),
+                                );
+                                checkbox.widget_info(|| {
+                                    egui::WidgetInfo::selected(
+                                        egui::accesskit::Role::CheckBox,
                                         allowed,
-                                        egui::Checkbox::new(&mut checked, "Select"),
+                                        checked,
+                                        format!("Select {} for batch answer", a.input.title),
                                     )
-                                    .changed()
-                                {
+                                });
+                                if checkbox.changed() {
                                     if checked {
                                         self.batch_selection.insert(a.id.clone());
                                     } else {
@@ -915,12 +980,9 @@ impl DeskApp {
                                     }
                                 }
                                 priority_tag(ui, a.input.priority);
-                                ui.add(
-                                    egui::Label::new(RichText::new(&a.input.title).strong())
-                                        .truncate(),
-                                );
                             });
-                            ui.horizontal(|ui| {
+                            ui.add(egui::Label::new(RichText::new(&a.input.title).strong()).wrap());
+                            ui.horizontal_wrapped(|ui| {
                                 ui.weak(&a.owner);
                                 if a.muted {
                                     ui.weak("Muted");
@@ -936,6 +998,14 @@ impl DeskApp {
                         })
                         .response;
                     let resp = resp.interact(egui::Sense::click());
+                    resp.widget_info(|| {
+                        egui::WidgetInfo::selected(
+                            egui::accesskit::Role::Button,
+                            ui.is_enabled(),
+                            is_sel,
+                            &a.input.title,
+                        )
+                    });
                     if is_sel {
                         ui.painter().rect_stroke(
                             resp.rect,
@@ -948,7 +1018,7 @@ impl DeskApp {
                         *selected = Some(a.id.clone());
                         self.review_batch = false;
                     }
-                    ui.separator();
+                    ui.add_space(2.0);
                 }
                 if !self.recent.is_empty() {
                     egui::CollapsingHeader::new(format!(
@@ -1034,12 +1104,15 @@ impl DeskApp {
                     ui.weak("Source computer unavailable. Copy file and chat references to open them on the originating computer.");
                 }
             }
+            egui::CollapsingHeader::new("Source and notifications")
+                .id_salt(("source", &ask.id)).show_accessible(ui, |ui| {
             ui.add_space(4.0);
             if let Some(target) = chat_button(ui, ask.asking_client.as_deref().unwrap_or_default(), ask.asking_session.as_deref(), ask.asking_machine.as_deref(), ask.asking_cwd.as_deref())
                 && let Err(e) = os::open_chat(&target, ask.asking_cwd.as_deref()) {
                 self.note(e, true);
             }
             if let Some(req)=mute_control(ui,&ask.owner,ask.muted) { self.send(req); }
+            });
             ui.separator();
             if !matches!(ask.status, AskStatus::Open | AskStatus::Digest) {
                 if let Some(answer) = &ask.answer {
@@ -1062,10 +1135,14 @@ impl DeskApp {
             }
             let sending = self.sending.contains(&ask.id);
             let draft = self.drafts.entry(ask.id.clone()).or_insert_with(Draft::fresh);
+            ui.strong("Your answer");
+            if matches!(ask.input.kind, AskKind::Choose | AskKind::Approve | AskKind::Inform) {
+                ui.weak("Choose an option to send your answer immediately.");
+            }
             ui.add_enabled_ui(!sending, |ui| {
                 // The note comes first: an option button answers at once.
                 ui.horizontal(|ui| {
-                    ui.label("Note");
+                    ui.label("Note (optional)");
                     if ui.add(
                         egui::TextEdit::singleline(&mut draft.note)
                             .hint_text("optional, sent with your answer")
@@ -1124,18 +1201,18 @@ impl DeskApp {
 
     fn history_tab(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
-            ui.heading("Question history");
-            ui.add(
+            ui.heading("History");
+            let field = ui.add(
                 egui::TextEdit::singleline(&mut self.history_search)
                     .hint_text("Search question, owner or ID")
                     .desired_width(260.0),
             );
             if ui
-                .add_enabled(
-                    !self.history_inflight,
-                    egui::Button::new("Search / refresh"),
-                )
+                .add_enabled(!self.history_inflight, egui::Button::new("Search"))
                 .clicked()
+                || (!self.history_inflight
+                    && field.lost_focus()
+                    && ui.input(|i| i.key_pressed(egui::Key::Enter)))
             {
                 self.history_query = agentbolt_core::protocol::HistoryQuery {
                     before: None,
@@ -1179,8 +1256,10 @@ impl DeskApp {
         ui.separator();
         egui::Panel::left("history-list")
             .resizable(true)
-            .default_size(320.0)
-            .min_size(220.0)
+            .default_size(300.0)
+            .min_size(200.0)
+            .max_size((ui.available_width() * 0.42).clamp(200.0, 420.0))
+            .frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(0, 4)))
             .show(ui, |ui| {
                 egui::ScrollArea::vertical()
                     .id_salt("history-rows")
@@ -1208,13 +1287,21 @@ impl DeskApp {
             .iter()
             .find(|a| Some(&a.id) == self.history_selected.as_ref())
             .cloned();
-        egui::CentralPanel::default().show(ui, |ui| {
-            if let Some(ask) = ask
-                && let Some(req) = self.details(ui, &ask)
-            {
-                self.send(req);
-            }
-        });
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(20, 4)))
+            .show(ui, |ui| {
+                if let Some(ask) = ask {
+                    if let Some(req) = self.details(ui, &ask) {
+                        self.send(req);
+                    }
+                } else {
+                    theme::empty(
+                        ui,
+                        "Past decisions",
+                        "Select a question to see its answer and delivery history.",
+                    );
+                }
+            });
     }
 
     fn deliveries(&mut self, ui: &mut egui::Ui, answer: &agentbolt_core::model::Answer) {
@@ -1312,15 +1399,27 @@ impl DeskApp {
 
     fn ask_pane(&mut self, ui: &mut egui::Ui) {
         if self.inbox.is_empty() && self.recent.is_empty() && self.inbox_after.is_none() {
-            ui.centered_and_justified(|ui| {
-                ui.label(RichText::new(view::EMPTY_INBOX).size(16.0).weak());
-            });
+            match self.conn {
+                Conn::Unknown => theme::empty(
+                    ui,
+                    "Connecting to your Desk",
+                    "Your questions will appear here when Agentbolt connects.",
+                ),
+                Conn::Down(_) => theme::empty(
+                    ui,
+                    "Your Desk is offline",
+                    "Start Agentbolt above to load your questions. Your saved drafts stay here.",
+                ),
+                Conn::Up => theme::empty(ui, "You’re all caught up", view::EMPTY_INBOX),
+            }
             return;
         }
         egui::Panel::left("inbox-list")
             .resizable(true)
-            .default_size(320.0)
-            .min_size(220.0)
+            .default_size(300.0)
+            .min_size(200.0)
+            .max_size((ui.available_width() * 0.42).clamp(200.0, 420.0))
+            .frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(0, 4)))
             .show(ui, |ui| self.ask_list(ui));
         let selected = &self.selected_inbox;
         let ask = selected.as_ref().and_then(|id| {
@@ -1330,23 +1429,29 @@ impl DeskApp {
                 .find(|a| &a.id == id)
                 .cloned()
         });
-        egui::CentralPanel::default().show(ui, |ui| {
-            if self.review_batch {
-                self.batch_review(ui);
-                return;
-            }
-            match ask {
-                Some(ask) => {
-                    if let Some(req) = self.details(ui, &ask) {
-                        self.sending.insert(ask.id.clone());
-                        self.send(req);
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(20, 4)))
+            .show(ui, |ui| {
+                if self.review_batch {
+                    self.batch_review(ui);
+                    return;
+                }
+                match ask {
+                    Some(ask) => {
+                        if let Some(req) = self.details(ui, &ask) {
+                            self.sending.insert(ask.id.clone());
+                            self.send(req);
+                        }
+                    }
+                    None => {
+                        theme::empty(
+                            ui,
+                            "Choose a question",
+                            "Select a question from the Inbox to review it and reply.",
+                        );
                     }
                 }
-                None => {
-                    ui.weak("Pick an ask on the left.");
-                }
-            }
-        });
+            });
     }
 
     fn batch_review(&mut self, ui: &mut egui::Ui) {
@@ -1475,92 +1580,81 @@ impl DeskApp {
     }
 
     fn agents_tab(&mut self, ui: &mut egui::Ui) {
+        theme::page_heading(
+            ui,
+            "Agents",
+            "See who is connected, what they’re working on and when they last checked in.",
+        );
         if self
             .agents_directory
             .controls(ui, "agents", self.agents_inflight)
         {
             self.last_agents = None;
         }
-        ui.weak(
-            "Newest registrations first. Search owner, session, client, machine or current work.",
-        );
         if self.agents.is_empty() {
-            ui.centered_and_justified(|ui| {
-                ui.label(RichText::new(view::EMPTY_AGENTS).size(16.0).weak());
-            });
+            theme::empty(
+                ui,
+                if self.agents_directory.query.search.is_empty() {
+                    "No agents yet"
+                } else {
+                    "No matching agents"
+                },
+                if self.agents_directory.query.search.is_empty() {
+                    view::EMPTY_AGENTS
+                } else {
+                    "Try a different name, client or project."
+                },
+            );
             return;
         }
         let now = time::OffsetDateTime::now_utc();
         let mut open = None;
         let mut mute = None;
-        egui::ScrollArea::both()
+        egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                egui::Grid::new("agents")
-                    .striped(true)
-                    .num_columns(6)
-                    .spacing([16.0, 6.0])
-                    .show(ui, |ui| {
-                        for h in [
-                            "Owner",
-                            "Client",
-                            "Doing",
-                            "Last seen",
-                            "Session",
-                            "Notifications",
-                        ] {
-                            ui.strong(h);
-                        }
-                        ui.end_row();
-                        for a in &self.agents {
-                            let owner = if a.provisional {
-                                format!("{} (provisional)", a.owner)
-                            } else {
-                                a.owner.clone()
-                            };
-                            ui.vertical(|ui| {
-                                // A grid's first-frame width otherwise follows the short header,
-                                // wrapping a session UUID into a ten-line owner cell.
-                                ui.set_min_width(280.0);
-                                ui.label(owner);
-                                if let Some(proposed) = &a.requested_owner {
-                                    ui.weak(format!("Proposes: {proposed} (review in Settings)"));
+                for a in &self.agents {
+                    ui.push_id(&a.handle, |ui| {
+                        theme::surface(ui).show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.add(egui::Label::new(RichText::new(&a.owner).strong()).wrap());
+                            ui.horizontal_wrapped(|ui| {
+                                ui.weak(&a.client);
+                                ui.weak(format!("Last seen {}", view::ago(&a.last_seen, now)))
+                                    .on_hover_text(&a.last_seen);
+                                if a.provisional {
+                                    ui.weak("Provisional name");
+                                }
+                                if a.muted {
+                                    ui.weak("Muted");
                                 }
                             });
-                            ui.label(&a.client);
-                            let doing = a.doing.as_deref().unwrap_or("");
-                            let short: String = doing.chars().take(60).collect();
-                            let r = ui.label(if short.len() < doing.len() {
-                                format!("{short}...")
-                            } else {
-                                short
+                            if let Some(proposed) = &a.requested_owner {
+                                ui.weak(format!(
+                                    "Proposed name: {proposed} · Review in Settings → Owners"
+                                ));
+                            }
+                            if let Some(doing) = a.doing.as_deref().filter(|s| !s.is_empty()) {
+                                ui.add(egui::Label::new(doing).wrap());
+                            }
+                            ui.horizontal_wrapped(|ui| {
+                                if let Some(target) = chat_button(
+                                    ui,
+                                    &a.client,
+                                    a.session_ref.as_deref(),
+                                    Some(&a.machine),
+                                    a.cwd.as_deref(),
+                                ) {
+                                    open = Some((target, a.cwd.clone()));
+                                }
+                                if let Some(req) = mute_control(ui, &a.owner, a.muted) {
+                                    mute = Some(req);
+                                }
                             });
-                            if !doing.is_empty() {
-                                r.on_hover_text(doing);
-                            }
-                            ui.label(view::ago(&a.last_seen, now))
-                                .on_hover_text(&a.last_seen);
-                            // Keep navigation and its copy fallback in the single Session column.
-                            let target = ui
-                                .vertical(|ui| {
-                                    chat_button(
-                                        ui,
-                                        &a.client,
-                                        a.session_ref.as_deref(),
-                                        Some(&a.machine),
-                                        a.cwd.as_deref(),
-                                    )
-                                })
-                                .inner;
-                            if let Some(target) = target {
-                                open = Some((target, a.cwd.clone()));
-                            }
-                            if let Some(req) = mute_control(ui, &a.owner, a.muted) {
-                                mute = Some(req);
-                            }
-                            ui.end_row();
-                        }
+                        });
+                        ui.add_space(4.0);
                     });
+                }
             });
         if let Some(req) = mute {
             self.send(req);
@@ -1576,8 +1670,11 @@ impl DeskApp {
         let mut open = None;
         let mut save = None;
         let mut reload = false;
-        ui.heading("Agent Board");
-        ui.weak("Messages and requests between agents. They do not grant approval or replace the work ledger.");
+        theme::page_heading(
+            ui,
+            "Agent Board",
+            "Messages and handoffs between agents. These do not grant your approval.",
+        );
         ui.horizontal_wrapped(|ui| {
             for (section, label, count) in [
                 (
@@ -1877,8 +1974,7 @@ impl DeskApp {
     fn activity_tab(&mut self, ui: &mut egui::Ui) {
         let mut request = None;
         egui::ScrollArea::vertical().auto_shrink([false,false]).show(ui,|ui| {
-            ui.heading("Is the Desk helping?");
-            ui.weak("Recorded activity only. Missing history is unknown; defaults are separate from human answers.");
+            theme::page_heading(ui, "Activity", "See whether the Desk is helping. Human answers and automatic defaults are shown separately.");
             let Some(report)=&self.metrics else {ui.label("Loading recorded activity…");return;};
             egui::CollapsingHeader::new("How these measures are calculated").show_accessible(ui, |ui| {
                 ui.add(egui::Label::new(&report.explanation).wrap());
@@ -1886,7 +1982,7 @@ impl DeskApp {
             let current=report.observation.as_ref().unwrap_or(&report.current);
             let previous=report.baseline.as_ref().map_or(&report.previous,|b|&b.period);
             ui.add_space(8.0);
-            egui::Grid::new("activity-comparison").striped(true).num_columns(3).show(ui,|ui| {
+            egui::Grid::new("activity-comparison").spacing([24.0, 10.0]).striped(true).num_columns(3).show(ui,|ui| {
                 ui.strong("Measure");ui.strong(if report.observation.is_some(){"Adoption observation"}else{"Latest 14 days"});ui.strong(if report.baseline.is_some(){"Saved baseline"}else{"Previous 14 days"});ui.end_row();
                 for (label,a,b) in [
                     ("Questions submitted",current.submitted,previous.submitted),
@@ -1941,7 +2037,7 @@ impl DeskApp {
             }
             ui.separator();ui.heading("Your verdict");
             if let Some(v)=&report.verdict {ui.label(format!("{} · {}",v.recorded_at,v.text));}
-            ui.add(egui::TextEdit::multiline(&mut self.verdict_draft).hint_text("Does this work better for you?"));
+            ui.add(egui::TextEdit::multiline(&mut self.verdict_draft).hint_text("Does this work better for you?").desired_rows(3).desired_width(f32::INFINITY));
             if ui.add_enabled(!self.verdict_draft.trim().is_empty(),egui::Button::new("Save verdict")).clicked() {request=Some(Req::RecordVerdict{text:self.verdict_draft.clone()});}
             if ui.button("Copy report as JSON").clicked() {ui.ctx().copy_text(serde_json::to_string_pretty(report).unwrap_or_default());}
         });
@@ -1952,8 +2048,11 @@ impl DeskApp {
 
     fn holds_tab(&mut self, ui: &mut egui::Ui) {
         let mut request = None;
-        ui.heading("Work holds");
-        ui.label("Agents can check these holds before opening or merging a PR. A hold is advisory; it does not edit or lock your files.");
+        theme::page_heading(
+            ui,
+            "Work holds",
+            "See where work overlaps before agents open or merge a PR. Holds are advisory; they do not lock files.",
+        );
         ui.horizontal_wrapped(|ui| {
             ui.selectable_value(&mut self.configure_holds, false, "Active holds");
             ui.selectable_value(&mut self.configure_holds, true, "Configure working copies");
@@ -2056,11 +2155,16 @@ impl DeskApp {
     fn phone_settings(&mut self, ui: &mut egui::Ui) {
         use agentbolt_core::phone::{Secret, Update, time_label};
         ui.heading("Phone replies");
-        ui.label("Send questions and reply buttons through your ntfy server. This shares question text with that server and your subscribed phone.");
-        ui.weak("Use two private topics with anonymous reading and publishing denied. The Desk checks anonymous read protection before sending. Reversible choices with up to three short options get buttons; all other questions need the Desk.");
+        ui.label("Receive questions on your phone and reply to simple choices.");
+        egui::CollapsingHeader::new("Setup and privacy").show_accessible(ui, |ui| {
+            ui.label("This shares question text with your ntfy server and your subscribed phone. Use two private topics with anonymous reading and publishing denied. The Desk checks anonymous read protection before sending.");
+            ui.label("Reversible choices with up to three short options get buttons; all other questions need the Desk.");
+            ui.label("The Desk account needs read/write access to both topics. Use a separate phone publisher account that can only write to the replies topic. Subscribe to the questions topic in your ntfy app. Low-priority messages request no sound; keep that channel silent on the phone.");
+        });
         let mut update = None;
         if let Some(draft) = &mut self.phone_draft {
             ui.checkbox(&mut draft.enabled, "Enable phone replies");
+            let field_width = (ui.available_width() - 176.0).clamp(140.0, 420.0);
             egui::Grid::new("phone-reply-settings")
                 .num_columns(2)
                 .spacing([16.0, 8.0])
@@ -2069,19 +2173,24 @@ impl DeskApp {
                     ui.add(
                         egui::TextEdit::singleline(&mut draft.server)
                             .hint_text("https://ntfy.example.com")
-                            .desired_width(360.0),
+                            .desired_width(field_width),
                     );
                     ui.end_row();
                     ui.label("Questions topic");
-                    ui.text_edit_singleline(&mut draft.questions);
+                    ui.add(
+                        egui::TextEdit::singleline(&mut draft.questions).desired_width(field_width),
+                    );
                     ui.end_row();
                     ui.label("Replies topic");
-                    ui.text_edit_singleline(&mut draft.replies);
+                    ui.add(
+                        egui::TextEdit::singleline(&mut draft.replies).desired_width(field_width),
+                    );
                     ui.end_row();
                     ui.label("Desk account token");
                     ui.add(
                         egui::TextEdit::singleline(&mut self.phone_daemon_token)
                             .password(true)
+                            .desired_width(field_width)
                             .hint_text("Blank keeps the saved token"),
                     );
                     ui.end_row();
@@ -2089,13 +2198,14 @@ impl DeskApp {
                     ui.add(
                         egui::TextEdit::singleline(&mut self.phone_reply_token)
                             .password(true)
+                            .desired_width(field_width)
                             .hint_text("Blank keeps the saved token"),
                     );
                     ui.end_row();
                 });
-            ui.weak("The Desk account needs read/write access to both topics. Use a separate phone publisher account that can only write to the replies topic. Subscribe to the questions topic in your ntfy app. Low-priority messages request no sound; keep that channel silent on the phone.");
-            ui.horizontal(|ui| {
-                if ui.button("Save phone settings").clicked() {
+
+            ui.horizontal_wrapped(|ui| {
+                if ui.add(theme::primary("Save phone settings")).clicked() {
                     update = Some(Update {
                         settings: draft.clone(),
                         daemon_token: (!self.phone_daemon_token.is_empty())
@@ -2148,104 +2258,122 @@ impl DeskApp {
     }
 
     fn settings_tab(&mut self, ui: &mut egui::Ui) {
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            ui.heading("Notifications");
-            if self.settings.is_none() {
-                ui.weak("Loading the settings...");
-            }
-            let d = &mut self.settings_draft;
-            egui::Grid::new("settings").num_columns(2).spacing([16.0, 8.0]).show(ui, |ui| {
-                ui.label("Phone push (count only)");
-                ui.add(egui::TextEdit::singleline(&mut d.ntfy).hint_text("https://ntfy.sh/your-secret-topic").desired_width(360.0));
-                ui.end_row();
-                ui.label("Notifications");
-                ui.checkbox(&mut d.toasts_off, "off");
-                ui.end_row();
-            });
-            ui.weak("The push says only how many decisions wait and the nearest deadline, never what they are.");
-            let ntfy = d.ntfy.trim().to_string();
-            let ntfy_ok = ntfy.is_empty() || matches!(view::classify(&ntfy), Link::Web(_));
-            if !ntfy_ok {
-                ui.colored_label(ui.visuals().error_fg_color, "The topic URL must be an https:// link.");
-            }
-            if ui.add_enabled(self.settings.is_some() && ntfy_ok, egui::Button::new("Save")).clicked() {
-                let s = Settings {
-                    ntfy_topic_url: (!ntfy.is_empty()).then_some(ntfy),
-                    toasts_off: d.toasts_off,
-                };
-                self.send(Req::SetSettings(s));
-            }
-
-            ui.add_space(16.0);
-            self.phone_settings(ui);
-            ui.add_space(16.0);
-            ui.horizontal(|ui| {
-                ui.heading("Owners");
-                if ui.small_button("Refresh").clicked() {
-                    self.send(Req::Owners(self.owners_directory.query.clone()));
-                }
-            });
-            ui.weak("An owner is a stable name for a routine, project or client. Answers and open-ask caps attach to it.");
-            if self.owners_directory.controls(ui, "owners", self.owners_inflight) {
-                self.last_owners = None;
-            }
-            ui.weak("All owners, alphabetically. Search a name, proposal or binding type.");
-            if self.owners.is_empty() {
-                ui.weak("No owners yet.");
-                return;
-            }
-            let mut changed = None;
-            let mut resolve = None;
-            egui::Grid::new("owners").striped(true).num_columns(7).spacing([16.0, 6.0]).show(ui, |ui| {
-                for h in ["Owner", "Bound by", "", "Codex may be woken", "Relay", "Muted", "Not needed"] {
-                    ui.strong(h);
-                }
-                ui.end_row();
-                for o in &self.owners {
-                    ui.label(&o.name);
-                    ui.label(&o.binding);
-                    if let Some(proposed) = &o.requested_owner {
-                        ui.vertical(|ui| {
-                            ui.label(format!("Proposed name: {proposed}"));
-                            ui.horizontal(|ui| {
-                                if ui.button("Approve name").on_hover_text("Keep this session's asks and settings under this name. No access to another owner's answers.").clicked() {
-                                    resolve = Some(Req::ResolveOwner { owner: o.name.clone(), requested_owner: proposed.clone(), approve: true });
-                                }
-                                if ui.button("Reject name").clicked() {
-                                    resolve = Some(Req::ResolveOwner { owner: o.name.clone(), requested_owner: proposed.clone(), approve: false });
-                                }
-                            });
-                        });
-                    } else if o.binding == "pending" {
-                        if ui.button("Approve").clicked() {
-                            changed = Some(Owner { binding: "approved".into(), ..o.clone() });
+        theme::page_heading(
+            ui,
+            "Settings",
+            "Manage notifications, phone replies and the agents allowed to reach you.",
+        );
+        ui.horizontal_wrapped(|ui| {
+            ui.selectable_value(
+                &mut self.settings_section,
+                SettingsSection::Notifications,
+                "Notifications",
+            );
+            ui.selectable_value(
+                &mut self.settings_section,
+                SettingsSection::Phone,
+                "Phone replies",
+            );
+            ui.selectable_value(
+                &mut self.settings_section,
+                SettingsSection::Owners,
+                "Owners",
+            );
+        });
+        ui.separator();
+        egui::ScrollArea::vertical().id_salt(("settings-page", self.settings_section)).auto_shrink([false, false]).show(ui, |ui| {
+            ui.set_max_width(ui.available_width().min(880.0));
+            match self.settings_section {
+                SettingsSection::Notifications => {
+                    theme::surface(ui).show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.strong("Desktop notifications");
+                        ui.checkbox(&mut self.settings_draft.toasts_off, "Pause desktop notifications");
+                        ui.weak("Questions still arrive in your Inbox while notifications are paused.");
+                        ui.add_space(12.0);
+                        ui.strong("Phone summary");
+                        ui.weak("An optional count of waiting decisions and the nearest deadline. Question text is never included.");
+                        ui.label("ntfy topic URL");
+                        ui.add(egui::TextEdit::singleline(&mut self.settings_draft.ntfy)
+                            .hint_text("https://ntfy.sh/your-secret-topic")
+                            .desired_width(f32::INFINITY));
+                        ui.weak("Leave blank to turn the summary off. Use Phone replies for questions with answer buttons.");
+                        let ntfy = self.settings_draft.ntfy.trim().to_string();
+                        let valid = ntfy.is_empty() || matches!(view::classify(&ntfy), Link::Web(_));
+                        if !valid { ui.colored_label(ui.visuals().error_fg_color, "Enter an https:// topic URL."); }
+                        ui.add_space(8.0);
+                        if ui.add_enabled(self.settings.is_some() && valid, theme::primary("Save notifications")).clicked() {
+                            self.send(Req::SetSettings(Settings {
+                                ntfy_topic_url: (!ntfy.is_empty()).then_some(ntfy),
+                                toasts_off: self.settings_draft.toasts_off,
+                            }));
                         }
-                    } else {
-                        ui.label("");
+                        if self.settings.is_none() { ui.weak("Loading settings…"); }
+                    });
+                }
+                SettingsSection::Phone => { theme::surface(ui).show(ui, |ui| { self.phone_settings(ui); }); }
+                SettingsSection::Owners => self.owners_settings(ui),
+            }
+        });
+    }
+
+    fn owners_settings(&mut self, ui: &mut egui::Ui) {
+        ui.weak("Owners are stable names for a routine, project or client. Manage their permissions and notifications here.");
+        if self
+            .owners_directory
+            .controls(ui, "owners", self.owners_inflight)
+        {
+            self.last_owners = None;
+        }
+        if self.owners.is_empty() {
+            ui.weak("No matching owners.");
+            return;
+        }
+        let mut changed = None;
+        let mut resolve = None;
+        for o in &self.owners {
+            ui.push_id(&o.name, |ui| {
+                theme::surface(ui).show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.add(egui::Label::new(RichText::new(&o.name).strong()).wrap());
+                    ui.weak(format!("Binding: {} · {} questions marked not needed", o.binding, o.not_needed_count));
+                    if let Some(proposed) = &o.requested_owner {
+                        ui.label(format!("Proposed name: {proposed}"));
+                        ui.horizontal_wrapped(|ui| {
+                            if ui.button("Approve name").on_hover_text("Keep this session's asks and settings under this name. No access to another owner's answers.").clicked() {
+                                resolve = Some(Req::ResolveOwner { owner: o.name.clone(), requested_owner: proposed.clone(), approve: true });
+                            }
+                            if ui.button("Reject name").clicked() {
+                                resolve = Some(Req::ResolveOwner { owner: o.name.clone(), requested_owner: proposed.clone(), approve: false });
+                            }
+                        });
+                    } else if o.binding == "pending" && ui.button("Approve owner").clicked() {
+                        changed = Some(Owner { binding: "approved".into(), ..o.clone() });
                     }
                     let mut codex = o.codex_interactive;
-                    if ui.checkbox(&mut codex, "").on_hover_text("Answers start this owner's Codex thread's next turn").changed() {
+                    if ui.checkbox(&mut codex, "Resume this owner’s Codex chat after an answer")
+                        .on_hover_text("Answers start this owner's Codex thread's next turn").changed() {
                         changed = Some(Owner { codex_interactive: codex, ..o.clone() });
                     }
                     let mut relay = o.relay;
-                    if ui.checkbox(&mut relay, "").on_hover_text("May list and deliver other owners' answers").changed() {
+                    if ui.checkbox(&mut relay, "Allow relaying answers for other owners")
+                        .on_hover_text("May list and deliver other owners' answers").changed() {
                         changed = Some(Owner { relay, ..o.clone() });
                     }
-                    ui.vertical(|ui|{
-                        if let Some(req)=mute_control(ui,&o.name,o.muted) { resolve=Some(req); }
-                        if let Some(until)=&o.muted_until { ui.weak(format!("Until {until}")); }
+                    ui.horizontal_wrapped(|ui| {
+                        if let Some(req) = mute_control(ui, &o.name, o.muted) { resolve = Some(req); }
+                        if let Some(until) = &o.muted_until { ui.weak(format!("Muted until {until}")); }
                     });
-                    ui.label(o.not_needed_count.to_string());
-                    ui.end_row();
-                }
+                });
+                ui.add_space(4.0);
             });
-            if let Some(o) = changed {
-                self.send(Req::SetOwner(o));
-            }
-            if let Some(req) = resolve {
-                self.send(req);
-            }
-        });
+        }
+        if let Some(o) = changed {
+            self.send(Req::SetOwner(o));
+        }
+        if let Some(req) = resolve {
+            self.send(req);
+        }
     }
 }
 
@@ -2449,59 +2577,56 @@ fn form_controls(ui: &mut egui::Ui, ask: &Ask, draft: &mut Draft) -> Result<Valu
     let inputs = draft
         .fields
         .get_or_insert_with(|| view::prefill(&ask.input.fields, &ask.input.default));
-    egui::Grid::new(("form", &ask.id))
-        .num_columns(2)
-        .spacing([12.0, 6.0])
-        .show(ui, |ui| {
-            for f in &ask.input.fields {
-                let label = if f.required {
-                    format!("{} *", f.label)
-                } else {
-                    f.label.clone()
-                };
-                ui.label(label);
-                let input = inputs
-                    .entry(f.id.clone())
-                    .or_insert_with(|| FieldInput::Text(String::new()));
-                match (f.field_type.as_str(), input) {
-                    ("boolean", FieldInput::Bool(b)) => {
-                        edited |= ui.checkbox(b, "").changed();
-                    }
-                    ("choice", FieldInput::Text(t)) => {
-                        egui::ComboBox::from_id_salt(("field", &ask.id, &f.id))
-                            .selected_text(t.clone())
-                            .show_ui(ui, |ui| {
-                                for o in f.options.iter().flatten() {
-                                    edited |= ui.selectable_value(t, o.clone(), o).changed();
-                                }
-                            });
-                    }
-                    (_, FieldInput::Text(t)) => {
-                        edited |= ui
-                            .add(egui::TextEdit::singleline(t).desired_width(280.0))
-                            .changed();
-                    }
-                    (_, FieldInput::Bool(b)) => {
-                        edited |= ui.checkbox(b, "").changed();
-                    }
-                    (_, FieldInput::OptionalBool(value)) => {
-                        egui::ComboBox::from_id_salt(("optional-bool", &ask.id, &f.id))
-                            .selected_text(match value {
-                                None => "Not answered",
-                                Some(true) => "Yes",
-                                Some(false) => "No",
-                            })
-                            .show_ui(ui, |ui| {
-                                edited |=
-                                    ui.selectable_value(value, None, "Not answered").changed();
-                                edited |= ui.selectable_value(value, Some(true), "Yes").changed();
-                                edited |= ui.selectable_value(value, Some(false), "No").changed();
-                            });
-                    }
+    ui.push_id(("form", &ask.id), |ui| {
+        for f in &ask.input.fields {
+            let label = if f.required {
+                format!("{} *", f.label)
+            } else {
+                f.label.clone()
+            };
+            let label_response = ui.strong(&label);
+            let input = inputs
+                .entry(f.id.clone())
+                .or_insert_with(|| FieldInput::Text(String::new()));
+            match (f.field_type.as_str(), input) {
+                ("boolean", FieldInput::Bool(b)) => {
+                    edited |= ui.checkbox(b, &f.label).changed();
                 }
-                ui.end_row();
+                ("choice", FieldInput::Text(t)) => {
+                    egui::ComboBox::from_id_salt(("field", &ask.id, &f.id))
+                        .selected_text(t.clone())
+                        .show_ui(ui, |ui| {
+                            for o in f.options.iter().flatten() {
+                                edited |= ui.selectable_value(t, o.clone(), o).changed();
+                            }
+                        });
+                }
+                (_, FieldInput::Text(t)) => {
+                    edited |= ui
+                        .add(egui::TextEdit::singleline(t).desired_width(f32::INFINITY))
+                        .labelled_by(label_response.id)
+                        .changed();
+                }
+                (_, FieldInput::Bool(b)) => {
+                    edited |= ui.checkbox(b, &f.label).changed();
+                }
+                (_, FieldInput::OptionalBool(value)) => {
+                    egui::ComboBox::from_id_salt(("optional-bool", &ask.id, &f.id))
+                        .selected_text(match value {
+                            None => "Not answered",
+                            Some(true) => "Yes",
+                            Some(false) => "No",
+                        })
+                        .show_ui(ui, |ui| {
+                            edited |= ui.selectable_value(value, None, "Not answered").changed();
+                            edited |= ui.selectable_value(value, Some(true), "Yes").changed();
+                            edited |= ui.selectable_value(value, Some(false), "No").changed();
+                        });
+                }
             }
-        });
+            ui.add_space(4.0);
+        }
+    });
     let result = view::form_values(&ask.input.fields, inputs);
     if edited {
         draft.edited();
@@ -2524,7 +2649,9 @@ fn answer_controls(ui: &mut egui::Ui, ask: &Ask, draft: &mut Draft) -> Option<Re
             ui.horizontal_wrapped(|ui| {
                 for opt in view::options_for(ask) {
                     let label = view::option_label(ask, &opt);
-                    let mut b = egui::Button::new(RichText::new(label).size(15.0));
+                    let mut b = egui::Button::new(RichText::new(label).size(15.0))
+                        .wrap()
+                        .min_size(egui::vec2(110.0, 36.0));
                     if view::is_default(ask, &opt) {
                         b = b.stroke(ui.visuals().selection.stroke);
                     }
@@ -2535,7 +2662,10 @@ fn answer_controls(ui: &mut egui::Ui, ask: &Ask, draft: &mut Draft) -> Option<Re
             });
             out
         }
-        AskKind::Inform => ui.button("Got it").clicked().then(|| answer(None, None)),
+        AskKind::Inform => ui
+            .add(theme::primary("Got it"))
+            .clicked()
+            .then(|| answer(None, None)),
         AskKind::Text => {
             view::fill_reply_once(
                 &mut draft.text,
@@ -2557,7 +2687,7 @@ fn answer_controls(ui: &mut egui::Ui, ask: &Ask, draft: &mut Draft) -> Option<Re
                 ui.weak(format!("Recommended: {d}"));
             }
             let ok = !draft.text.trim().is_empty();
-            ui.add_enabled(ok, egui::Button::new("Send"))
+            ui.add_enabled(ok, theme::primary("Send answer"))
                 .clicked()
                 .then(|| answer(Some(draft.text.trim().to_string()), None))
         }
@@ -2567,7 +2697,7 @@ fn answer_controls(ui: &mut egui::Ui, ask: &Ask, draft: &mut Draft) -> Option<Re
                 ui.colored_label(ui.visuals().warn_fg_color, e);
             }
             let clicked = ui
-                .add_enabled(values.is_ok(), egui::Button::new("Send"))
+                .add_enabled(values.is_ok(), theme::primary("Send answer"))
                 .clicked();
             match values {
                 Ok(v) if clicked => Some(answer(None, Some(v))),
@@ -2602,20 +2732,30 @@ impl eframe::App for DeskApp {
             return;
         }
         crate::startup::mark("first_ui");
-        egui::Panel::top("tabs").show(ui, |ui| {
-            ui.add_space(4.0);
-            self.top_bar(ui);
-            if let Some(warning) = &self.notification_warning {
-                ui.colored_label(ui.visuals().warn_fg_color, warning);
-            }
-            if let Some(error) = &self.draft_error {
-                ui.colored_label(
-                    ui.visuals().error_fg_color,
-                    format!("Unsent drafts are not being saved. {error}"),
-                );
-            }
-            ui.add_space(2.0);
-        });
+        egui::Panel::top("tabs")
+            .frame(
+                egui::Frame::new()
+                    .fill(ui.visuals().panel_fill)
+                    .inner_margin(egui::Margin::symmetric(16, 10)),
+            )
+            .show(ui, |ui| {
+                ui.add_space(4.0);
+                self.top_bar(ui);
+                if let Some(warning) = &self.notification_warning {
+                    ui.colored_label(
+                        ui.visuals().warn_fg_color,
+                        "Desktop notifications need attention. You can still answer in the Desk.",
+                    )
+                    .on_hover_text(warning);
+                }
+                if let Some(error) = &self.draft_error {
+                    ui.colored_label(
+                        ui.visuals().error_fg_color,
+                        format!("Unsent drafts are not being saved. {error}"),
+                    );
+                }
+                ui.add_space(2.0);
+            });
         if let Some(n) = &self.notice
             && n.at.elapsed() > Duration::from_secs(if n.error { 20 } else { 6 })
         {
@@ -2640,15 +2780,21 @@ impl eframe::App for DeskApp {
                 }
             });
         }
-        egui::CentralPanel::default().show(ui, |ui| match self.tab {
-            Tab::Inbox => self.ask_pane(ui),
-            Tab::History => self.history_tab(ui),
-            Tab::Agents => self.agents_tab(ui),
-            Tab::Board => self.board_tab(ui),
-            Tab::Activity => self.activity_tab(ui),
-            Tab::Holds => self.holds_tab(ui),
-            Tab::Settings => self.settings_tab(ui),
-        });
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::new()
+                    .fill(ui.visuals().panel_fill)
+                    .inner_margin(16),
+            )
+            .show(ui, |ui| match self.tab {
+                Tab::Inbox => self.ask_pane(ui),
+                Tab::History => self.history_tab(ui),
+                Tab::Agents => self.agents_tab(ui),
+                Tab::Board => self.board_tab(ui),
+                Tab::Activity => self.activity_tab(ui),
+                Tab::Holds => self.holds_tab(ui),
+                Tab::Settings => self.settings_tab(ui),
+            });
         if self
             .draft_retry
             .is_none_or(|at| at.elapsed() >= Duration::from_secs(1))

@@ -131,6 +131,20 @@ mod imp {
 
 pub use imp::{first_window, message, open_url, show_in_explorer};
 
+/// Match the installed Start-menu shortcut so Windows groups the running Desk under Agentbolt.
+pub fn set_app_identity(names: &Names) -> Result<(), String> {
+    #[cfg(windows)]
+    unsafe {
+        windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(
+            &windows::core::HSTRING::from(&names.aumid),
+        )
+        .map_err(|e| format!("Couldn't set Agentbolt's window identity: {e}"))?;
+    }
+    #[cfg(not(windows))]
+    let _ = names;
+    Ok(())
+}
+
 /// Observe actual Win32 visibility, independently of egui's requested viewport visibility.
 pub fn trace_window_shown(title: &str) {
     if !crate::startup::enabled() {
