@@ -14,7 +14,9 @@ readable agent/owner cards, clearer answer controls and a shared window/taskbar/
 See the [UX implementation and review record](docs/UX-POLISH-2026-10-19.md). This development pass does
 not resume the paused release tests. A follow-up Inbox refinement keeps past questions collapsed by
 default, separates them from active selection, labels closed outcomes “No reply needed” and makes batch
-selection an explicit mode.
+selection an explicit mode. App-wide decluttering also puts routine permissions, phone setup, delivery
+records and detailed reports behind named disclosures, while approvals and problems stay visible.
+Secondary pages are available through More; paging controls appear only when needed.
 
 **Current scope (Artem, 2026-10-18): implement the full plan, including M2–M7.** This overrides the older
 handoff's M0/M1 limit and the evidence gate before building the Board. Finish all features before heavy
