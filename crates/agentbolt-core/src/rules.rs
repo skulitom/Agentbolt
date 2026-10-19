@@ -38,9 +38,9 @@ pub const TOAST_INTERVAL_MS: i64 = 10 * 60 * 1000;
 /// A shown, reversible ask takes its default no sooner than this long after Artem was first shown it, even when
 /// it was already overdue: opening the Desk after a day away mustn't default everything within a second.
 pub const DEFAULT_GRACE_MS: i64 = 60 * 60 * 1000;
-/// The Desk lists every bound or approved owner, plus at most this many of the most recent provisional ones.
+/// The Desk lists every named/flagged owner, plus at most this many recent generated identities.
 pub const DESK_PROVISIONAL_OWNERS: u32 = 50;
-/// Provisional owners with no asks and no activity for this long are pruned from the store.
+/// Generated identities with no questions or activity for this long are pruned from the store.
 pub const PROVISIONAL_OWNER_RETENTION_MS: i64 = 7 * DAY_MS;
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
@@ -633,7 +633,7 @@ pub fn check_owner_name(name: &str) -> Result<(), String> {
     }
     if name.starts_with("session:") {
         return Err(
-            "owner names starting with 'session:' are provisional and can't be configured".into(),
+            "owner names starting with 'session:' are generated automatically and can't be configured".into(),
         );
     }
     Ok(())

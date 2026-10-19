@@ -272,8 +272,8 @@ impl Mcp {
 }
 
 #[test]
-#[ignore = "manual: Anode; Settings, Reject name, then Approve name when the second proposal appears"]
-fn owner_name_review_through_mcp_and_the_real_desk() {
+#[ignore = "requires isolated app bundle; no manual approval or GUI interaction"]
+fn owner_names_apply_immediately_through_mcp() {
     let channel = format!("gui-owner-{}", std::process::id());
     let names = Names::for_channel(&channel).unwrap();
     assert!(!names.is_main());
@@ -306,67 +306,28 @@ fn owner_name_review_through_mcp_and_the_real_desk() {
     let mut mcp = Mcp::start(&desk.with_file_name("agentbolt.exe"), &channel);
     let reg = mcp.tool(
         "desk_register",
-        json!({"doing":"Owner approval verification", "requested_owner":"gui-first-proposal"}),
+        json!({"doing":"Automatic name verification", "requested_owner":"gui-named-agent"}),
     );
-    assert_eq!(reg["provisional"], true);
-    assert_eq!(reg["requested_owner"], "gui-first-proposal");
+    assert_eq!(reg["provisional"], false);
+    assert_eq!(reg["owner"], "gui-named-agent");
+    assert!(reg["requested_owner"].is_null());
     let handle = reg["handle"].as_str().unwrap().to_string();
-    let ask = json!({"handle":handle,"kind":"choose","title":"Owner review fixture","body":"Synthetic test: leave this ask unanswered.",
+    let ask = json!({"handle":handle,"kind":"choose","title":"Automatic agent fixture","body":"Synthetic test: leave this ask unanswered.",
         "options":["Yes","No"],"default":"No","deadline":(time::OffsetDateTime::now_utc()+time::Duration::days(1)).format(&time::format_description::well_known::Rfc3339).unwrap(),"reversible":true,"priority":"P2"});
     let first = mcp.tool("desk_ask", ask.clone());
-    let _desk = Process(
-        Command::new(&desk)
-            .args(["--channel", &channel])
-            .env("AGENTBOLT_CHANNEL", &channel)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap(),
-    );
-    println!(
-        "Channel {channel}, Desk pid {}. Settings: reject gui-first-proposal.",
-        _desk.0.id()
-    );
-    let start = Instant::now();
-    loop {
-        let r = mcp.tool("desk_register", json!({"handle":handle}));
-        assert_eq!(r["owner"], reg["owner"]);
-        assert_eq!(r["provisional"], true);
-        if r["requested_owner"].is_null() {
-            break;
-        }
-        assert!(
-            start.elapsed() < Duration::from_secs(480),
-            "owner rejection timed out"
-        );
-        std::thread::sleep(Duration::from_millis(200));
-    }
-    let proposed = mcp.tool(
+    let renewed = mcp.tool(
         "desk_register",
-        json!({"handle":handle,"requested_owner":"gui-approved-owner"}),
+        json!({"handle":handle,"requested_owner":"gui-named-agent"}),
     );
-    assert_eq!(proposed["requested_owner"], "gui-approved-owner");
-    println!("Rejection verified in both MCP branches. Approve gui-approved-owner in Settings.");
-    loop {
-        let r = mcp.tool("desk_register", json!({"handle":handle}));
-        if r["owner"] == "gui-approved-owner" {
-            assert_eq!(r["provisional"], false);
-            assert!(r["requested_owner"].is_null());
-            break;
-        }
-        assert!(
-            start.elapsed() < Duration::from_secs(480),
-            "owner approval timed out"
-        );
-        std::thread::sleep(Duration::from_millis(200));
-    }
+    assert_eq!(renewed["owner"], "gui-named-agent");
+    assert_eq!(renewed["provisional"], false);
+    assert!(renewed["requested_owner"].is_null());
     let again = mcp.tool("desk_register", json!({}));
-    assert_eq!(again["owner"], "gui-approved-owner");
+    assert_eq!(again["owner"], "gui-named-agent");
     assert_eq!(again["open_asks"][0]["id"], first["id"]);
     assert_eq!(mcp.tool("desk_ask", ask)["id"], first["id"]);
     println!(
-        "Approval, re-registration, retained ask and dedupe verified in both MCP result branches."
+        "Automatic naming, re-registration, retained ask and dedupe verified in both MCP result branches."
     );
 }
 

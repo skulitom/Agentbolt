@@ -67,11 +67,6 @@ pub enum Req {
     },
     Owners(DirectoryQuery),
     SetOwner(Owner),
-    ResolveOwner {
-        owner: String,
-        requested_owner: String,
-        approve: bool,
-    },
     GetSettings,
     Phone,
     SetPhone(agentbolt_core::phone::Update),
@@ -378,30 +373,6 @@ async fn run(
                         .await
                         .map(|_| name)
                         .map_err(|e| e.to_string()),
-                )
-            }
-            Req::ResolveOwner {
-                owner,
-                requested_owner,
-                approve,
-            } => {
-                let name = if approve {
-                    requested_owner.clone()
-                } else {
-                    owner.clone()
-                };
-                Resp::OwnerSaved(
-                    conn.call(
-                        &DeskOp::ResolveOwner {
-                            owner,
-                            requested_owner,
-                            approve,
-                        },
-                        false,
-                    )
-                    .await
-                    .map(|_| name)
-                    .map_err(|e| e.to_string()),
                 )
             }
             Req::NotNeeded {

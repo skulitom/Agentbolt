@@ -40,11 +40,12 @@ agent ──stdio──► agentbolt mcp ──user-only pipe──► agentbolt
   the bottom for one hour, four hours, one day, or until unmuted. Timed mutes survive a restart and expire
   automatically. The Desk counts unnecessary questions per owner.
   Muted questions also stay out of phone notification counts.
-- **Owner names:** agents can propose `requested_owner` through `desk_register`. Review it in Settings;
-  approval renames that session's owner while preserving its questions, answers and preferences. A proposal
-  cannot claim a name already in use or grant relay/wake permissions. To share an existing owner across
-  sessions, configure `agentbolt mcp --owner NAME` in the host. An unconfigured process without a host session
-  ID gets a new provisional identity when it restarts.
+- **Agents connect automatically:** no approval or owner review is needed. Optional notification and
+  reply-delivery controls live in Settings → Agent preferences. Agents can set an available name using
+  `requested_owner` in `desk_register`; their questions, answers and preferences follow the name immediately.
+  Names cannot claim another agent's answers or enable relay/wake permissions. To share an existing identity
+  across sessions, configure `agentbolt mcp --owner NAME` in the host. An unconfigured process without a host
+  session ID gets a new identity when it restarts.
 - **Codex delivery:** waking a chat is opt-in per owner. A queue command succeeding does not prove that
   a chat resumed, so its answer remains in normal `desk_answers` and `desk_register` checkpoint reads.
   Repeated reads return the same answer ID; agents should avoid acting twice on the same answer.

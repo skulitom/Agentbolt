@@ -11,7 +11,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 
-use crate::model::{Agent, Answer, AnswerVia, Ask, AskInput, AskStatus, Owner, Priority, Settings};
+use crate::model::{Agent, Answer, AnswerVia, Ask, AskInput, AskStatus, Owner, Settings};
 use crate::protocol::{
     AgentsResult, AnswerResult, AnswersResult, AskResult, DeskOp, DigestResult, ListResult, McpOp,
     OwnersResult, RegisterResult, StatusResult,
@@ -115,6 +115,13 @@ impl StoreService {
                     s
                 }
             };
+            Ctx {
+                db: &tx,
+                now,
+                secret: &secret,
+                effects: Vec::new(),
+            }
+            .enable_legacy_owners()?;
             tx.commit().map_err(db_err)?;
             secret
         };
@@ -855,7 +862,7 @@ impl Ctx<'_> {
                 name
             }
             None => {
-                // Provisional owners are per host session, never per folder: every Compass routine shares one
+                // Automatic owners are per host session, never per folder: every Compass routine shares one
                 // cwd. With no host session, one per MCP process (its key is made once at process start).
                 let id = session_ref
                     .clone()
@@ -870,7 +877,7 @@ impl Ctx<'_> {
                 if let Some(bound) = store::approved_owner(self.db, &name).map_err(db_err)? {
                     bound
                 } else {
-                    self.bind_owner(&name, "pending")?;
+                    self.bind_owner(&name, "automatic")?;
                     name
                 }
             }
@@ -914,15 +921,14 @@ impl Ctx<'_> {
         })
     }
 
-    /// Record an owner the first time it appears. Config binding upgrades a pending owner; an existing binding
-    /// (config or approved) is kept.
+    /// Record an owner the first time it appears. Every registration is enabled immediately.
     fn bind_owner(&self, name: &str, binding: &str) -> Result<Owner, String> {
         match store::owner(self.db, name).map_err(db_err)? {
             Some(mut o) => {
-                if binding == "config" && o.binding == "pending" {
-                    o.binding = "config".into();
+                if o.binding == "pending" {
+                    o.binding = binding.into();
                     store::upsert_owner(self.db, &o, self.now).map_err(db_err)?;
-                    self.event("owner.bound", name, json!({ "binding": "config" }))?;
+                    self.event("owner.bound", name, json!({ "binding": binding }))?;
                 }
                 Ok(o)
             }
@@ -951,7 +957,7 @@ impl Ctx<'_> {
         input: &AskInput,
     ) -> Result<AskResult, String> {
         let agent = self.touch(handle, client)?;
-        let (mut input, deadline_ms) = rules::validate_ask(input, self.now)?;
+        let (input, deadline_ms) = rules::validate_ask(input, self.now)?;
 
         let pending = self.pending_of(&agent.owner)?;
         if let Some(dup) = pending
@@ -976,13 +982,6 @@ impl Ctx<'_> {
         }
 
         let settings = self.settings()?;
-        let mut demoted = None;
-        if input.priority == Priority::P0 && agent.provisional {
-            input.priority = Priority::P1;
-            demoted = Some(
-                "Stored as P1: P0 requires an owner bound by the server's --owner or approved on the Desk.",
-            );
-        }
         let status = AskStatus::Open;
         let id = format!("ask_{}", tokens::random_hex(8));
         store::insert_ask(
@@ -1009,8 +1008,6 @@ impl Ctx<'_> {
             json!({
                 "owner": agent.owner,
                 "placed": status_str(status),
-                "demoted_from_p0": demoted.is_some(),
-                "note": demoted,
                 "provisional": agent.provisional,
                 "input": input,
             }),
@@ -1023,7 +1020,7 @@ impl Ctx<'_> {
             id,
             placed: status_str(status).into(),
             existing: None,
-            note: demoted.map(String::from),
+            note: None,
         })
     }
 
@@ -1498,15 +1495,12 @@ impl Ctx<'_> {
         if name.is_empty() || name.chars().count() > 300 || name.chars().any(char::is_control) {
             return Err("an owner name takes 1-300 characters without control characters".into());
         }
-        if !matches!(owner.binding.as_str(), "config" | "approved" | "pending") {
-            return Err("binding is config, approved or pending".into());
+        // Accept old Desk payloads, but never reintroduce an approval queue.
+        if owner.binding == "pending" {
+            owner.binding = "automatic".into();
         }
-        if owner.binding != "pending"
-            && store::owner(self.db, &name)
-                .map_err(db_err)?
-                .is_some_and(|o| o.requested_owner.is_some())
-        {
-            return Err("Review the proposed name before approving this owner".into());
+        if !matches!(owner.binding.as_str(), "config" | "approved" | "automatic") {
+            return Err("binding is config, approved or automatic".into());
         }
         let o = Owner { name, ..owner };
         store::upsert_owner(self.db, &o, self.now).map_err(db_err)?;
@@ -1532,67 +1526,56 @@ impl Ctx<'_> {
         let owner = store::owner(self.db, &agent.owner)
             .map_err(db_err)?
             .ok_or("Unknown owner")?;
-        if owner.name == requested && owner.binding != "pending" {
+        if owner.name == requested {
             return Ok(owner);
         }
-        if owner.binding != "pending" || !owner.name.starts_with("session:") {
+        if owner.binding == "config" || !owner.name.starts_with("session:") {
             return Err("This owner is already bound; its name cannot be changed by a tool".into());
         }
-        if store::owner(self.db, requested).map_err(db_err)?.is_some() {
-            return Err("That owner name is already in use. Joining it requires the host's --owner configuration; a proposal cannot grant access to its answers".into());
-        }
-        if owner.requested_owner.as_deref() != Some(requested) {
-            self.db
-                .execute(
-                    "UPDATE owners SET requested_owner = ?1 WHERE name = ?2",
-                    params![requested, owner.name],
-                )
-                .map_err(db_err)?;
-            self.event(
-                "owner.requested",
-                &owner.name,
-                json!({"requested_owner": requested}),
-            )?;
-        }
-        Ok(Owner {
-            requested_owner: Some(requested.into()),
-            ..owner
-        })
+        self.name_owner(owner, requested)
     }
 
-    fn resolve_owner(&self, name: &str, requested: &str, approve: bool) -> Result<Owner, String> {
-        let owner = store::owner(self.db, name)
-            .map_err(db_err)?
-            .ok_or("Unknown owner; refresh the Desk")?;
-        if owner.binding != "pending"
-            || !name.starts_with("session:")
-            || owner.requested_owner.as_deref() != Some(requested)
-        {
-            return Err("The owner proposal changed; refresh and review it again".into());
-        }
-        if !approve {
+    /// Upgrade old review entries once, preserving preferences and applying available friendly names.
+    fn enable_legacy_owners(&self) -> Result<(), String> {
+        let names = self.db.prepare(
+            "SELECT name FROM owners WHERE binding = 'pending' OR requested_owner IS NOT NULL ORDER BY created_ms, name"
+        ).map_err(db_err)?.query_map([], |r| r.get::<_, String>(0)).map_err(db_err)?
+            .collect::<rusqlite::Result<Vec<_>>>().map_err(db_err)?;
+        for name in names {
+            let mut owner = store::owner(self.db, &name)
+                .map_err(db_err)?
+                .ok_or("Unknown owner")?;
+            let requested = owner.requested_owner.take();
+            if owner.binding == "pending" {
+                owner.binding = "automatic".into();
+            }
             self.db
                 .execute(
-                    "UPDATE owners SET requested_owner = NULL WHERE name = ?1",
-                    [name],
+                    "UPDATE owners SET binding = ?1, requested_owner = NULL WHERE name = ?2",
+                    params![owner.binding, name],
                 )
                 .map_err(db_err)?;
-            self.event(
-                "owner.rejected",
-                name,
-                json!({"requested_owner": requested}),
-            )?;
-            return Ok(Owner {
-                requested_owner: None,
-                ..owner
-            });
+            self.event("owner.enabled", &name, json!({"binding": owner.binding}))?;
+            if let Some(requested) = requested
+                && owner.binding != "config"
+                && name.starts_with("session:")
+                && rules::check_owner_name(&requested).is_ok()
+                && store::owner(self.db, &requested).map_err(db_err)?.is_none()
+            {
+                self.name_owner(owner, &requested)?;
+            }
         }
+        Ok(())
+    }
+
+    fn name_owner(&self, owner: Owner, requested: &str) -> Result<Owner, String> {
         rules::check_owner_name(requested)?;
         if store::owner(self.db, requested).map_err(db_err)?.is_some() {
-            return Err("That owner name is already in use; approval cannot merge owners or share their answers".into());
+            return Err("That name is already in use. Choose another name, or configure the host's --owner to intentionally share that agent's questions and answers".into());
         }
+        let name = &owner.name;
         // Rename the whole owner in this transaction: caps, answers, mute and toast cooldown survive.
-        // This binding belongs only to the host-supplied provisional identity, never to a claimed name.
+        // This binding belongs only to the host-supplied session identity, never to a claimed name.
         self.db.execute("UPDATE owners SET name = ?1, binding = 'approved', requested_owner = NULL WHERE name = ?2", params![requested, name]).map_err(db_err)?;
         self.db
             .execute(
@@ -1612,7 +1595,7 @@ impl Ctx<'_> {
                 params![name, requested],
             )
             .map_err(db_err)?;
-        self.event("owner.approved", name, json!({"owner": requested}))?;
+        self.event("owner.named", name, json!({"owner": requested}))?;
         crate::board::rename_owner(self.db, name, requested)?;
         Ok(Owner {
             name: requested.into(),
@@ -1916,11 +1899,9 @@ impl Service for StoreService {
                 Ok(crate::protocol::DraftStates { closed })
             }),
             DeskOp::SetOwner { owner } => self.write_json(now, |c| c.set_owner(owner)),
-            DeskOp::ResolveOwner {
-                owner,
-                requested_owner,
-                approve,
-            } => self.write_json(now, |c| c.resolve_owner(&owner, &requested_owner, approve)),
+            DeskOp::ResolveOwner { .. } => {
+                Err("Agents are enabled automatically; refresh the Desk".into())
+            }
             DeskOp::GetSettings => self.write_json(now, |c| c.settings()),
             DeskOp::SetSettings { settings } => self.write_json(now, |c| c.set_settings(settings)),
             DeskOp::Status => self.status(now),

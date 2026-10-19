@@ -46,7 +46,7 @@ pub enum McpOp {
         handle: String,
         action: crate::board::BoardOp,
     },
-    /// Say who you are. `owner` comes from `agentbolt mcp --owner`; None gets a provisional owner: per host
+    /// Say who you are. `owner` comes from `agentbolt mcp --owner`; None gets an enabled owner: per host
     /// session (`session_ref`, which the front-end takes only from the host, never from a tool argument), else
     /// per MCP process (`provisional_key`, made once when the process starts), else a fresh one.
     Register {
@@ -63,7 +63,7 @@ pub enum McpOp {
         handle: String,
         doing: Option<String>,
     },
-    /// Propose a name, without binding it, sharing answers, or granting any owner privileges.
+    /// Set an available friendly name immediately; cannot join another identity or grant relay/wake access.
     RequestOwner {
         handle: String,
         requested_owner: String,
@@ -294,7 +294,7 @@ pub enum DeskOp {
     SetOwner {
         owner: Owner,
     },
-    /// Resolve exactly the proposal displayed by the Desk; stale proposals are refused.
+    /// Legacy Desk operation; now returns a refresh message because no approval is required.
     ResolveOwner {
         owner: String,
         requested_owner: String,
@@ -394,12 +394,12 @@ pub struct DraftStates {
     pub closed: Vec<String>,
 }
 
-/// Every bound or approved owner (by name), then the most recent provisional owners (newest first, at most
+/// Every named/flagged owner (by name), then recent generated identities (newest first, at most
 /// `rules::DESK_PROVISIONAL_OWNERS`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OwnersResult {
     pub owners: Vec<Owner>,
-    /// Older provisional owners left out of `owners`.
+    /// Older generated identities left out of `owners`; legacy field name retained for compatibility.
     #[serde(default)]
     pub more_provisional: u32,
 }

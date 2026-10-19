@@ -167,7 +167,7 @@ pub struct Agent {
     pub owner: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub requested_owner: Option<String>,
-    /// True when the owner was not bound by config or approved on the Desk.
+    /// Legacy compatibility field. New and migrated registrations are enabled automatically (false).
     pub provisional: bool,
     #[serde(default)]
     pub muted: bool,
@@ -184,10 +184,10 @@ pub struct Agent {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Owner {
     pub name: String,
-    /// A provisional owner's proposal. It has no effect until explicitly approved on the Desk.
+    /// Legacy name proposal. Startup applies available names and clears the old review queue.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub requested_owner: Option<String>,
-    /// "config" (from `agentbolt mcp --owner`), "approved" (on the Desk) or "pending".
+    /// "config" (host name), "approved" (named identity), or "automatic" (generated session identity).
     pub binding: String,
     /// Owners whose Codex threads may receive `codex queue` delivery (marked on the Desk). Off by default.
     #[serde(default)]

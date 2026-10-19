@@ -41,38 +41,35 @@ fn resolve(owner: &str, requested: &str, approve: bool) -> DeskOp {
 }
 
 #[test]
-fn owner_proposals_grant_no_authority_and_only_the_desk_can_approve() {
+fn automatic_owners_can_ask_and_name_themselves_without_sharing_answers() {
     let t = T::new();
-    let reg = t.register_full(None, Some("proposal-session"), None);
-    let proposed = propose(&t, &reg.handle, "my-project").unwrap();
-    assert_eq!(proposed.name, reg.owner);
-    assert_eq!(proposed.binding, "pending");
-    assert!(!proposed.codex_interactive && !proposed.relay);
-    assert_eq!(proposed.requested_owner.as_deref(), Some("my-project"));
+    let reg = t.register_full(None, Some("automatic-session"), None);
+    assert!(!reg.provisional);
+    let mut urgent = t.input("Urgent without review");
+    urgent.priority = Priority::P0;
+    urgent.p0_reason = Some("Urgent decision".into());
+    let ask = t.ask(&reg.handle, urgent);
+    assert_eq!(t.list().inbox[0].input.priority, Priority::P0);
+    let named = propose(&t, &reg.handle, "my-project").unwrap();
+    assert_eq!(named.name, "my-project");
+    assert_eq!(named.binding, "approved");
+    assert!(named.requested_owner.is_none());
+    assert!(!named.codex_interactive && !named.relay);
     assert!(
         t.mcp(McpOp::RelayList {
             handle: reg.handle.clone()
         })
         .is_err()
     );
-    let mut urgent = t.input("Proposing does not buy P0");
-    urgent.priority = Priority::P0;
-    urgent.p0_reason = Some("Urgent test".into());
-    let ask = t.ask(&reg.handle, urgent);
-    assert_eq!(t.list().inbox[0].input.priority, Priority::P1);
     let approval = resolve(&reg.owner, "my-project", true);
     assert!(serde_json::from_value::<McpOp>(serde_json::to_value(&approval).unwrap()).is_err());
-    let approved: Owner = de(t.desk(approval).unwrap().0);
-    assert_eq!(approved.name, "my-project");
-    assert_eq!(approved.binding, "approved");
-    assert!(approved.requested_owner.is_none());
-    assert!(!approved.codex_interactive && !approved.relay);
+    assert!(t.desk(approval).is_err());
     t.answer(&ask.id, "No").unwrap();
     assert_eq!(
         t.answers(&reg.handle, &[&ask.id]).answers[0].owner,
         "my-project"
     );
-    assert_eq!(propose(&t, &reg.handle, "my-project").unwrap(), approved);
+    assert_eq!(propose(&t, &reg.handle, "my-project").unwrap(), named);
     assert!(propose(&t, &reg.handle, "another-project").is_err());
     let other = t.register_full(None, Some("different-session"), None);
     assert!(
@@ -85,44 +82,43 @@ fn owner_proposals_grant_no_authority_and_only_the_desk_can_approve() {
 }
 
 #[test]
-fn stale_conflicting_and_invalid_owner_proposals_are_refused_without_mutation() {
+fn conflicting_and_invalid_names_are_refused_without_disabling_agents() {
     let t = T::new();
-    let a = t.register_full(None, Some("proposal-a"), None);
-    let b = t.register_full(None, Some("proposal-b"), None);
+    let a = t.register_full(None, Some("name-a"), None);
+    let b = t.register_full(None, Some("name-b"), None);
     for name in ["", "session:forged", "has spaces", "bad\nname"] {
         assert!(propose(&t, &a.handle, name).is_err());
     }
     assert_eq!(propose(&t, "unknown", "name").unwrap_err(), UNKNOWN_HANDLE);
-    propose(&t, &a.handle, "first-name").unwrap();
-    propose(&t, &a.handle, "second-name").unwrap();
-    assert!(t.desk(resolve(&a.owner, "first-name", true)).is_err());
-    assert!(t.desk(resolve(&a.owner, "first-name", false)).is_err());
-    let mut stale: Owner = de(t.desk(DeskOp::Owners).unwrap().0["owners"][0].clone());
-    stale.name = a.owner.clone();
+    let mut stale = store::owner(&t.svc.conn_for_tests(), &a.owner)
+        .unwrap()
+        .unwrap();
+    propose(&t, &a.handle, "shared-name").unwrap();
+    assert!(propose(&t, &a.handle, "second-name").is_err());
+    assert!(t.desk(resolve(&a.owner, "shared-name", true)).is_err());
+    assert!(t.desk(resolve(&a.owner, "shared-name", false)).is_err());
     stale.binding = "approved".into();
     assert!(t.desk(DeskOp::SetOwner { owner: stale }).is_err());
-    let rejected: Owner = de(t.desk(resolve(&a.owner, "second-name", false)).unwrap().0);
-    assert_eq!(rejected.binding, "pending");
-    assert!(rejected.requested_owner.is_none());
-    assert!(t.desk(resolve(&a.owner, "second-name", true)).is_err());
-    propose(&t, &a.handle, "shared-name").unwrap();
-    propose(&t, &b.handle, "shared-name").unwrap();
-    t.desk(resolve(&a.owner, "shared-name", true)).unwrap();
     assert!(
-        t.desk(resolve(&b.owner, "shared-name", true))
+        propose(&t, &b.handle, "shared-name")
             .unwrap_err()
             .contains("already in use")
     );
-    let again = t.register_full(None, Some("proposal-b"), None);
-    assert!(again.provisional);
-    assert_eq!(again.requested_owner.as_deref(), Some("shared-name"));
+    let again = t.register_full(None, Some("name-b"), None);
+    assert!(!again.provisional);
+    assert!(again.requested_owner.is_none());
+    assert_eq!(again.owner, b.owner);
+    assert_eq!(
+        t.ask(&again.handle, t.input("Still enabled")).placed,
+        "open"
+    );
     let config = t.register("configured-owner");
     assert!(propose(&t, &config, "other-name").is_err());
     assert!(t.status().chain_ok);
 }
 
 #[test]
-fn approved_names_preserve_caps_dedupe_mute_and_toast_cooldown() {
+fn automatic_names_preserve_caps_dedupe_mute_and_toast_cooldown() {
     let t = T::new();
     let reg = t.register_full(None, Some("preserve-owner-state"), None);
     let first = t.ask(&reg.handle, urgent(&t, "First"));
@@ -142,8 +138,10 @@ fn approved_names_preserve_caps_dedupe_mute_and_toast_cooldown() {
             |r| r.get::<_, i64>(0),
         )
         .unwrap();
-    let stale = propose(&t, &reg.handle, "preserved").unwrap();
-    let approved: Owner = de(t.desk(resolve(&reg.owner, "preserved", true)).unwrap().0);
+    let stale = store::owner(&t.svc.conn_for_tests(), &reg.owner)
+        .unwrap()
+        .unwrap();
+    let approved = propose(&t, &reg.handle, "preserved").unwrap();
     assert!(approved.muted);
     assert!(t.desk(DeskOp::SetOwner { owner: stale }).is_err());
     let after = t
@@ -180,7 +178,7 @@ fn approved_names_preserve_caps_dedupe_mute_and_toast_cooldown() {
 }
 
 #[test]
-fn owner_approval_and_answers_survive_daemon_restart_and_handle_expiry() {
+fn legacy_pending_owner_and_answers_upgrade_on_restart_and_survive_handle_expiry() {
     let dir =
         std::env::temp_dir().join(format!("agentbolt-owner-{}", crate::tokens::random_hex(6)));
     let db = dir.join("desk.sqlite");
@@ -190,8 +188,11 @@ fn owner_approval_and_answers_survive_daemon_restart_and_handle_expiry() {
         let reg = t.register_full(None, Some("durable-owner-session"), None);
         id = t.ask(&reg.handle, t.input("Before owner approval")).id;
         t.answer(&id, "No").unwrap();
-        propose(&t, &reg.handle, "durable-owner").unwrap();
-        t.desk(resolve(&reg.owner, "durable-owner", true)).unwrap();
+        // Simulate the previous release's pending name in a disposable store.
+        t.svc.conn_for_tests().execute(
+            "UPDATE owners SET binding='pending', requested_owner='durable-owner' WHERE name=?1",
+            [&reg.owner],
+        ).unwrap();
     }
     {
         let t = T::with(StoreService::open(&db).unwrap());
@@ -765,7 +766,7 @@ fn inbox_orders_by_priority_then_deadline_and_bound_p0_is_not_limited_per_day() 
     t.ask(&provisional.handle, urgent);
     let inbox = t.list().inbox;
     let stored = inbox.iter().find(|a| a.owner == provisional.owner).unwrap();
-    assert_eq!(stored.input.priority, Priority::P1);
+    assert_eq!(stored.input.priority, Priority::P0);
 }
 
 #[test]
@@ -887,14 +888,14 @@ fn duplicates_return_the_existing_ask() {
 // ---- rule 3: owners ----
 
 #[test]
-fn provisional_owners_are_per_session_even_in_the_same_folder() {
+fn automatic_owners_are_per_session_even_in_the_same_folder() {
     let t = T::new();
     let cwd = Some("C:\\DEV\\Compass");
     let s1 = t.register_full(None, Some("routine-run-1"), cwd);
     let s2 = t.register_full(None, Some("routine-run-2"), cwd);
     assert_eq!(s1.owner, "session:routine-run-1");
     assert_ne!(s1.owner, s2.owner);
-    assert!(s1.provisional && s2.provisional);
+    assert!(!s1.provisional && !s2.provisional);
     let anon1 = t.register_full(None, None, cwd);
     let anon2 = t.register_full(None, None, cwd);
     assert_ne!(
@@ -907,7 +908,7 @@ fn provisional_owners_are_per_session_even_in_the_same_folder() {
         "the same session, the same owner"
     );
 
-    // No host session: one provisional owner per MCP process, however often it registers.
+    // No host session: one automatic owner per MCP process, however often it registers.
     let p1 = t.register_process(Some("mcp-0a1b"));
     assert_eq!(p1.owner, "session:mcp-0a1b");
     assert_eq!(t.register_process(Some("mcp-0a1b")).owner, p1.owner);
@@ -928,7 +929,7 @@ fn provisional_owners_are_per_session_even_in_the_same_folder() {
 }
 
 #[test]
-fn config_owners_are_bound_and_the_desk_can_approve_provisional_ones() {
+fn configured_and_automatic_owners_need_no_approval() {
     let t = T::new();
     let r = t.register_full(
         Some("compass-storefront"),
@@ -959,8 +960,14 @@ fn config_owners_are_bound_and_the_desk_can_approve_provisional_ones() {
     assert!(t.mcp(claim).unwrap_err().contains("session:"));
 
     let p = t.register_full(None, Some("artem-chat"), None);
-    assert!(p.provisional);
-    t.set_owner(&p.owner, "approved", false, false);
+    assert!(!p.provisional);
+    assert_eq!(
+        store::owner(&t.svc.conn_for_tests(), &p.owner)
+            .unwrap()
+            .unwrap()
+            .binding,
+        "automatic"
+    );
     assert!(!t.register_full(None, Some("artem-chat"), None).provisional);
     let agents: AgentsResult = de(t.desk(DeskOp::Agents).unwrap().0);
     assert!(
@@ -982,7 +989,7 @@ fn config_owners_are_bound_and_the_desk_can_approve_provisional_ones() {
 }
 
 #[test]
-fn the_desk_owner_list_is_bounded_and_idle_provisional_owners_are_pruned() {
+fn the_desk_owner_list_is_bounded_and_idle_automatic_owners_are_pruned() {
     let t = T::new();
     t.register("compass-storefront");
     t.set_owner("approved-one", "approved", false, false);
@@ -999,11 +1006,11 @@ fn the_desk_owner_list_is_bounded_and_idle_provisional_owners_are_pruned() {
         ["approved-one", "compass-storefront"],
         "every bound or approved owner, by name"
     );
-    assert_eq!(names.len(), 2 + 50, "at most 50 provisional owners");
+    assert_eq!(names.len(), 2 + 50, "at most 50 generated owners");
     assert_eq!(names[2], "session:run-59", "the most recent first");
     assert_eq!(owners.more_provisional, 11);
 
-    // A week later, with no activity, the provisional owners without asks are gone; the rest stay.
+    // A week later, with no activity, the generated owners without asks are gone; the rest stay.
     t.advance(Duration::days(7) + Duration::minutes(2));
     t.tick();
     let owners: OwnersResult = de(t.desk(DeskOp::Owners).unwrap().0);

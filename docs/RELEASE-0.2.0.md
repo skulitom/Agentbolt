@@ -25,7 +25,7 @@ resume still needs confirmation on this PC, whose default Terminal profile reque
 
 Edited answers can be sent as an atomic batch. Unsent drafts survive restarts and coordinated upgrades.
 Optional yes/no fields retain “Not answered” unless a value is chosen or supplied as the question's default.
-Owner-name proposals require approval in the Desk. A supervisor restarts a failed daemon; installed tasks and
+Agents are enabled automatically, including existing registrations previously waiting for review. Available friendly names take effect immediately. Optional controls live in Agent preferences. A supervisor restarts a failed daemon; installed tasks and
 pipe discovery are isolated by Windows account. Upgrades preserve open MCP clients and reopen visible Desks
 in their original Windows sessions. Windows Installed Apps can detect and remove the installation.
 

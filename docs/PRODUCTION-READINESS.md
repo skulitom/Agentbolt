@@ -175,7 +175,10 @@ soak. Workspace tests and all-target lint also pass.
 
 `cargo-deny 0.20.2 check licenses` passes (three harmless unused-license-allowance warnings).
 
-## Owner-name proposals
+## Owner-name proposals (historical behavior)
+
+Superseded on 2026-10-19 by automatic registration and immediate available names; see
+[the current UX record](UX-POLISH-2026-10-19.md#automatic-agent-access). Results below describe the older approval flow.
 
 `desk_register` accepts `requested_owner`. The daemon keeps the session provisional until the Desk approves
 the exact current proposal. The Desk lists it in Settings and Agents and shows a pending-name count on the

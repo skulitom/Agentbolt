@@ -259,7 +259,9 @@ impl DeskServer {
                             })
                             .await
                             .map_err(|e| e.to_string())?;
-                        agent["requested_owner"] = owner["requested_owner"].clone();
+                        agent["owner"] = owner["name"].clone();
+                        agent["provisional"] = json!(false);
+                        agent["requested_owner"] = Value::Null;
                     }
                     let answers = self
                         .daemon
@@ -283,28 +285,11 @@ impl DeskServer {
                     }
                     let v = json!({ "handle": h, "renewed": true, "answers": answers["answers"], "answers_next":answers["next"], "more_answers":answers["more"], "open_ask_ids":answers["waiting"], "board":agent["board"],
                         "owner": agent["owner"], "provisional": agent["provisional"], "requested_owner": agent["requested_owner"] });
-                    let pending = agent["requested_owner"].as_str().map(|name| format!(" Proposed name '{name}' awaits Desk approval; your owner has not changed.")).unwrap_or_default();
-                    return Ok(ok(
-                        format!("Renewed handle {h}; {n} answer(s) waiting.{pending}"),
-                        v,
-                    ));
+                    return Ok(ok(format!("Renewed handle {h}; {n} answer(s) waiting."), v));
                 }
                 // A `session` argument, if an agent sends one, is ignored: the session comes from the host only.
                 let cwd = tools::str_arg(args, "cwd")?;
                 let mut v = self.register(&who, cwd, doing).await;
-                if let Some(action) = profile
-                    && let Ok(value) = &mut v
-                {
-                    let handle = value["handle"]
-                        .as_str()
-                        .ok_or("registration returned no handle")?
-                        .to_owned();
-                    value["board"] = self
-                        .daemon
-                        .call(&McpOp::Board { handle, action })
-                        .await
-                        .map_err(|e| e.to_string())?;
-                }
                 if let Ok(v) = &v
                     && let Some(h) = v.get("handle").and_then(Value::as_str)
                 {
@@ -326,7 +311,30 @@ impl DeskServer {
                         })
                         .await
                         .map_err(|e| e.to_string())?;
-                    value["requested_owner"] = owner["requested_owner"].clone();
+                    value["owner"] = owner["name"].clone();
+                    value["provisional"] = json!(false);
+                    value["requested_owner"] = Value::Null;
+                    // These snapshots were read before the rename transaction.
+                    for key in ["answers", "open_asks"] {
+                        if let Some(asks) = value[key].as_array_mut() {
+                            for ask in asks {
+                                ask["owner"] = owner["name"].clone();
+                            }
+                        }
+                    }
+                }
+                if let Some(action) = profile
+                    && let Ok(value) = &mut v
+                {
+                    let handle = value["handle"]
+                        .as_str()
+                        .ok_or("registration returned no handle")?
+                        .to_owned();
+                    value["board"] = self
+                        .daemon
+                        .call(&McpOp::Board { handle, action })
+                        .await
+                        .map_err(|e| e.to_string())?;
                 }
                 v.map(|v| (tools::register_line(&v), v))
             }

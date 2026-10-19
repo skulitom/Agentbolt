@@ -705,13 +705,15 @@ impl DeskApp {
                             self.owners_directory.more = page.more;
                             self.owners_directory.total = page.total;
                         }
-                        Err(error) => self.note(format!("Couldn't load owners: {error}"), true),
+                        Err(error) => {
+                            self.note(format!("Couldn't load agent preferences: {error}"), true)
+                        }
                     }
                 }
                 Resp::OwnerSaved(r) => {
                     match r {
-                        Ok(name) => self.note(format!("Saved owner {name}"), false),
-                        Err(e) => self.note(format!("Couldn't save the owner: {e}"), true),
+                        Ok(name) => self.note(format!("Saved preferences for {name}"), false),
+                        Err(e) => self.note(format!("Couldn't save agent preferences: {e}"), true),
                     }
                     self.last_owners = None;
                     self.last_agents = None;
@@ -990,17 +992,6 @@ impl DeskApp {
                     }
                 }
             });
-            if self
-                .owners
-                .iter()
-                .any(|o| o.requested_owner.is_some() || o.binding == "pending")
-                && !(self.tab == Tab::Settings && self.settings_section == SettingsSection::Owners)
-                && ui.button("Review owners").clicked()
-            {
-                self.settings_section = SettingsSection::Owners;
-                self.switch_to(Tab::Settings);
-                self.last_owners = None;
-            }
         });
     }
 
@@ -1387,7 +1378,7 @@ impl DeskApp {
             ui.heading("History");
             let field = ui.add(
                 egui::TextEdit::singleline(&mut self.history_search)
-                    .hint_text("Search question, owner or ID")
+                    .hint_text("Search question, agent or ID")
                     .desired_width(260.0),
             );
             if ui
@@ -1840,7 +1831,6 @@ impl DeskApp {
         let now = time::OffsetDateTime::now_utc();
         let mut open = None;
         let mut mute = None;
-        let mut review_owner = None;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
@@ -1851,22 +1841,10 @@ impl DeskApp {
                             ui.horizontal_wrapped(|ui| {
                                 ui.add(egui::Label::new(RichText::new(&a.owner).strong()).wrap());
                                 ui.weak(&a.client);
-                                if a.provisional {
-                                    ui.weak("Provisional name");
-                                }
                                 if a.muted {
                                     ui.weak("Muted");
                                 }
                             });
-                            if let Some(proposed) = &a.requested_owner {
-                                ui.colored_label(
-                                    ui.visuals().warn_fg_color,
-                                    format!("Name needs review: {proposed}"),
-                                );
-                                if ui.button("Review name").clicked() {
-                                    review_owner = Some(a.owner.clone());
-                                }
-                            }
                             if let Some(doing) = a.doing.as_deref().filter(|s| !s.is_empty()) {
                                 ui.add(egui::Label::new(doing).wrap());
                             }
@@ -1903,14 +1881,6 @@ impl DeskApp {
             });
         if let Some(req) = mute {
             self.send(req);
-        }
-        if let Some(owner) = review_owner {
-            self.settings_section = SettingsSection::Owners;
-            self.owners_directory = DirectoryState::default();
-            self.owners_directory.search = owner.clone();
-            self.owners_directory.query.search = owner;
-            self.last_owners = None;
-            self.switch_to(Tab::Settings);
         }
         if let Some((target, cwd)) = open
             && let Err(e) = os::open_chat(&target, cwd.as_deref())
@@ -2249,7 +2219,7 @@ impl DeskApp {
                                     let to = match &m.input.to {
                                         Destination::Everyone => "everyone".into(),
                                         Destination::Role(s) => format!("role {s}"),
-                                        Destination::Owner(s) => format!("owner {s}"),
+                                        Destination::Owner(s) => format!("agent {s}"),
                                         Destination::Agent(s) => s.clone(),
                                     };
                                     ui.weak(format!("To {to} · {}", m.created_at));
@@ -2345,7 +2315,7 @@ impl DeskApp {
                 for p in [current,previous] { ui.label(view::one_click_label(p)); } ui.end_row();
             });
             });
-            egui::CollapsingHeader::new("By agent owner").show_accessible(ui, |ui| {
+            egui::CollapsingHeader::new("By agent").show_accessible(ui, |ui| {
             egui::ScrollArea::both().id_salt("activity-owners-scroll").max_height(220.0).show(ui, |ui| {
             egui::Grid::new("activity-owners").striped(true).show(ui,|ui| {
                 for title in ["Owner","Submitted","Not needed / submitted","Missed deadlines"] {ui.strong(title);}ui.end_row();
@@ -2643,30 +2613,18 @@ impl DeskApp {
         theme::page_heading(
             ui,
             "Settings",
-            "Manage notifications, phone replies and the agents allowed to reach you.",
+            "Manage notifications, phone replies and agent preferences.",
         );
         ui.horizontal_wrapped(|ui| {
-            let pending = self
-                .owners
-                .iter()
-                .filter(|owner| owner.requested_owner.is_some() || owner.binding == "pending")
-                .count();
             for (section, label) in [
-                (SettingsSection::Notifications, "Notifications".into()),
-                (SettingsSection::Phone, "Phone replies".into()),
-                (
-                    SettingsSection::Owners,
-                    if pending == 0 {
-                        "Owners".into()
-                    } else {
-                        format!("Owners · {pending} to review")
-                    },
-                ),
+                (SettingsSection::Notifications, "Notifications"),
+                (SettingsSection::Phone, "Phone replies"),
+                (SettingsSection::Owners, "Agent preferences"),
             ] {
                 if theme::nav_button(
                     ui,
                     ("settings-tab", section),
-                    &label,
+                    label,
                     self.settings_section == section,
                 )
                 .clicked()
@@ -2722,68 +2680,77 @@ impl DeskApp {
     }
 
     fn owners_settings(&mut self, ui: &mut egui::Ui) {
-        ui.weak("Owners are stable names for a routine, project or client. Manage their permissions and notifications here.");
+        ui.weak("All agents can reach you automatically. Adjust notifications and optional reply delivery here.");
         if self
             .owners_directory
-            .controls(ui, "owners", self.owners_inflight)
+            .controls(ui, "agents", self.owners_inflight)
         {
             self.last_owners = None;
         }
         if self.owners.is_empty() {
-            ui.weak("No matching owners.");
+            ui.weak("No matching agents.");
             return;
         }
         let mut changed = None;
-        let mut resolve = None;
-        let mut owners: Vec<_> = self.owners.iter().collect();
-        owners
-            .sort_by_key(|owner| !(owner.requested_owner.is_some() || owner.binding == "pending"));
-        for o in owners {
+        let mut mute = None;
+        for o in &self.owners {
             ui.push_id(&o.name, |ui| {
                 theme::surface(ui).show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.add(egui::Label::new(RichText::new(&o.name).strong()).wrap());
-                    if o.binding == "pending" || o.requested_owner.is_some() || o.muted || o.relay || o.codex_interactive {
-                    ui.horizontal_wrapped(|ui| {
-                        if o.binding == "pending" || o.requested_owner.is_some() {
-                            ui.colored_label(ui.visuals().warn_fg_color, "Needs your review");
-                        }
-                        if o.muted { ui.weak("Notifications muted"); }
-                        if o.relay { ui.weak("Can relay other owners’ answers"); }
-                        if o.codex_interactive { ui.weak("Chat resumes after answers"); }
-                    });
-                    }
-                    if let Some(proposed) = &o.requested_owner {
-                        ui.label(format!("Proposed name: {proposed}"));
+                    if o.muted || o.relay || o.codex_interactive {
                         ui.horizontal_wrapped(|ui| {
-                            if ui.button("Approve name").on_hover_text("Keep this session's asks and settings under this name. No access to another owner's answers.").clicked() {
-                                resolve = Some(Req::ResolveOwner { owner: o.name.clone(), requested_owner: proposed.clone(), approve: true });
+                            if o.muted {
+                                ui.weak("Notifications muted");
                             }
-                            if ui.button("Reject name").clicked() {
-                                resolve = Some(Req::ResolveOwner { owner: o.name.clone(), requested_owner: proposed.clone(), approve: false });
+                            if o.relay {
+                                ui.weak("Can relay other agents’ answers");
+                            }
+                            if o.codex_interactive {
+                                ui.weak("Chat resumes after answers");
                             }
                         });
-                    } else if o.binding == "pending" && ui.button("Approve owner").clicked() {
-                        changed = Some(Owner { binding: "approved".into(), ..o.clone() });
                     }
-                    egui::CollapsingHeader::new("Permissions and notifications")
-                        .id_salt(("owner-settings", &o.name)).show_accessible(ui, |ui| {
-                    ui.weak(format!("Binding: {} · {} questions marked not needed", o.binding, o.not_needed_count));
-                    let mut codex = o.codex_interactive;
-                    if ui.checkbox(&mut codex, "Resume this owner’s Codex chat after an answer")
-                        .on_hover_text("Answers start this owner's Codex thread's next turn").changed() {
-                        changed = Some(Owner { codex_interactive: codex, ..o.clone() });
-                    }
-                    let mut relay = o.relay;
-                    if ui.checkbox(&mut relay, "Allow relaying answers for other owners")
-                        .on_hover_text("May list and deliver other owners' answers").changed() {
-                        changed = Some(Owner { relay, ..o.clone() });
-                    }
-                    ui.horizontal_wrapped(|ui| {
-                        if let Some(req) = mute_control(ui, &o.name, o.muted) { resolve = Some(req); }
-                        if let Some(until) = &o.muted_until { ui.weak(format!("Muted until {until}")); }
-                    });
-                    });
+                    egui::CollapsingHeader::new("Notifications and reply delivery")
+                        .id_salt(("owner-settings", &o.name))
+                        .show_accessible(ui, |ui| {
+                            if o.not_needed_count > 0 {
+                                ui.weak(format!(
+                                    "{} questions marked not needed",
+                                    o.not_needed_count
+                                ));
+                            }
+                            let mut codex = o.codex_interactive;
+                            if ui
+                                .checkbox(
+                                    &mut codex,
+                                    "Resume this agent’s Codex chat after an answer",
+                                )
+                                .on_hover_text("Answers start this agent's Codex chat's next turn")
+                                .changed()
+                            {
+                                changed = Some(Owner {
+                                    codex_interactive: codex,
+                                    ..o.clone()
+                                });
+                            }
+                            let mut relay = o.relay;
+                            if ui
+                                .checkbox(&mut relay, "Allow relaying answers for other agents")
+                                .on_hover_text("May list and deliver other agents' answers")
+                                .changed()
+                            {
+                                changed = Some(Owner { relay, ..o.clone() });
+                            }
+                            ui.horizontal_wrapped(|ui| {
+                                if let Some(req) = mute_control(ui, &o.name, o.muted) {
+                                    mute = Some(req);
+                                }
+                                if let Some(until) = &o.muted_until {
+                                    ui.weak(format!("Muted until {until}"));
+                                }
+                            });
+                        });
                 });
                 ui.add_space(4.0);
             });
@@ -2791,7 +2758,7 @@ impl DeskApp {
         if let Some(o) = changed {
             self.send(Req::SetOwner(o));
         }
-        if let Some(req) = resolve {
+        if let Some(req) = mute {
             self.send(req);
         }
     }

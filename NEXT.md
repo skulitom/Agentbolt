@@ -29,6 +29,10 @@ and shows older matching chats directly while searching. Quotes and exclusions n
 Ranking runs off the UI thread. At Artem's request, search also reads local Codex and Claude messages,
 with matching excerpts and an in-memory index. [Search scope and bounds](docs/SESSIONS.md) are explicit.
 
+All agents are now enabled automatically, including existing pending registrations. The owner-review
+queue and approval prompts are removed; Settings → Agent preferences contains optional notifications
+and reply delivery. Available friendly names apply immediately without changing access to other chats.
+
 **Current scope (Artem, 2026-10-18): implement the full plan, including M2–M7.** This overrides the older
 handoff's M0/M1 limit and the evidence gate before building the Board. Finish all features before heavy
 testing, licensing or release validation. [Full feature work](docs/FULL-PLAN.md) tracks the expanded scope.
@@ -164,7 +168,7 @@ covered by live regression fixtures. The follow-up review found no remaining act
    - Add a **"Not needed"** answer for any ask (the agent learns it shouldn't have asked; the Desk counts it per
      owner) and **"Mute this agent"** (its asks land silently at the bottom).
    - Remove the Digest tab and the `daily_budget` setting.
-   - P0 stays as a priority with nothing to skip, and a provisional owner's P0 is still stored as P1.
+   - P0 stays as a priority with nothing to skip. The later automatic-agent change removes provisional-owner demotion; P0 still requires a reason.
    - Update the tests, the tool descriptions and the README's "Noise control" paragraph to match.
 
 ## M1 checks not yet run

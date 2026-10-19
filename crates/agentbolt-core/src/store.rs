@@ -608,17 +608,17 @@ pub(crate) fn owner(conn: &Connection, name: &str) -> rusqlite::Result<Option<Ow
     .optional()
 }
 
-/// Owners Artem has to keep seeing: bound by config, approved, or given a flag on the Desk.
+/// Named owners and those with preferences are retained; generated session identities stay bounded.
 const KEPT_OWNER: &str =
-    "(binding <> 'pending' OR codex_interactive = 1 OR relay = 1 OR muted = 1)";
+    "(binding NOT IN ('pending', 'automatic') OR codex_interactive = 1 OR relay = 1 OR muted = 1)";
 
 /// An owner's latest activity: created, an agent seen, or an ask made.
 const OWNER_ACTIVITY: &str = "MAX(o.created_ms,
          COALESCE((SELECT MAX(a.last_seen_ms) FROM agents a WHERE a.owner = o.name), 0),
          COALESCE((SELECT MAX(k.created_ms) FROM asks k WHERE k.owner = o.name), 0))";
 
-/// The Desk's owners list: every kept owner by name, then the `recent` most recently active provisional ones,
-/// newest first. Also returns how many provisional owners were left out.
+/// Every kept owner by name, then `recent` generated session identities, newest first.
+/// Also returns how many generated identities were left out.
 pub(crate) fn owners_for_desk(
     conn: &Connection,
     recent: u32,
@@ -650,7 +650,7 @@ pub(crate) fn owners_for_desk(
     Ok((owners, more))
 }
 
-/// Delete provisional owners with no asks at all and no activity since `before_ms`. Returns how many went.
+/// Delete generated owners with no questions or activity since `before_ms`. Returns how many went.
 pub(crate) fn prune_provisional_owners(
     conn: &Connection,
     before_ms: i64,
