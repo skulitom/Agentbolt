@@ -581,3 +581,22 @@ official-schema check then rejected the MCP Registry description for exceeding 1
 generator now uses a shorter description, with a regression assertion against that schema limit.
 That snapshot remains a superseded packaging attempt; final artifacts must come from the corrected
 generator. No installed application code changed in this repair.
+
+## Packaged installer check (2026-10-19)
+
+The corrected `0229139` Windows archive's actual extracted installer, daemon and Desk passed the
+opt-in `install_then_uninstall_on_a_throwaway_channel` test in Anode session 4, channel
+`insttest-186943b533b40`, in 8.87 seconds. The job was `j_42675226c29a4ccdbd3768a2001cf908`, exit 0.
+The test enabled installed Desk coordination and the schema-13-shaped expanded fixture. Task,
+registration, shortcut and version checks passed; migration to schema 15 retained old answers, the
+Board reference, unknown origin/interaction evidence and the exact saved baseline. Reinstall with an
+open Desk preserved its draft, and the already-open MCP client reconnected, retained its ask and read
+a new installed Desk answer through matching text and structured branches.
+
+Uninstall while that MCP process was still open removed the fixture's task, protocol, AUMID, Installed
+Apps entry, shortcut, programs and data. Independent process inspection found no remaining fixture
+program. TEMP/TMP were directed to an otherwise empty fixture folder under `target/`, keeping parked
+executable cleanup scoped to this run. The packaged files and their checksums remain unchanged.
+This was a current-binary reinstall with older-shaped data, not an actual older-release binary test;
+the user-requested desktop update remains separate evidence. Rollback/crash/scheduler-decoy variants
+were not rerun. See [the candidate record](CANDIDATE-0229139.json).

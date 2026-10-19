@@ -206,7 +206,9 @@ covered by live regression fixtures. The follow-up review found no remaining act
   pass. [Candidate hashes and scope](docs/CANDIDATE-0229139.json). The first expanded package attempt
   exposed an overlong Registry description; the generator is fixed and these archives replace it.
   Application source is unchanged from the desktop build installed at Artem's request. These exact
-  archives still need packaged/native/live checks and fresh idle/reliability evidence. Nothing was published.
+  archives now pass installed open-Desk/MCP upgrade, older-schema preservation and clean uninstall in
+  Anode on `insttest-186943b533b40` (8.87 seconds). Remaining native/live and fresh idle/reliability evidence
+  are still pending. Nothing was published.
 - **Full local preflight passes (2026-10-19):** Windows workspace tests and Linux core/IPC/daemon/MCP/
   packaging tests pass, with all-target Clippy on both platforms. Current target-specific license policy
   and notice reports pass too. The release workflow now rejects generic notice fallbacks and uncovered

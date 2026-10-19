@@ -119,15 +119,34 @@
     "wingetValidate": "passed",
     "extractedClaudePluginStrictValidation": "passed; marketplace-install suggestion is advisory"
   },
+  "packagedInstallerCheck": {
+    "date": "2026-10-19",
+    "anodeJob": "j_42675226c29a4ccdbd3768a2001cf908",
+    "session": 4,
+    "channel": "insttest-186943b533b40",
+    "test": "install_then_uninstall_on_a_throwaway_channel",
+    "seconds": 8.87,
+    "exitCode": 0,
+    "source": "target/dist-0229139/extracted-windows-x64",
+    "checks": [
+      "Installed programs, version, scheduled task, protocol, AUMID and Start-menu shortcut",
+      "Schema-13-shaped fixture migrated to 15, preserving old answers, Board reference, unknown evidence and exact baseline",
+      "Reinstall with visible Desk and MCP client open preserved the draft and original ask",
+      "Already-open MCP client reconnected and received a new installed Desk answer with matching text and structured results",
+      "Uninstall with MCP still open removed task, registrations, shortcut, programs and channel data"
+    ],
+    "cleanup": "Passed; independent process inspection found no remaining fixture programs. TEMP/TMP were isolated to target/candidate-0229139-installer-temp.",
+    "limits": "Uses current packaged programs and an older-schema-shaped database, not an older released binary. Rollback, crash recovery and scheduler-decoy variants were not rerun. The real requested desktop update is separate evidence."
+  },
   "supersedes": {
     "sourceRevision": "d8198361adb1c5a12b27ca1725e09651ab41633d",
     "reason": "MCP Registry description exceeded its schema limit; corrected in the generator and regenerated all artifacts"
   },
   "limits": [
     "No tag, push, hosted workflow or publication occurred.",
-    "No installation or synthetic main-channel operation occurred during package checks. The user-requested desktop update is recorded separately in NEXT.md.",
+    "A packaged installation ran only on the fresh insttest-186943b533b40 channel in Anode. No synthetic main-channel operation occurred. The user-requested desktop update is recorded separately in NEXT.md.",
     "Standard test counts do not establish the ignored native/SSH checks or conditional installer probes.",
-    "These exact archives still need packaged installer/upgrade/uninstall, native Desk and final startup/idle/reliability checks.",
+    "Packaged install, open-Desk reinstall, migration and uninstall pass. Final startup/idle/reliability and remaining native/live checks are still pending.",
     "Claude Desktop and visible navigation, actual phone/other-machine services and authorized workflow/adoption rollout remain unverified.",
     "Source-revision links in the standalone plugin become available only after an authorized push."
   ]
