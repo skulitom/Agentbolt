@@ -4,13 +4,30 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use agentbolt_core::model::{Ask, AskKind, Field};
+use agentbolt_core::model::{AnswerVia, Ask, AskKind, AskStatus, Field};
 use serde_json::{Map, Value};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 pub fn parse_time(s: &str) -> Option<OffsetDateTime> {
     OffsetDateTime::parse(s.trim(), &Rfc3339).ok()
+}
+
+/// A closed question's outcome, without suggesting that a default was a human approval.
+pub fn closed_status(ask: &Ask) -> &'static str {
+    match ask.status {
+        AskStatus::Cancelled => "Withdrawn",
+        AskStatus::Defaulted => "Default applied",
+        _ if ask
+            .answer
+            .as_ref()
+            .is_some_and(|a| a.via == AnswerVia::NotNeeded) =>
+        {
+            "Not needed"
+        }
+        AskStatus::Answered => "Answered",
+        _ => "Closed",
+    }
 }
 
 pub fn one_click_label(period: &agentbolt_core::metrics::Period) -> String {

@@ -175,7 +175,12 @@ pub struct DeskApp {
     history_selected: Option<String>,
     history_inflight: bool,
     selected_inbox: Option<String>,
+    /// Past questions are opened only by an explicit click, never by Inbox selection recovery.
+    selected_recent: Option<String>,
+    /// None forces the disclosure closed on first display, ignoring persisted egui expansion.
+    recent_open: Option<bool>,
     batch_selection: HashSet<String>,
+    batch_mode: bool,
     review_batch: bool,
     drafts: HashMap<String, Draft>,
     draft_store: DraftStore,
@@ -265,7 +270,7 @@ pub fn run(names: Names, warm: bool) -> anyhow::Result<()> {
                 height: 64,
             })
             .with_active(!warm || restore_visible)
-            .with_inner_size([1040.0, 700.0])
+            .with_inner_size([1040.0, 620.0])
             .with_min_inner_size([640.0, 420.0]),
         centered: true,
         persistence_path: Some(
@@ -326,6 +331,9 @@ impl DeskApp {
             history_selected: None,
             history_inflight: false,
             selected_inbox: state.selected,
+            selected_recent: None,
+            recent_open: None,
+            batch_mode: !state.batch.is_empty(),
             batch_selection: state.batch,
             review_batch: false,
             drafts: state.drafts,
@@ -452,13 +460,20 @@ impl DeskApp {
                     if self
                         .selected_inbox
                         .as_deref()
-                        .is_none_or(|s| !ids.contains(s) && !self.recent.iter().any(|a| a.id == s))
+                        .is_none_or(|s| !ids.contains(s))
                     {
-                        self.selected_inbox = self
-                            .inbox
-                            .first()
-                            .or_else(|| self.recent.first())
-                            .map(|a| a.id.clone());
+                        self.selected_inbox = self.inbox.first().map(|a| a.id.clone());
+                    }
+                    if self
+                        .selected_recent
+                        .as_deref()
+                        .is_some_and(|id| !closed.contains(id))
+                    {
+                        self.selected_recent = None;
+                    }
+                    if self.inbox.is_empty() && self.batch_selection.is_empty() {
+                        self.batch_mode = false;
+                        self.review_batch = false;
                     }
                 }
                 Resp::DraftStates { ids, result } => {
@@ -500,6 +515,7 @@ impl DeskApp {
                                 self.inbox.retain(|a| a.id != answer.ask_id);
                             }
                             self.review_batch = false;
+                            self.batch_mode = false;
                             self.note(format!("Sent {} answers", r.answers.len()), false);
                         }
                         Err(e) => self.note(format!("Batch wasn't confirmed: {e}. Check recently answered before trying again."), true),
@@ -705,6 +721,10 @@ impl DeskApp {
         // Listing the Inbox marks its asks shown (their default clocks start), so list only while he can see the
         // window; otherwise refresh the counts. Coming back to the window lists at once.
         let visibility = view::poll_kind(focused && crate::resident::visible(), minimized);
+        if !crate::resident::visible() {
+            self.recent_open = None;
+            self.selected_recent = None;
+        }
         let seen = visibility == view::Poll::List;
         // Another tab can be visible without showing a new question in the Inbox.
         let kind = if seen && self.tab == Tab::Inbox {
@@ -812,7 +832,11 @@ impl DeskApp {
         }
         self.tab = tab;
         match tab {
-            Tab::Inbox => self.last_list = None,
+            Tab::Inbox => {
+                self.last_list = None;
+                self.recent_open = None;
+                self.selected_recent = None;
+            }
             Tab::History => self.load_history(),
             Tab::Settings => {
                 self.send(Req::GetSettings);
@@ -892,7 +916,24 @@ impl DeskApp {
     }
 
     fn ask_list(&mut self, ui: &mut egui::Ui) {
-        ui.strong("Waiting for you");
+        ui.horizontal_wrapped(|ui| {
+            ui.strong(
+                if self.inbox.is_empty() && self.inbox_after.is_none() && !self.inbox_more {
+                    "Nothing waiting"
+                } else if self.inbox.is_empty() {
+                    "No questions on this page"
+                } else {
+                    "Waiting for you"
+                },
+            );
+            if !self.batch_mode
+                && self.inbox.len() > 1
+                && ui.small_button("Select several").clicked()
+            {
+                self.batch_mode = true;
+                self.selected_recent = None;
+            }
+        });
         if self.inbox_more || self.inbox_after.is_some() || !self.inbox_back.is_empty() {
             ui.horizontal_wrapped(|ui| {
                 ui.weak(format!("Page {}", self.inbox_back.len() + 1));
@@ -906,6 +947,7 @@ impl DeskApp {
                     self.inbox_after = self.inbox_back.pop().flatten();
                     self.last_list = None;
                     self.batch_selection.clear();
+                    self.selected_recent = None;
                 }
                 if ui
                     .add_enabled(
@@ -918,26 +960,36 @@ impl DeskApp {
                     self.inbox_after = self.inbox_next.clone();
                     self.last_list = None;
                     self.batch_selection.clear();
+                    self.selected_recent = None;
                 }
                 if ui.button("First page").clicked() {
                     self.inbox_after = None;
                     self.inbox_back.clear();
                     self.last_list = None;
                     self.batch_selection.clear();
+                    self.selected_recent = None;
                 }
             });
         }
-        if !self.batch_selection.is_empty() {
-            if ui
-                .button(format!("Review {} answers", self.batch_selection.len()))
-                .clicked()
-            {
-                self.review_batch = true;
-            }
-            if ui.small_button("Clear selection").clicked() {
-                self.batch_selection.clear();
-                self.review_batch = false;
-            }
+        if self.batch_mode {
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .add_enabled(
+                        !self.batch_selection.is_empty(),
+                        egui::Button::new(format!("Review {} answers", self.batch_selection.len())),
+                    )
+                    .clicked()
+                {
+                    self.review_batch = true;
+                    self.selected_recent = None;
+                }
+                if ui.small_button("Cancel selection").clicked() {
+                    self.batch_selection.clear();
+                    self.selected_recent = None;
+                    self.batch_mode = false;
+                    self.review_batch = false;
+                }
+            });
         }
         let asks = self.inbox.clone();
         let now = time::OffsetDateTime::now_utc();
@@ -946,7 +998,9 @@ impl DeskApp {
             .show(ui, |ui| {
                 for a in &asks {
                     let selected = &mut self.selected_inbox;
-                    let is_sel = selected.as_deref() == Some(a.id.as_str());
+                    let is_sel = selected.as_deref() == Some(a.id.as_str())
+                        && self.selected_recent.is_none()
+                        && !self.review_batch;
                     let (due, overdue) = view::relative_deadline(&a.input.deadline, now);
                     let frame = theme::surface(ui).inner_margin(10).fill(if is_sel {
                         ui.visuals().selection.bg_fill
@@ -956,33 +1010,37 @@ impl DeskApp {
                     let resp = frame
                         .show(ui, |ui| {
                             ui.set_width(ui.available_width());
-                            ui.horizontal(|ui| {
-                                let mut checked = self.batch_selection.contains(&a.id);
-                                let allowed =
-                                    checked || self.batch_selection.len() < MAX_BATCH_ANSWERS;
-                                let checkbox = ui.add_enabled(
-                                    allowed,
-                                    egui::Checkbox::new(&mut checked, "Select"),
-                                );
-                                checkbox.widget_info(|| {
-                                    egui::WidgetInfo::selected(
-                                        egui::accesskit::Role::CheckBox,
+                            if self.batch_mode {
+                                ui.horizontal(|ui| {
+                                    let mut checked = self.batch_selection.contains(&a.id);
+                                    let allowed =
+                                        checked || self.batch_selection.len() < MAX_BATCH_ANSWERS;
+                                    let checkbox = ui.add_enabled(
                                         allowed,
-                                        checked,
-                                        format!("Select {} for batch answer", a.input.title),
-                                    )
-                                });
-                                if checkbox.changed() {
-                                    if checked {
-                                        self.batch_selection.insert(a.id.clone());
-                                    } else {
-                                        self.batch_selection.remove(&a.id);
+                                        egui::Checkbox::new(&mut checked, "Select"),
+                                    );
+                                    checkbox.widget_info(|| {
+                                        egui::WidgetInfo::selected(
+                                            egui::accesskit::Role::CheckBox,
+                                            allowed,
+                                            checked,
+                                            format!("Select {} for batch answer", a.input.title),
+                                        )
+                                    });
+                                    if checkbox.changed() {
+                                        if checked {
+                                            self.batch_selection.insert(a.id.clone());
+                                        } else {
+                                            self.batch_selection.remove(&a.id);
+                                        }
                                     }
-                                }
-                                priority_tag(ui, a.input.priority);
-                            });
+                                });
+                            }
                             ui.add(egui::Label::new(RichText::new(&a.input.title).strong()).wrap());
                             ui.horizontal_wrapped(|ui| {
+                                if a.input.priority != Priority::P2 {
+                                    priority_tag(ui, a.input.priority);
+                                }
                                 ui.weak(&a.owner);
                                 if a.muted {
                                     ui.weak("Muted");
@@ -1016,51 +1074,56 @@ impl DeskApp {
                     }
                     if resp.clicked() {
                         *selected = Some(a.id.clone());
+                        self.selected_recent = None;
                         self.review_batch = false;
                     }
                     ui.add_space(2.0);
                 }
                 if !self.recent.is_empty() {
-                    egui::CollapsingHeader::new(format!(
-                        "Recent questions ({})",
+                    ui.add_space(12.0);
+                    ui.separator();
+                    let response = egui::CollapsingHeader::new(format!(
+                        "Past questions ({})",
                         self.recent.len()
                     ))
-                    .default_open(self.inbox.is_empty())
+                    .id_salt("past-questions")
+                    .default_open(false)
+                    .open(self.recent_open.is_none().then_some(false))
                     .show_accessible(ui, |ui| {
-                        for a in &self.recent {
-                            let said = a
-                                .answer
-                                .as_ref()
-                                .map(|x| {
-                                    if x.via == AnswerVia::NotNeeded {
-                                        return "Not needed".to_string();
-                                    }
-                                    x.choice
-                                        .clone()
-                                        .or_else(|| x.values.as_ref().map(Value::to_string))
-                                        .unwrap_or_default()
-                                })
-                                .unwrap_or_default();
-                            let said = if a.status == AskStatus::Cancelled {
-                                "Withdrawn"
-                            } else {
-                                &said
-                            };
+                        for ask in &self.recent {
                             if ui
                                 .add(
                                     egui::Button::selectable(
-                                        self.selected_inbox.as_deref() == Some(a.id.as_str()),
-                                        format!("{}: {said}", a.input.title),
+                                        self.selected_recent.as_deref() == Some(ask.id.as_str()),
+                                        RichText::new(format!(
+                                            "{} · {}",
+                                            view::closed_status(ask),
+                                            ask.input.title
+                                        ))
+                                        .weak(),
                                     )
                                     .wrap(),
                                 )
                                 .clicked()
                             {
-                                self.selected_inbox = Some(a.id.clone());
+                                self.selected_recent = Some(ask.id.clone());
                                 self.review_batch = false;
                             }
                         }
+                        if ui.small_button("View all history").clicked() {
+                            self.switch_to(Tab::History);
+                        }
                     });
+                    let open = egui::collapsing_header::CollapsingState::load(
+                        ui.ctx(),
+                        response.header_response.id,
+                    )
+                    .is_some_and(|state| state.is_open());
+                    self.recent_open = Some(open);
+                    if !open {
+                        self.selected_recent = None;
+                    }
+                    ui.weak("No reply needed");
                 }
             });
     }
@@ -1069,22 +1132,26 @@ impl DeskApp {
     fn details(&mut self, ui: &mut egui::Ui, ask: &Ask) -> Option<Req> {
         let now = time::OffsetDateTime::now_utc();
         let mut req = None;
+        let active = matches!(ask.status, AskStatus::Open | AskStatus::Digest);
         egui::ScrollArea::vertical().auto_shrink([false, false]).id_salt(("details", &ask.id)).show(ui, |ui| {
+            if !active { ui.weak(format!("{} · No reply needed", view::closed_status(ask))); }
             ui.add(egui::Label::new(RichText::new(&ask.input.title).heading().strong()).wrap());
             ui.horizontal_wrapped(|ui| {
-                priority_tag(ui, ask.input.priority);
+                if active && ask.input.priority != Priority::P2 { priority_tag(ui, ask.input.priority); }
                 ui.label(format!("from {}", ask.owner));
                 if let Some(machine) = ask.asking_machine.as_deref().and_then(|m| m.strip_prefix("remote:")) {
                     ui.label(format!("on {machine}"));
                 }
+                if active {
                 let (due, overdue) = view::relative_deadline(&ask.input.deadline, now);
                 let c = if overdue { ui.visuals().error_fg_color } else { ui.visuals().text_color() };
                 ui.colored_label(c, due).on_hover_text(&ask.input.deadline);
                 let tag = view::reversible_tag(ask);
                 let c = if ask.input.reversible { ui.visuals().weak_text_color() } else { ui.visuals().warn_fg_color };
                 ui.colored_label(c, tag);
+                }
             });
-            if let Some(why) = &ask.input.p0_reason {
+            if active && let Some(why) = &ask.input.p0_reason {
                 ui.label(format!("Why it's urgent: {why}"));
             }
             ui.separator();
@@ -1114,7 +1181,7 @@ impl DeskApp {
             if let Some(req)=mute_control(ui,&ask.owner,ask.muted) { self.send(req); }
             });
             ui.separator();
-            if !matches!(ask.status, AskStatus::Open | AskStatus::Digest) {
+            if !active {
                 if let Some(answer) = &ask.answer {
                     let label = match answer.via {
                         AnswerVia::NotNeeded => "Marked Not needed",
@@ -1421,14 +1488,16 @@ impl DeskApp {
             .max_size((ui.available_width() * 0.42).clamp(200.0, 420.0))
             .frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(0, 4)))
             .show(ui, |ui| self.ask_list(ui));
-        let selected = &self.selected_inbox;
-        let ask = selected.as_ref().and_then(|id| {
-            self.inbox
-                .iter()
-                .chain(&self.recent)
-                .find(|a| &a.id == id)
-                .cloned()
-        });
+        let ask = self
+            .selected_recent
+            .as_ref()
+            .and_then(|id| self.recent.iter().find(|a| &a.id == id))
+            .or_else(|| {
+                self.selected_inbox
+                    .as_ref()
+                    .and_then(|id| self.inbox.iter().find(|a| &a.id == id))
+            })
+            .cloned();
         egui::CentralPanel::default()
             .frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(20, 4)))
             .show(ui, |ui| {
@@ -1444,11 +1513,16 @@ impl DeskApp {
                         }
                     }
                     None => {
-                        theme::empty(
-                            ui,
-                            "Choose a question",
-                            "Select a question from the Inbox to review it and reply.",
-                        );
+                        if self.inbox.is_empty() {
+                            match self.conn {
+                                Conn::Unknown => theme::empty(ui, "Connecting to your Desk", "Your questions will appear when Agentbolt connects."),
+                                Conn::Down(_) => theme::empty(ui, "Your Desk is offline", "Start Agentbolt above to load your questions. Your saved drafts stay here."),
+                                Conn::Up if self.inbox_after.is_none() && !self.inbox_more => theme::empty(ui, "You’re all caught up", "Nothing needs your reply. Past questions are tucked away on the left."),
+                                Conn::Up => theme::empty(ui, "No questions on this page", "Go to the previous or first page to see waiting questions."),
+                            }
+                        } else {
+                            theme::empty(ui, "Choose a question", "Select a waiting question to review it and reply.");
+                        }
                     }
                 }
             });
