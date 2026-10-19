@@ -1,6 +1,7 @@
 //! The session switcher: running work first; idle and recent chats stay collapsed.
 
 use crate::app::AccessibleCollapsingHeader;
+use crate::session_search::Hit;
 use crate::sessions::{Session, Snapshot, Worker};
 use crate::{theme, view};
 use agentbolt_core::channel::Names;
@@ -26,6 +27,8 @@ pub struct Page {
     background: bool,
     recent_open: Option<bool>,
     other_open: Option<bool>,
+    query_changed: Option<Instant>,
+    result_limit: usize,
 }
 
 impl Page {
@@ -40,6 +43,8 @@ impl Page {
             background: false,
             recent_open: None,
             other_open: None,
+            query_changed: None,
+            result_limit: 50,
         }
     }
 
@@ -55,13 +60,24 @@ impl Page {
             self.busy = false;
             self.last = Some(Instant::now());
         }
-        if visible
-            && !self.busy
+        let query = self.search.trim().to_lowercase();
+        let refresh = self
+            .last
+            .is_none_or(|t| t.elapsed() >= Duration::from_secs(2));
+        let ready = self
+            .query_changed
+            .is_none_or(|t| t.elapsed() >= Duration::from_millis(180));
+        let continue_messages = !query.is_empty()
+            && self.snapshot.messages_pending
             && self
                 .last
-                .is_none_or(|t| t.elapsed() >= Duration::from_secs(2))
+                .is_none_or(|t| t.elapsed() >= Duration::from_millis(200));
+        if visible
+            && !self.busy
+            && ready
+            && (refresh || query != self.snapshot.query || continue_messages)
         {
-            self.busy = self.worker.refresh();
+            self.busy = self.worker.refresh(&query, refresh);
         }
     }
 
@@ -69,16 +85,23 @@ impl Page {
         theme::page_heading(
             ui,
             "Sessions",
-            "Find a chat by name or project, then jump back into it.",
+            "Search with words you remember, then jump back into the chat.",
         );
         ui.horizontal_wrapped(|ui| {
-            ui.add(
+            let response = ui.add(
                 egui::TextEdit::singleline(&mut self.search)
-                    .hint_text("Search sessions or projects")
+                    .hint_text("Search chats by keyword…")
+                    .char_limit(256)
                     .desired_width(ui.available_width().min(360.0)),
             );
+            if response.changed() {
+                self.result_limit = 50;
+                self.query_changed = Some(Instant::now());
+                ui.ctx().request_repaint_after(Duration::from_millis(180));
+            }
             if !self.search.is_empty() && ui.button("Clear").clicked() {
                 self.search.clear();
+                self.query_changed = None;
             }
             if ui
                 .add_enabled(!self.busy, egui::Button::new("Refresh"))
@@ -104,20 +127,27 @@ impl Page {
             });
         });
         ui.add_space(8.0);
+        self.poll(true);
+        if self.snapshot.messages_pending {
+            ui.ctx().request_repaint_after(Duration::from_millis(200));
+        }
         let query = self.search.trim().to_lowercase();
-        let items: Vec<_> = self
+        let searching = query != self.snapshot.query;
+        let accepts = |item: &&Session| {
+            (self.background || !item.background)
+                && match self.app {
+                    AppFilter::All => true,
+                    AppFilter::Codex => matches!(item.target, ChatTarget::Codex(_)),
+                    AppFilter::Claude => !matches!(item.target, ChatTarget::Codex(_)),
+                }
+        };
+        let items: Vec<_> = self.snapshot.items.iter().filter(accepts).collect();
+        let matches: Vec<_> = self
             .snapshot
-            .items
+            .hits
             .iter()
-            .filter(|item| {
-                (self.background || !item.background)
-                    && item.matches(&query)
-                    && match self.app {
-                        AppFilter::All => true,
-                        AppFilter::Codex => matches!(item.target, ChatTarget::Codex(_)),
-                        AppFilter::Claude => !matches!(item.target, ChatTarget::Codex(_)),
-                    }
-            })
+            .filter(|_| !searching)
+            .filter(|hit| accepts(&&self.snapshot.items[hit.item]))
             .collect();
         let running: Vec<_> = items.iter().copied().filter(|s| s.running()).collect();
         let other: Vec<_> = items
@@ -125,7 +155,12 @@ impl Page {
             .copied()
             .filter(|s| s.open && !s.running())
             .collect();
-        let recent: Vec<_> = items.iter().copied().filter(|s| !s.open).collect();
+        let recent: Vec<_> = items
+            .iter()
+            .copied()
+            .filter(|s| !s.open)
+            .take(crate::sessions::recent_limit())
+            .collect();
         let animate = ui.style().animation_time > 0.0
             && self
                 .last
@@ -136,6 +171,28 @@ impl Page {
             });
         let mut chosen = None;
         egui::ScrollArea::vertical().id_salt("session-list").auto_shrink([false, false]).show(ui, |ui| {
+            if !query.is_empty() {
+                ui.horizontal(|ui| {
+                    ui.strong(if searching { "Searching chats…".into() } else { format!("Search results ({})", matches.len()) });
+                    if !searching { ui.weak("Best matches first"); }
+                    if self.busy || searching { ui.spinner(); }
+                });
+                ui.add_space(4.0);
+                if let Some((done,total)) = self.snapshot.message_progress && self.snapshot.messages_pending {
+                    ui.weak(format!("Searching local messages · {done} of {total} chats"));
+                }
+                if matches.is_empty() && !self.busy && !searching && !self.snapshot.messages_pending {
+                    ui.label("No matching chats found.");
+                    ui.weak("Try fewer words, a project name, or a different app filter.");
+                }
+                for hit in matches.iter().take(self.result_limit) {
+                    let item = &self.snapshot.items[hit.item];
+                    if let Some(target) = session_card(ui, item, animate, Some(hit)) { chosen = Some(target); }
+                }
+                if matches.len() > self.result_limit && ui.button("Show more matches").clicked() {
+                    self.result_limit += 50;
+                }
+            } else {
             ui.horizontal(|ui| {
                 ui.strong(format!("Running now ({})", running.len()));
                 if self.busy { ui.spinner(); }
@@ -145,7 +202,7 @@ impl Page {
                 ui.weak(if query.is_empty() { "No sessions are currently reporting active work." } else { "No running sessions match your search." });
             }
             for item in &running {
-                if let Some(target) = session_card(ui, item, animate) { chosen = Some(target); }
+                if let Some(target) = session_card(ui, item, animate, None) { chosen = Some(target); }
             }
             if !other.is_empty() {
                 ui.add_space(12.0);
@@ -155,7 +212,7 @@ impl Page {
                     .show_accessible(ui, |ui| {
                         ui.weak("Idle, waiting, or without a confirmed running status.");
                         for item in &other {
-                            if let Some(target) = session_card(ui, item, false) { chosen = Some(target); }
+                            if let Some(target) = session_card(ui, item, false, None) { chosen = Some(target); }
                         }
                     });
                 self.other_open = Some(egui::collapsing_header::CollapsingState::load(ui.ctx(), header.header_response.id).is_some_and(|s| s.is_open()));
@@ -168,10 +225,11 @@ impl Page {
                     .show_accessible(ui, |ui| {
                         ui.weak("Not confirmed open. These chats do not imply a reply is needed.");
                         for item in &recent {
-                            if let Some(target) = session_card(ui, item, false) { chosen = Some(target); }
+                            if let Some(target) = session_card(ui, item, false, None) { chosen = Some(target); }
                         }
                     });
                 self.recent_open = Some(egui::collapsing_header::CollapsingState::load(ui.ctx(), header.header_response.id).is_some_and(|s| s.is_open()));
+            }
             }
             if !self.snapshot.warnings.is_empty() {
                 ui.add_space(12.0);
@@ -182,18 +240,24 @@ impl Page {
             }
             ui.add_space(12.0);
             egui::CollapsingHeader::new("About session discovery").id_salt("session-discovery-help").show_accessible(ui, |ui| {
+                ui.add(egui::Label::new("Search matches chat titles, projects and local messages. Use words in any order or partial words. Titles and projects also accept small spelling mistakes. Put an exact phrase in quotes, or use -word to leave it out. All words must match; title matches rank highest.").wrap());
                 ui.add(egui::Label::new("Shows local Codex and Claude Code sessions, including Code chats in Claude Desktop. Browser chats and sessions on other computers are not discovered.").wrap());
                 ui.add(egui::Label::new("Running means Codex reports an unfinished turn in a loaded chat, or Claude reports working in a verified live process. The shimmer indicates activity, not how much work is complete. Status refreshes every two seconds.").wrap());
-                ui.add(egui::Label::new("Other open chats are idle, waiting or have an unavailable status. Recent chats include the latest 200 unarchived Codex chats and retained Claude session entries. Neither group implies that a reply is needed.").wrap());
+                ui.add(egui::Label::new("Other open chats are idle, waiting or have an unavailable status. Recent chats shows up to 200 entries; search includes up to 5,000 unarchived Codex chats and retained Claude session entries. Neither group implies that a reply is needed.").wrap());
                 ui.add(egui::Label::new("Desktop chats open in their app. A terminal session offers a resume action in a new terminal; it does not focus an existing terminal. Background agents are available under View.").wrap());
-                ui.weak("Session titles and project folders stay on this computer. Conversation contents are not read.");
+                ui.add(egui::Label::new("Message search starts when you type. It indexes visible user and assistant text in memory on this computer, including local Claude transcripts. It does not index reasoning, tool output or attachments. Searches and message text are never uploaded or saved by Agentbolt. Live messages refresh about every 15 seconds after the initial scan.").wrap());
             });
         });
         chosen
     }
 }
 
-fn session_card(ui: &mut egui::Ui, item: &Session, animate: bool) -> Option<(ChatTarget, String)> {
+fn session_card(
+    ui: &mut egui::Ui,
+    item: &Session,
+    animate: bool,
+    hit: Option<&Hit>,
+) -> Option<(ChatTarget, String)> {
     let mut chosen = None;
     ui.push_id((item.app(), item.target.id()), |ui| {
         let background = ui.painter().add(egui::Shape::Noop);
@@ -206,6 +270,16 @@ fn session_card(ui: &mut egui::Ui, item: &Session, animate: bool) -> Option<(Cha
         let card = frame.show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.add(egui::Label::new(RichText::new(&item.title).strong()).wrap());
+            if let Some(hit) = hit {
+                ui.weak(if hit.approximate {
+                    format!("{} · Similar wording", hit.label)
+                } else {
+                    hit.label.to_owned()
+                });
+                if let Some(snippet) = &hit.snippet {
+                    ui.add(egui::Label::new(snippet).wrap());
+                }
+            }
             ui.horizontal_wrapped(|ui| {
                 if ui.button(item.target.label()).clicked() {
                     chosen = Some((item.target.clone(), item.cwd.clone()));

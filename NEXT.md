@@ -24,6 +24,10 @@ without requiring an Agentbolt connection, with title/project search and collaps
 Sessions now separates confirmed running work from loaded-but-idle chats. Only running cards have an
 amber background animation; other open chats and recent chats start collapsed. Reduced motion uses
 a static highlight. These are UI improvements; the broader testing pause remains in effect.
+Keyword search now ranks title/project matches, accepts partial words and small spelling mistakes,
+and shows older matching chats directly while searching. Quotes and exclusions narrow results.
+Ranking runs off the UI thread. At Artem's request, search also reads local Codex and Claude messages,
+with matching excerpts and an in-memory index. [Search scope and bounds](docs/SESSIONS.md) are explicit.
 
 **Current scope (Artem, 2026-10-18): implement the full plan, including M2–M7.** This overrides the older
 handoff's M0/M1 limit and the evidence gate before building the Board. Finish all features before heavy

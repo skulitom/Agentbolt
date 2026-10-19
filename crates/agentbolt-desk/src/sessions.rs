@@ -1,12 +1,13 @@
-//! Read-only discovery of local Codex and Claude sessions. No messages, credentials or app writes.
+//! Read-only local session discovery, with optional in-memory message search while a query is entered.
 //! Scans run separately from both rendering and the answer pipe worker.
 
+use crate::session_search::{Hit, Index};
 use std::collections::HashSet;
 use std::fs::{self, File, TryLockError};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use agentbolt_core::channel::Names;
 use agentbolt_core::navigation::{ChatTarget, claude_desktop_ref, valid_session_id};
@@ -14,6 +15,7 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde::Deserialize;
 
 const RECENT_LIMIT: usize = 200;
+const SEARCH_LIMIT: usize = 5_000;
 const ENTRY_LIMIT: usize = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +36,8 @@ pub struct Session {
     pub open: bool,
     pub background: bool,
     pub activity: Activity,
+    /// Provider's conversation ID; a Claude Desktop navigation ID can differ from this.
+    pub source_id: String,
 }
 
 impl Session {
@@ -60,46 +64,86 @@ impl Session {
             ChatTarget::ClaudeTerminal(_) => "Claude Code",
         }
     }
-
-    pub fn matches(&self, search: &str) -> bool {
-        search.split_whitespace().all(|word| {
-            self.title.to_lowercase().contains(word)
-                || self.cwd.to_lowercase().contains(word)
-                || self.app().to_lowercase().contains(word)
-                || self.target.id().to_lowercase().contains(word)
-        })
-    }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Snapshot {
     pub items: Vec<Session>,
     pub warnings: Vec<String>,
+    pub query: String,
+    pub hits: Vec<Hit>,
+    pub messages_pending: bool,
+    pub message_progress: Option<(usize, usize)>,
 }
 
 pub struct Worker {
-    tx: mpsc::SyncSender<()>,
+    tx: mpsc::SyncSender<(String, bool)>,
     rx: mpsc::Receiver<Snapshot>,
 }
 
 impl Worker {
     pub fn spawn(names: &Names, wake: impl Fn() + Send + 'static) -> Self {
         let roots = Roots::for_channel(names);
-        let (tx, requests) = mpsc::sync_channel(1);
+        let (tx, requests) = mpsc::sync_channel::<(String, bool)>(1);
         let (results, rx) = mpsc::channel();
         std::thread::Builder::new()
             .name("session-discovery".into())
             .spawn(move || {
-                while requests.recv().is_ok() {
-                    let snapshot = roots.as_ref().map_or_else(
-                        || Snapshot {
-                            warnings: vec![
-                                "Local session discovery is unavailable for this profile.".into(),
-                            ],
-                            ..Default::default()
-                        },
-                        discover,
-                    );
+                let mut cached = Snapshot::default();
+                let mut messages: Option<Result<crate::message_search::Library, String>> = None;
+                let mut updated: Option<Instant> = None;
+                while let Ok((query, refresh)) = requests.recv() {
+                    if refresh || updated.is_none_or(|t| t.elapsed() >= Duration::from_secs(2)) {
+                        cached = roots.as_ref().map_or_else(
+                            || Snapshot {
+                                warnings: vec![
+                                    "Local session discovery is unavailable for this profile."
+                                        .into(),
+                                ],
+                                ..Default::default()
+                            },
+                            discover,
+                        );
+                        updated = Some(Instant::now());
+                    }
+                    let mut snapshot = cached.clone();
+                    if !query.is_empty()
+                        && let Some(roots) = roots.as_ref()
+                    {
+                        match messages.get_or_insert_with(crate::message_search::Library::new) {
+                            Ok(library) => {
+                                let outcome = library
+                                    .sync(roots, &snapshot.items)
+                                    .and_then(|_| library.advance());
+                                if let Err(error) = outcome {
+                                    snapshot
+                                        .warnings
+                                        .push(format!("Message search is incomplete: {error}"));
+                                }
+                                library.enrich(&mut snapshot.items);
+                                snapshot.hits = Index::new(&snapshot.items).search(&query);
+                                if let Err(error) =
+                                    library.merge(&query, &snapshot.items, &mut snapshot.hits)
+                                {
+                                    snapshot
+                                        .warnings
+                                        .push(format!("Message search couldn't complete: {error}"));
+                                }
+                                snapshot.messages_pending = library.pending();
+                                snapshot.message_progress = Some(library.progress());
+                                snapshot.warnings.extend(library.notes());
+                            }
+                            Err(error) => {
+                                snapshot
+                                    .warnings
+                                    .push(format!("Message search is unavailable: {error}"));
+                                snapshot.hits = Index::new(&snapshot.items).search(&query);
+                            }
+                        }
+                    } else {
+                        snapshot.hits = Index::new(&snapshot.items).search(&query);
+                    }
+                    snapshot.query = query;
                     if results.send(snapshot).is_err() {
                         break;
                     }
@@ -110,8 +154,8 @@ impl Worker {
         Self { tx, rx }
     }
 
-    pub fn refresh(&self) -> bool {
-        self.tx.try_send(()).is_ok()
+    pub fn refresh(&self, query: &str, metadata: bool) -> bool {
+        self.tx.try_send((query.to_owned(), metadata)).is_ok()
     }
 
     pub fn latest(&self) -> Option<Snapshot> {
@@ -119,9 +163,9 @@ impl Worker {
     }
 }
 
-struct Roots {
-    codex: PathBuf,
-    claude: PathBuf,
+pub(super) struct Roots {
+    pub codex: PathBuf,
+    pub claude: PathBuf,
 }
 
 impl Roots {
@@ -148,11 +192,11 @@ impl Roots {
 }
 
 /// Refuse network locations and reparse escapes before opening a provider file.
-fn local_path(path: &Path) -> Option<PathBuf> {
+pub(super) fn local_path(path: &Path) -> Option<PathBuf> {
     checked_local_path(path).ok().flatten()
 }
 
-fn checked_local_path(path: &Path) -> Result<Option<PathBuf>, String> {
+pub(super) fn checked_local_path(path: &Path) -> Result<Option<PathBuf>, String> {
     let text = path.to_string_lossy();
     if !path.is_absolute() || text.starts_with(['\\', '/']) && cfg!(windows) {
         return Err("session folders must use an absolute local path".into());
@@ -311,11 +355,15 @@ fn codex_sessions(root: &Path, result: &mut Snapshot) -> Result<(), String> {
     );
     let mut recent = db.prepare(&format!("SELECT {columns} FROM threads WHERE archived = 0 ORDER BY updated_at DESC, id DESC LIMIT ?1")).map_err(|e| e.to_string())?;
     let rows = recent
-        .query_map([RECENT_LIMIT as i64], codex_row)
+        .query_map([(SEARCH_LIMIT + 1) as i64], codex_row)
         .map_err(|e| e.to_string())?;
     let mut ids = HashSet::new();
     let first_item = result.items.len();
     for row in rows {
+        if result.items.len() - first_item >= SEARCH_LIMIT {
+            result.warnings.push("Search includes the latest 5,000 unarchived Codex chats, plus any older open chats.".into());
+            break;
+        }
         let mut item = row.map_err(|e| e.to_string())?;
         if !valid_session_id(item.target.id()) {
             continue;
@@ -393,10 +441,15 @@ fn codex_sessions(root: &Path, result: &mut Snapshot) -> Result<(), String> {
     Ok(())
 }
 
+pub fn recent_limit() -> usize {
+    RECENT_LIMIT
+}
+
 fn codex_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Session> {
     let source: String = row.get(4)?;
     let title: String = row.get(1)?;
     Ok(Session {
+        source_id: row.get(0)?,
         target: ChatTarget::Codex(row.get(0)?),
         title: clean_title(&title, "Codex chat"),
         cwd: row.get(2)?,
@@ -514,7 +567,7 @@ fn claude_sessions(root: &Path, result: &mut Snapshot) -> Result<(), String> {
             };
             target
         } else {
-            ChatTarget::ClaudeTerminal(session.session_id)
+            ChatTarget::ClaudeTerminal(session.session_id.clone())
         };
         let activity = if !open {
             Activity::Unknown
@@ -527,6 +580,7 @@ fn claude_sessions(root: &Path, result: &mut Snapshot) -> Result<(), String> {
             }
         };
         result.items.push(Session {
+            source_id: session.session_id,
             target,
             title: clean_title(&session.name, "Claude chat"),
             cwd: session.cwd,
@@ -539,7 +593,7 @@ fn claude_sessions(root: &Path, result: &mut Snapshot) -> Result<(), String> {
     Ok(())
 }
 
-fn clean_title(value: &str, fallback: &str) -> String {
+pub(super) fn clean_title(value: &str, fallback: &str) -> String {
     let title: String = value
         .chars()
         .filter(|c| !c.is_control())
