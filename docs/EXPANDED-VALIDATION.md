@@ -306,3 +306,16 @@ and stdout. Both launched processes exited, descendants were reaped, and channel
 This did not register a task, protocol handler or install, and did not contact an SSH account or main.
 Actual cross-machine SSH shell/profile behavior remains a rollout check; local shell success does not
 prove that external configuration. No licensing, packaging or long reliability run was started.
+
+## Phone privacy checks after a clock change (2026-10-19)
+
+Both the phone worker's one-minute refresh and the core publication gate accepted future-dated
+protection checks after a backward clock adjustment. They now share a check requiring nonnegative,
+bounded age; overflow also fails closed. A fresh successful topic check restores normal delivery.
+
+Five focused phone service tests pass on Windows and Linux, including the new clock rollback and exact-expiry
+case. It verifies that no phone token is minted while the previous privacy check is in the future,
+that a fresh check restores notification preparation, and that the one-minute refresh/two-minute
+publication boundaries expire exactly. Core/daemon all-target Clippy passes on Windows. These checks
+use an in-memory store and a controlled clock; the computer's clock and phone configuration were not
+changed, and no external service was contacted.

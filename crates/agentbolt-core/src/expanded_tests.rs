@@ -871,6 +871,63 @@ fn enable_phone(t: &T) -> String {
 }
 
 #[test]
+fn phone_privacy_check_is_not_fresh_after_clock_rollback_or_expiry() {
+    let t = T::new();
+    let generation = enable_phone(&t);
+    let agent = t.register("phone-clock");
+    let mut input = t.input("Check privacy before sending");
+    input.priority = Priority::P1;
+    let id = t.ask(&agent, input).id;
+    t.advance(Duration::milliseconds(-1));
+    let ResultValue::State(state) = t.svc.phone_work("", Work::State).unwrap() else {
+        panic!("state")
+    };
+    let previous_check = state.health.protected_at.unwrap();
+    assert!(!state.health.protection_recent(previous_check - 1, 60_000));
+    assert!(t.svc.phone_work(&generation, Work::Prepare).is_err());
+    let minted: u32 = t
+        .svc
+        .conn_for_tests()
+        .query_row(
+            "SELECT COUNT(*) FROM toasts WHERE purpose='phone'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        minted, 0,
+        "an unverified privacy state must not mint phone buttons"
+    );
+
+    t.svc.phone_work(&generation, Work::Verified).unwrap();
+    let ResultValue::Notification(Some(notification)) =
+        t.svc.phone_work(&generation, Work::Prepare).unwrap()
+    else {
+        panic!("a new protection check should allow publication")
+    };
+    assert_eq!(notification.ask_id, id);
+    t.advance(Duration::milliseconds(60_000));
+    let ResultValue::State(state) = t.svc.phone_work("", Work::State).unwrap() else {
+        panic!("state")
+    };
+    let now = state.health.protected_at.unwrap() + 60_000;
+    assert!(
+        !state.health.protection_recent(now, 60_000),
+        "the network worker must recheck at one minute"
+    );
+    assert!(
+        state
+            .health
+            .protection_recent(now, phone::PROTECTION_TTL_MS)
+    );
+    t.advance(Duration::milliseconds(phone::PROTECTION_TTL_MS - 60_000));
+    assert!(
+        t.svc.phone_work(&generation, Work::Prepare).is_err(),
+        "the publication gate must expire at its boundary"
+    );
+}
+
+#[test]
 fn phone_receipts_cannot_answer_until_desk_consumption_and_tokens_are_purpose_bound() {
     let t = T::new();
     let generation = enable_phone(&t);

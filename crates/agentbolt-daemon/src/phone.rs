@@ -58,11 +58,7 @@ async fn cycle(shared: &Arc<Shared>, state: State) -> Result<(), String> {
         }
     }
     let now = agentbolt_core::store::to_ms(time::OffsetDateTime::now_utc());
-    if !state
-        .health
-        .protected_at
-        .is_some_and(|at| now.saturating_sub(at) < 60_000)
-    {
+    if !state.health.protection_recent(now, 60_000) {
         let config = cfg.clone();
         tokio::task::spawn_blocking(move || protection(&config))
             .await

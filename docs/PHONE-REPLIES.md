@@ -24,6 +24,8 @@ endpoints: anonymous reads must be refused and its configured account must be ac
 publishes an anonymous probe. Publishing ACLs remain the server administrator's responsibility.
 All requests use HTTPS, refuse redirects, have deadlines and bounded response sizes. Errors shown
 in the Desk contain no upstream response bodies, credentials or answer tokens.
+If the system clock moves backward, the previous protection check is treated as unknown and must be
+repeated before another question can be sent.
 
 Questions include the owner, full question, suggested answer, options, evidence, deadline and stable
 ask ID when this fits the phone message. Reversible choose/approve questions with at most three short

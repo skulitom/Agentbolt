@@ -53,6 +53,14 @@ pub struct Health {
     pub published_at: Option<i64>,
     pub error: Option<String>,
 }
+impl Health {
+    /// A wall-clock rollback must trigger a fresh privacy check, not extend an earlier check's life.
+    pub fn protection_recent(&self, now: i64, max_age_ms: i64) -> bool {
+        self.protected_at
+            .and_then(|at| now.checked_sub(at))
+            .is_some_and(|age| (0..max_age_ms).contains(&age))
+    }
+}
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Status {
     pub settings: Settings,
@@ -450,10 +458,7 @@ pub fn work(
             health.error = Some(rules::clean_line(&message, 300));
         }
         Work::Prepare => {
-            if !health
-                .protected_at
-                .is_some_and(|at| now.saturating_sub(at) < PROTECTION_TTL_MS)
-            {
+            if !health.protection_recent(now, PROTECTION_TTL_MS) {
                 return Err("phone topic protection has not been verified".into());
             }
             return prepare(db, now, secret).map(ResultValue::Notification);
