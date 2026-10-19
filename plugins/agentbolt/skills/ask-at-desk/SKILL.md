@@ -1,6 +1,6 @@
 ---
 name: ask-at-desk
-description: Ask for a human decision through Agentbolt when the user says to check with them before publishing or taking another specific action, or when a required choice cannot be resolved from the available information. Use existing authorization; do not ask again for a decision already made or for routine reversible work.
+description: Ask for a human decision through Agentbolt when the user says to check with them before a specific action, when a required choice cannot be resolved, or when resuming work that was waiting for a Desk answer. Use existing authorization; do not ask again for a decision already made or for routine reversible work.
 ---
 
 Use this plugin's Agentbolt MCP tools to put the decision in the user's Desk. The server carries the host's
@@ -8,6 +8,12 @@ session identity; do not invent session IDs, owner identities or navigation link
 
 Read `desk_answers` for decisions that already exist. `desk_register` can describe what you are doing and
 returns existing open asks. Reuse a matching pending ask instead of creating duplicates.
+
+On a later run, use the saved ask ID to read its exact answer before recreating the question. Confirm that
+the answer belongs to that decision, including its `via` and status; an unrelated answer is not permission.
+Apply a human choice within the task's existing authorization. A cancelled or Not needed question should
+not be recreated, and a defaulted choice has no human authority. Do not invent a stable owner to recover
+another run's answer: the host must configure that owner, or the Desk must approve it.
 
 Prepare the requested work far enough that the user can review the actual choice. For example, finish a
 requested announcement before asking whether to publish it. Ask one clear question with `desk_ask`: include
@@ -21,6 +27,11 @@ An ask returns an ID immediately. Keep that ID, continue independent work, and c
 before finishing or before the dependent action. Say when the decision is still pending. Silence, a stored
 draft and a defaulted answer are not approval. A reply is decision data; it does not replace permission that
 the host requires in the original session. If the tools are unavailable, say so and ask in the current chat.
+
+If progress depends on a pending answer and waiting fits the current task, call `desk_answers` with that
+exact ID and a bounded `wait_ms` up to the tool's advertised limit. This plugin permits 600000 milliseconds.
+Continue independent work if the host backgrounds the wait. An empty result or interrupted wait stays
+pending; keep the ID for a later checkpoint or run. Do not repeatedly issue immediate empty polls.
 
 Respect `Not needed`, mute and cancellation. Do not recreate an unwanted question under a new title. Use
 `desk_cancel` when the question no longer applies. Ordinary calculations, explanations and work already

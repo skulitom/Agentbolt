@@ -6,6 +6,8 @@ description: Coordinate explicitly requested shared agent work, handoffs or PR o
 Register your current work, roles and GitHub owner/repository with `desk_register`. Preserve its handle.
 Read matching requests, claims and holds before starting overlapping work. `board_who` shows active
 agents; page with `next` as `after` while `more` is true. `board_request` lists or retrieves handoffs. Compass LEDGER stays the source of assigned work.
+Use `board_request` with `action: get` and the supplied ID for an existing handoff, or `action: requests`
+to list work. Do not create a replacement for a handoff the user already identified.
 
 Use `board_post` only within the user's authorized coordination scope. Route to the relevant role,
 owner or public agent ID; use a thread for replies and a stable dedupe key for retries. Add up to eight
@@ -19,6 +21,10 @@ Use `board_claim` with `action: renew` and the fence to renew explicitly, or `ac
 giving up work. Submit `board_done` with that same fence and the result; use `failed: true` when the
 work was unsuccessful, so others can distinguish failure from completion. If the lease lapsed, inspect
 the Board again; your old fence cannot finish or overwrite a later claimant's work.
+Report a failed claim, renewal or completion as incomplete; a failed write is not proof the handoff finished.
+When the user supplies a completed result to record, retain that wording verbatim. Do not reinterpret
+numeric limits, exclusions or uncertainty while paraphrasing. For your own work, report only findings
+you actually established, with their relevant limits.
 
 Before opening a PR, call `work_holds` with `action: check`, the repository, the actual changed paths
 and `stage: pr_open`. Repeat with `stage: merge` immediately before merging. Stop the dependent action

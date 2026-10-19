@@ -232,3 +232,52 @@ classification and a filesystem-probe closure that must never run for remote/unk
 when the cache previously held the same ask as local. Two repository guards and core/Desk Windows
 all-target Clippy pass; Linux core all-target Clippy passes. These changes have not yet had a native UI
 or installed-upgrade check. No external integration, main-channel change or release packaging occurred.
+
+## Claude plugin recovery and coordination (2026-10-19)
+
+The decision skill now describes exact-ID answer recovery, durable host identity, bounded waits and
+pending-state handling. The coordination skill handles existing requests without duplicating them,
+requires successful fenced completion, and preserves supplied result wording. The `board_done` tool's
+schema also asks for verbatim supplied results, preserving limits and qualifiers; the saved mock catalog
+was regenerated from that same source.
+
+Claude Code 2.1.302 ran six cases with three plugin runs and three comparison runs per case. The fixtures
+use the real saved tool schemas and fixed, case-specific MCP responses, following the
+[official plugin evaluation format](https://code.claude.com/docs/en/plugin-evals). Only mocked tools are
+available in each case; no real MCP server, Desk or shell/publishing tool is started. Model and semantic
+grader calls use the normal Claude account. Reports stayed local.
+
+| Scenario | Observed plugin behavior in three runs |
+|---|---|
+| Calculation | Returns 120 minutes, invokes neither skill and asks no question. |
+| Publishing approval | Sends one approval request and keeps the action pending without a human answer. |
+| Saved answer | Reads the supplied ask ID, uses its human Python choice and does not ask again. |
+| Existing handoff | Claims and completes the supplied ID with fence 42; creates no replacement or human question. See the wording correction below. |
+| Stale work scan | Checks `src/retry.rs` for PR opening and treats unknown scan state as no clearance. |
+| Pending answer | Uses the same ask ID with a bounded positive wait; no answer remains pending without a duplicate question. |
+
+The suite completed in 581 seconds. All 18 plugin runs passed the runner's checks, with mean score 1.0
+and reported comparison delta +0.4333. The comparison has no plugin tools, so that difference does not
+isolate the effect of skill wording. Reported list-price cost was $2.5129558, not an account billing claim.
+
+Manual review nevertheless found one handoff result changing “three retries” to “three attempts.” The
+automated semantic grader had accepted it. That result was not accepted as clean evidence. The skill and
+tool description were tightened to preserve supplied facts verbatim, and the result grader now explicitly
+distinguishes retries from total attempts. A focused three-plus-three rerun completed in 85 seconds;
+all three plugin runs retained the supplied review facts exactly and used fence 42. Its reported cost
+was $0.4110306. The original finding, actual tool inputs/final replies, source/report hashes and corrected
+reruns remain in [the evidence record](PLUGIN-EVAL-2026-10-19.json).
+
+An earlier single-run probe exposed an unnecessarily prescriptive grader requiring an extra read before
+claiming a known ID. It was replaced with a check against duplicate handoff creation; the ownership,
+fence, result-content and no-question requirements remain. This adjustment is recorded in the evidence.
+
+Windows CLI's 38 unit tests and all-target Clippy pass, including the compact tool-catalog budget. Strict
+plugin validation and the tracked-file repository guard are checked alongside the final documentation.
+The wait fixtures return immediately: they prove call arguments and pending-state behavior, not a real
+ten-minute host wait. Saved-answer mocks do not prove backend persistence. Live Claude navigation/waits,
+dispatcher rollout and real PR workflow integration remain open. No licensing or release packaging ran.
+
+Automatic approval review rejected cleanup of the 44 evaluation temporary folders as “blocked by policy”
+before execution. No alternate cleanup was attempted. Their exact paths are retained in the evidence
+record; raw reports and HTML reports also remain in ignored local output folders.

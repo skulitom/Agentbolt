@@ -29,6 +29,11 @@ passes authentication, origin, durable-state, reconnect, uncertain-write and con
 the MCP command and matching text/structured results. Actual cross-machine deployment remains open.
 Remote evidence paths and chat links now stay on the originating computer, with copy controls. Board
 messages retain their original machine after sender expiry or retries; legacy origins remain unknown.
+The Claude plugin now covers saved-answer recovery, bounded waits, fenced handoffs and stale work scans
+in six mocked behavioral scenarios, repeated three times with and without the plugin. Manual review caught
+a changed numeric meaning in a recorded result; the tool/skill guidance now preserves supplied wording,
+and three focused reruns pass. See the [evaluation evidence](docs/PLUGIN-EVAL-2026-10-19.json).
+Real Claude long waits, host navigation and authorized dispatcher/workflow rollout remain open.
 Expanded security, final-candidate and live host validation remain open.
 No phone account, scan, adoption period or live workflow has been activated.
 

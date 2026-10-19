@@ -484,6 +484,7 @@
             "type": "string"
           },
           "result": {
+            "description": "Record supplied results verbatim, preserving limits and qualifiers.",
             "type": "string"
           }
         },

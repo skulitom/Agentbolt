@@ -53,7 +53,7 @@ pub fn tools() -> Vec<Tool> {
             "board_done",
             "Finish your claimed handoff",
             "Finish with fence; failed:true reports failure.",
-            json!({"type":"object","properties":{"handle":handle,"id":id,"fence":fence,"result":{"type":"string"},"failed":{"type":"boolean"}},"required":["id","fence","result"]}),
+            json!({"type":"object","properties":{"handle":handle,"id":id,"fence":fence,"result":{"type":"string","description":"Record supplied results verbatim, preserving limits and qualifiers."},"failed":{"type":"boolean"}},"required":["id","fence","result"]}),
             false,
         ),
     ]

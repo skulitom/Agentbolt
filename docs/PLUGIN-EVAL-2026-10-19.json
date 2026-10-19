@@ -1,0 +1,3039 @@
+{
+  "schemaVersion": 1,
+  "command": "claude plugin eval ./plugins/agentbolt --trust-plugin --mocks record --no-publish --runs 3 --keep-temp --json target/plugin-eval-expanded-1019.json",
+  "claudeVersion": "2.1.302",
+  "startedAt": "2026-10-19T00:35:18.856Z",
+  "durationSeconds": 581,
+  "reportedListPriceCostUsd": 2.5129558,
+  "partial": false,
+  "rawReportSha256": "f0c006ac9fdb57dcbd198c6eaec3de062b253ef07e7e1a34d37e537241026cef",
+  "pluginSourceSha256": {
+    ".claude-plugin/plugin.json": "bd01076612b865113575dbada50b3e992289bd0ac493ffc3cd885e4b5c0fe44e",
+    ".mcp.json": "df03160c77de59c5f91981c4181bafab55284ecb4e8958364670486f2e8fea6f",
+    "evals/calculation-needs-no-question/graders/correct-answer.md": "405b6574ff9c14b7b7880d097bbac2902991cf9d7e6ec7f27000b7605770329b",
+    "evals/calculation-needs-no-question/graders/no-ask.md": "0159d7564dcde3df729afe21727cc9b2eae6aa21f58abb4d6c7d02b1c1b1eefa",
+    "evals/calculation-needs-no-question/graders/no-coordination-skill.md": "90914d82eeaee7940a4280e0c33937c70dbf6a6157230eaadb530530bd351406",
+    "evals/calculation-needs-no-question/prompt.md": "719b5f977c05d167c9be48eab07ef79faeea34c7d7e5c71d55d5669f2bf85c3c",
+    "evals/check-before-publishing/graders/asks-once.md": "30d21f3e3637b6e379bfc5314d5d2557a5fc58fa8ff598b4bbbe032613d69d90",
+    "evals/check-before-publishing/graders/keeps-approval-pending.md": "1f1b6579c8f3270c32cd9ae2eb276f87061d957212e74eb6999a08bedd974fff",
+    "evals/check-before-publishing/prompt.md": "813b811c07b617dadaafdfeb9c5826542a464b7668f038ad08cddd9c2e9c4705",
+    "evals/finish-existing-handoff/graders/claim-before-done.md": "e3dfba4e77c9130c8195b6e6ae425e184218c6f0abb36def8d674faf0aef5c8f",
+    "evals/finish-existing-handoff/graders/no-duplicate-handoff.md": "f1959566b339e77add42e6535b05ea7acc0420db7d9eb92d6168ceafc3416ebf",
+    "evals/finish-existing-handoff/graders/no-human-question.md": "0159d7564dcde3df729afe21727cc9b2eae6aa21f58abb4d6c7d02b1c1b1eefa",
+    "evals/finish-existing-handoff/graders/records-result.md": "292603810440e1f7d4473bb6ed0f93bfb6e09ada7b9fa5df87c7eb1237a74256",
+    "evals/finish-existing-handoff/graders/uses-fence.md": "f00793641be7fe80bc5a9373e3b052d3c830e44a28042453d44a5e5c15e7bef7",
+    "evals/finish-existing-handoff/mocks/agentbolt/board_claim.md": "9c2fea33fbeb46505bd53494033843b6c93b9e5b1fd35862b569548e0532592f",
+    "evals/finish-existing-handoff/mocks/agentbolt/board_done.md": "86ae6a2dfff2fca604fa2833fedd86dc6887b9745472de5d3af5a50130e5f2f6",
+    "evals/finish-existing-handoff/mocks/agentbolt/board_request.md": "b4aa8c3795c39f582f370b43710246cca216bf84551eaff343c18adbcff078ba",
+    "evals/finish-existing-handoff/prompt.md": "92c5ef1558575c8899a0004948d98718dd6780a0dc193ebf49487acffda7b9a8",
+    "evals/mocks/agentbolt/_tools.json": "eca36d1f8fe4b42b418d07826de7a7e7d926973f6e3126437bea21c907599269",
+    "evals/mocks/agentbolt/desk_answers.md": "8f507c5ff0627b3acd25e82b421ef55d692e92756f3661607d21a24daf7b018b",
+    "evals/mocks/agentbolt/desk_ask.md": "a650b0f42dd40fa6fe1e8691e1ae4228432a61645e2fbc70ad355a6d4925b714",
+    "evals/mocks/agentbolt/desk_register.md": "ce44112def305f7d4537d0b3feedbec941ff961457d821d74b6875bb40bc69bc",
+    "evals/recover-saved-answer/graders/no-new-question.md": "0159d7564dcde3df729afe21727cc9b2eae6aa21f58abb4d6c7d02b1c1b1eefa",
+    "evals/recover-saved-answer/graders/reads-answer.md": "deb81fe85b4161613f6c92414ad713bfe4b487125f9262eadfe68ffb58d5a8ed",
+    "evals/recover-saved-answer/graders/uses-human-choice.md": "a2268efffc680f07c5bd8a2012e14922dc65e88e61c2763e672b25f3a17f7e76",
+    "evals/recover-saved-answer/mocks/agentbolt/desk_answers.md": "4c4b344f947425f3a1af5b0517b4525c59ce044d84b0aa511f16e36faf46c111",
+    "evals/recover-saved-answer/prompt.md": "6db4fcd1e9d0801b0b679621172af30c0719032b3650d4613d1a8ed7be95f3d3",
+    "evals/stale-holds-block-pr/graders/checks-actual-path.md": "50c570e03e0a58cb086371c9a3b25965bb9b4ba063a9387a6394ae45ec753c4a",
+    "evals/stale-holds-block-pr/graders/no-human-question.md": "0159d7564dcde3df729afe21727cc9b2eae6aa21f58abb4d6c7d02b1c1b1eefa",
+    "evals/stale-holds-block-pr/graders/not-cleared.md": "6d35870aedafbcb348881fa39328fb0ff47f36c488262c3383603ca4ecd01dae",
+    "evals/stale-holds-block-pr/mocks/agentbolt/work_holds.md": "8c7858c52adb1c7dd38fec694b1036fc277a6409b9ee2082424e64e9884a855a",
+    "evals/stale-holds-block-pr/prompt.md": "e050f80427a8666c77f6163f84db0adf4188fc6248a343dac34c6b6186a946f7",
+    "evals/wait-for-pending-answer/graders/bounded-wait.md": "b96aab0e70ada9515e6f95f17735ea73be030722da7cb2de5a755e59061a79fe",
+    "evals/wait-for-pending-answer/graders/keeps-id.md": "232d57afedabfb3c6869b02e70228dcf991c0181c550bfbfc8e2ec9baf9b8b8d",
+    "evals/wait-for-pending-answer/graders/no-new-question.md": "0159d7564dcde3df729afe21727cc9b2eae6aa21f58abb4d6c7d02b1c1b1eefa",
+    "evals/wait-for-pending-answer/graders/still-pending.md": "b50fe5b357b900c13a4fdc3193fb028f3d41ec370ff277f5cdefcca7b3d6d49c",
+    "evals/wait-for-pending-answer/mocks/agentbolt/desk_answers.md": "4dfdf0b6490eb5d9857b503d3ecc1750bc33484da7f380b8d0ae4f70d0d2114f",
+    "evals/wait-for-pending-answer/prompt.md": "c246aca71c00f7c740391f4e833eb93baffb0e71d962d4505c1dd1e7b513baf8",
+    "README.md": "a22371cc2a07f7284a9cc01c84ac01011029cb36a8b00898fb9e08f18d516640",
+    "skills/ask-at-desk/SKILL.md": "2016430cde2cb9e66e60c339cbc8c371d48bad798d6f8d60cf01d0735f64a3ad",
+    "skills/coordinate-work/SKILL.md": "7ffd95d2749b05047cadc6508fefcb18e0e48e588be89bc4bf7f6fac866ed192"
+  },
+  "aggregates": {
+    "casesTotal": 6,
+    "casesPassed": 6,
+    "overallScore": 1,
+    "overallPassRate": 1,
+    "meanDelta": 0.43333333333333335
+  },
+  "cases": [
+    {
+      "name": "calculation-needs-no-question",
+      "aggregates": {
+        "score": 1,
+        "passRate": 1,
+        "scoreWithout": 1,
+        "passRateWithout": 1,
+        "delta": 0
+      },
+      "arms": {
+        "with": [
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [],
+            "finalMessage": "There are 120 minutes in two hours.",
+            "graders": [
+              {
+                "name": "correct-answer",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched 120",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-ask",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-coordination-skill",
+                "passed": true,
+                "weight": 1,
+                "explanation": "Skill called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ],
+            "traceSha256": "0c0f4eaecf0086de47f0221969f2effc48f6ed1959b5fdc750ef933c4ff1bbbf",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-RsCTnn\\out\\trace.jsonl"
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [],
+            "finalMessage": "There are 120 minutes in two hours.",
+            "graders": [
+              {
+                "name": "correct-answer",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched 120",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-ask",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-coordination-skill",
+                "passed": true,
+                "weight": 1,
+                "explanation": "Skill called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ],
+            "traceSha256": "d3372ecbf4d681f596da3bc842fc0005dc4af8c57fca67abbdac398c412252aa",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-qUiMxu\\out\\trace.jsonl"
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [],
+            "finalMessage": "There are 120 minutes in two hours.",
+            "graders": [
+              {
+                "name": "correct-answer",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched 120",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-ask",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-coordination-skill",
+                "passed": true,
+                "weight": 1,
+                "explanation": "Skill called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ],
+            "traceSha256": "a2d5032d7577a73de212b55b7223f6e39081afa8fbadc9f85abdbee2b4042391",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-fWGBy8\\out\\trace.jsonl"
+          }
+        ],
+        "without": [
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [],
+            "finalMessage": "There are 120 minutes in two hours.",
+            "graders": [
+              {
+                "name": "correct-answer",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched 120",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-ask",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-coordination-skill",
+                "passed": true,
+                "weight": 1,
+                "explanation": "Skill called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ],
+            "traceSha256": "62da80adde7f9b6706b26188e9c343a7b9e6872501320dd9b1317fa0c119ab49",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-UjFlsM\\out\\trace.jsonl"
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [],
+            "finalMessage": "There are 120 minutes in two hours.",
+            "graders": [
+              {
+                "name": "correct-answer",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched 120",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-ask",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-coordination-skill",
+                "passed": true,
+                "weight": 1,
+                "explanation": "Skill called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ],
+            "traceSha256": "4dbd2d016a2ecfdaa73d44ed06c5cc9bdccd043e2287cf89fb60ed7bebd8059d",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-yavduu\\out\\trace.jsonl"
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [],
+            "finalMessage": "There are 120 minutes in two hours.",
+            "graders": [
+              {
+                "name": "correct-answer",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched 120",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-ask",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-coordination-skill",
+                "passed": true,
+                "weight": 1,
+                "explanation": "Skill called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ],
+            "traceSha256": "e6cc9945c341d94415e78a55d939d1ff6693faefe7d44a282240a02741ab4590",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-ICySaN\\out\\trace.jsonl"
+          }
+        ]
+      }
+    },
+    {
+      "name": "check-before-publishing",
+      "aggregates": {
+        "score": 1,
+        "passRate": 1,
+        "scoreWithout": 0.5,
+        "passRateWithout": 0,
+        "delta": 0.5
+      },
+      "arms": {
+        "with": [
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "Skill",
+                "input": {
+                  "skill": "agentbolt:ask-at-desk"
+                }
+              },
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "select:mcp__plugin_agentbolt_agentbolt__desk_answers,mcp__plugin_agentbolt_agentbolt__desk_ask,mcp__plugin_agentbolt_agentbolt__desk_register",
+                  "max_results": 3
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_register",
+                "input": {
+                  "doing": "Arranging approval to publish the Agentbolt 0.2 release announcement"
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_ask",
+                "input": {
+                  "kind": "approve",
+                  "title": "Publish the Agentbolt 0.2 release announcement?",
+                  "body": "The release announcement is ready for review:\n\n\"Agentbolt 0.2 makes questions easier to find and keeps unsent replies safe during upgrades.\"\n\nShould this be published as written? Answer Yes to approve publishing, or No to hold it. Nothing will be published without an explicit Yes.",
+                  "options": [
+                    "Yes",
+                    "No"
+                  ],
+                  "default": "No",
+                  "reversible": false,
+                  "deadline": "2026-10-22T17:00:00Z",
+                  "dedupe_key": "agentbolt-0.2-announcement-publish",
+                  "handle": "eval-handle"
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_answers",
+                "input": {
+                  "ids": [
+                    "ask_plugin_eval"
+                  ],
+                  "handle": "eval-handle"
+                }
+              }
+            ],
+            "finalMessage": "The publishing question is in your Agentbolt Desk. Nobody has answered it yet, so **the decision is still pending**.\n\n- **Ask ID:** `ask_plugin_eval`\n- **Question:** \"Publish the Agentbolt 0.2 release announcement?\" It shows the full text: *\"Agentbolt 0.2 makes questions easier to find and keeps unsent replies safe during upgrades.\"*\n- **Options:** Yes / No. I suggested No by default, so nothing goes out unless you explicitly choose Yes.\n- **Deadline:** 2026-10-22 17:00 UTC. I marked publishing as something that can't be undone, so the deadline passing won't count as a Yes or a No.\n\nI checked for answers again just now and there was nothing. Nothing has been published, and this run didn't include a publishing step. When you answer, a later run can read your decision using the ask ID above.",
+            "graders": [
+              {
+                "name": "asks-once",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 1x (expected 1..1)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "keeps-approval-pending",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ]
+              }
+            ],
+            "traceSha256": "684b69a4dd8ea35b25c3b0a4ef616138ed151a03a7ece818676f76da4e0f8d93",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-tY1uNO\\out\\trace.jsonl"
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "Skill",
+                "input": {
+                  "skill": "agentbolt:ask-at-desk"
+                }
+              },
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "select:mcp__plugin_agentbolt_agentbolt__desk_answers,mcp__plugin_agentbolt_agentbolt__desk_ask,mcp__plugin_agentbolt_agentbolt__desk_register",
+                  "max_results": 3
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_register",
+                "input": {
+                  "doing": "Awaiting approval to publish the Agentbolt 0.2 release announcement"
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_ask",
+                "input": {
+                  "kind": "approve",
+                  "title": "Publish the Agentbolt 0.2 release announcement?",
+                  "body": "The release announcement is drafted and ready:\n\n\"Agentbolt 0.2 makes questions easier to find and keeps unsent replies safe during upgrades.\"\n\nApprove publishing it as written? Choose No to hold it (you can add edits in a reply).",
+                  "options": [
+                    "Yes",
+                    "No"
+                  ],
+                  "default": "No",
+                  "reversible": false,
+                  "deadline": "2026-10-22T17:00:00Z",
+                  "handle": "eval-handle",
+                  "dedupe_key": "agentbolt-0.2-announcement-publish"
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_answers",
+                "input": {
+                  "ids": [
+                    "ask_plugin_eval"
+                  ],
+                  "handle": "eval-handle"
+                }
+              }
+            ],
+            "finalMessage": "I've put the publishing question in your Agentbolt Desk. It's **pending**: nobody has answered yet, and nothing has been published.\n\n- **Ask ID:** `ask_plugin_eval`\n- **Question:** \"Publish the Agentbolt 0.2 release announcement?\" It includes the full text: *\"Agentbolt 0.2 makes questions easier to find and keeps unsent replies safe during upgrades.\"*\n- **Options:** Yes / No. The recommended default is No.\n- **Deadline:** 2026-10-22 17:00 UTC. I marked publishing as irreversible, so the default won't apply when the deadline passes. No answer means no approval.\n\nI checked for answers once more before finishing and there were none. If you choose No, you can add edits in your reply. A later run can read your answer using the ask ID above.",
+            "graders": [
+              {
+                "name": "asks-once",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 1x (expected 1..1)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "keeps-approval-pending",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ]
+              }
+            ],
+            "traceSha256": "5f0e6b7cd6dcb5cc8f0ebed5e68e4986ed4d02acab2c9cfc5d83fcb2d1ea416d",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-NLnR4h\\out\\trace.jsonl"
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "Skill",
+                "input": {
+                  "skill": "agentbolt:ask-at-desk"
+                }
+              },
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "select:mcp__plugin_agentbolt_agentbolt__desk_answers,mcp__plugin_agentbolt_agentbolt__desk_ask,mcp__plugin_agentbolt_agentbolt__desk_register",
+                  "max_results": 3
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_register",
+                "input": {
+                  "doing": "Awaiting approval to publish the Agentbolt 0.2 release announcement",
+                  "cwd": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-2GqPeU\\home\\cwd"
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_answers",
+                "input": {}
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_ask",
+                "input": {
+                  "handle": "eval-handle",
+                  "kind": "approve",
+                  "title": "Publish the Agentbolt 0.2 release announcement?",
+                  "body": "Final announcement text:\n\n\"Agentbolt 0.2 makes questions easier to find and keeps unsent replies safe during upgrades.\"\n\nApprove to publish it as written. Choose No to hold it. Nothing is published without an explicit Yes.",
+                  "options": [
+                    "Yes",
+                    "No"
+                  ],
+                  "default": "No",
+                  "reversible": false,
+                  "deadline": "2026-10-26T17:00:00Z",
+                  "dedupe_key": "agentbolt-0.2-announcement-publish"
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_answers",
+                "input": {
+                  "ids": [
+                    "ask_plugin_eval"
+                  ],
+                  "handle": "eval-handle"
+                }
+              }
+            ],
+            "finalMessage": "The approval question is in your Agentbolt Desk and hasn't been answered yet. Nothing has been published.\n\n- **Ask ID:** `ask_plugin_eval`\n- **Question:** \"Publish the Agentbolt 0.2 release announcement?\" (Yes / No)\n- **Text you're approving:** \"Agentbolt 0.2 makes questions easier to find and keeps unsent replies safe during upgrades.\"\n- **Deadline:** 2026-10-26 17:00 UTC\n- **If no one answers:** I set the publish step as irreversible, so the default of \"No\" won't be applied automatically. When the deadline passes, it stays unanswered and not approved.\n\nWhen you answer in the Desk, a later run can read your exact reply using the ask ID above. Only an explicit \"Yes\" on that question counts as approval to publish.",
+            "graders": [
+              {
+                "name": "asks-once",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 1x (expected 1..1)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "keeps-approval-pending",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ]
+              }
+            ],
+            "traceSha256": "bdf4252fe84cf0bed4a29ce6e24e863127ca54a12d9121b2d2c858234ebee065",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-2GqPeU\\out\\trace.jsonl"
+          }
+        ],
+        "without": [
+          {
+            "score": 0.5,
+            "passed": false,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "Glob",
+                "input": {
+                  "pattern": "**/*"
+                }
+              },
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "approval request ask user notify message",
+                  "max_results": 10
+                }
+              }
+            ],
+            "finalMessage": "I couldn't put the approval request anywhere you can answer it later. I have no messaging, ticketing, or approval tool in this session, and no way to write files myself. The working directory is an empty repo with nothing set up for approvals, so I didn't invent a place for it there.\n\n**Status: waiting for your approval. Nothing has been published or sent anywhere.**\n\nHere's the request, so it's waiting for you in this chat when you come back:\n\n> **Approve publishing this release announcement?**\n> \"Agentbolt 0.2 makes questions easier to find and keeps unsent replies safe during upgrades.\"\n> Reply **approve**, **reject**, or send edits.\n\nIf you'd rather get this somewhere else, tell me where, such as a Slack channel, an issue tracker, email, or a file in this repo. I'll need the tool or connector for that place to be enabled before I can post it.",
+            "graders": [
+              {
+                "name": "asks-once",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 1..1)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "keeps-approval-pending",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ]
+              }
+            ],
+            "traceSha256": "5d1693fc3cf18284a93872da63e8f959d77d26b8a6df3f9d3d9b265a6be7f5c6",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-oqZnm2\\out\\trace.jsonl"
+          },
+          {
+            "score": 0.5,
+            "passed": false,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "approval request notify ask user message",
+                  "max_results": 10
+                }
+              },
+              {
+                "name": "Glob",
+                "input": {
+                  "pattern": "**/*"
+                }
+              }
+            ],
+            "finalMessage": "I couldn't set up the approval anywhere outside this chat. The announcement has not been published, and nothing else was sent anywhere.\n\n**What I checked:** This session has no messaging, ticketing or notification tool, so I can't send you an approval request or file one somewhere you'd see it. The working directory is empty, so there's no approval file or queue already in place that I could add to.\n\n**What's waiting for you:**\n\n> **Approve publishing?** \"Agentbolt 0.2 makes questions easier to find and keeps unsent replies safe during upgrades.\"\n> Reply **approve**, **reject**, or send an edited version.\n\n**Where you can answer:** Reply in this chat when you're back; it stays open. Until you do, I won't publish anything or treat the announcement as approved.\n\nIf you'd rather get the request somewhere else, like Slack, email or an issue tracker, connect that tool or tell me where to send it and I'll put the request there. I could also write it to a file in the repo, but you'd only see it if you went looking.",
+            "graders": [
+              {
+                "name": "asks-once",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 1..1)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "keeps-approval-pending",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ]
+              }
+            ],
+            "traceSha256": "e6e9f469c36f6a9ac9bbad75bcfd9a88e48b9506b03761f6e7236c6f1f7be84d",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-9SfPs3\\out\\trace.jsonl"
+          },
+          {
+            "score": 0.5,
+            "passed": false,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "Glob",
+                "input": {
+                  "pattern": "**/*"
+                }
+              }
+            ],
+            "finalMessage": "I couldn't set up an approval anywhere outside this chat, so the request is waiting here for your reply.\n\n**Status: pending. Nothing has been published.**\n\nI don't have a way to reach you after this chat. I can't send messages, open tickets or post to a review queue, and the working directory is empty, with no approval file or process in it. I didn't want to leave a note somewhere you wouldn't think to look and call that arranged.\n\n**Approval needed:** Can I publish this release announcement as written?\n\n> \"Agentbolt 0.2 makes questions easier to find and keeps unsent replies safe during upgrades.\"\n\n- Reply **\"approve\"** to publish it as is.\n- Reply **\"reject\"** or send changes to have it held or revised.\n\nNothing will be published until you answer. If there's a channel you'd rather answer in, like a Slack channel, a GitHub issue or PR, or a file in a particular repo, tell me which and I'll put the request there.",
+            "graders": [
+              {
+                "name": "asks-once",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 1..1)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "keeps-approval-pending",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ]
+              }
+            ],
+            "traceSha256": "24422345059a92b99768e3140c93f2c3a54cb5c64d447f8d2597d6c623879725",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-Qawiwo\\out\\trace.jsonl"
+          }
+        ]
+      }
+    },
+    {
+      "name": "finish-existing-handoff",
+      "aggregates": {
+        "score": 1,
+        "passRate": 1,
+        "scoreWithout": 0.4000000000000001,
+        "passRateWithout": 0,
+        "delta": 0.5999999999999999
+      },
+      "arms": {
+        "with": [
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "select:mcp__plugin_agentbolt_agentbolt__board_claim,mcp__plugin_agentbolt_agentbolt__board_done",
+                  "max_results": 2
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__board_claim",
+                "input": {
+                  "id": "req_eval_review",
+                  "action": "claim"
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__board_done",
+                "input": {
+                  "id": "req_eval_review",
+                  "fence": 42,
+                  "result": "Review complete: src/retry.rs limits retries to three, and the failure path returns the last error. No code changes needed."
+                }
+              }
+            ],
+            "finalMessage": "The handoff was recorded. I claimed `req_eval_review` and marked it done with your review result:\n\n> Review complete: src/retry.rs limits retries to three, and the failure path returns the last error. No code changes needed.\n\nI didn't create a duplicate handoff, send a separate message or change any code.",
+            "graders": [
+              {
+                "name": "claim-before-done",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__board_claim@1 precedes mcp__plugin_agentbolt_agentbolt__board_done@2",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-duplicate-handoff",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__board_request called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-human-question",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "records-result",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ]
+              },
+              {
+                "name": "uses-fence",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__board_done called 1x (expected 1..1)",
+                "withOnly": false,
+                "scored": true
+              }
+            ],
+            "traceSha256": "a9aa4da813d8c582a9c048529677673fd4eb6678448cd54306e9748cc95cdd03",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-pGNDWG\\out\\trace.jsonl"
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "Skill",
+                "input": {
+                  "skill": "agentbolt:coordinate-work"
+                }
+              },
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "select:mcp__plugin_agentbolt_agentbolt__desk_register,mcp__plugin_agentbolt_agentbolt__board_request,mcp__plugin_agentbolt_agentbolt__board_claim,mcp__plugin_agentbolt_agentbolt__board_done",
+                  "max_results": 4
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_register",
+                "input": {
+                  "doing": "Recording completed review result for handoff req_eval_review",
+                  "cwd": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-QV082s\\home\\cwd",
+                  "roles": [
+                    "reviewer"
+                  ]
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__board_request",
+                "input": {
+                  "action": "get",
+                  "id": "req_eval_review"
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__board_claim",
+                "input": {
+                  "action": "claim",
+                  "id": "req_eval_review",
+                  "handle": "eval-handle"
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__board_done",
+                "input": {
+                  "id": "req_eval_review",
+                  "fence": 42,
+                  "handle": "eval-handle",
+                  "result": "Review complete: src/retry.rs bounds retries to three attempts, and the failure path returns the last error. No code changes needed."
+                }
+              }
+            ],
+            "finalMessage": "Yes, the handoff was recorded. I claimed the existing **req_eval_review** (\"Review retry handling\", `example/service`, `src/retry.rs`) and marked it done. The Board confirmed the status change and saved this result:\n\n> Review complete: src/retry.rs bounds retries to three attempts, and the failure path returns the last error. No code changes needed.\n\nOne wording issue: you said retries are limited to three, but the saved result says \"three attempts.\" That could be read as one first try plus two retries, which isn't quite what you told me. I can't edit it now that it's marked done. If the difference matters, the fix would have to be made on the Board.\n\nI didn't create a new request or send any message.",
+            "graders": [
+              {
+                "name": "claim-before-done",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__board_claim@4 precedes mcp__plugin_agentbolt_agentbolt__board_done@5",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-duplicate-handoff",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__board_request called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-human-question",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "records-result",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ]
+              },
+              {
+                "name": "uses-fence",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__board_done called 1x (expected 1..1)",
+                "withOnly": false,
+                "scored": true
+              }
+            ],
+            "traceSha256": "e0b1b97bcdaf173aa5ce7e0d7d4445090b3a6be799e8ecd27818b3ce720e14a8",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-QV082s\\out\\trace.jsonl"
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "select:mcp__plugin_agentbolt_agentbolt__board_claim,mcp__plugin_agentbolt_agentbolt__board_done",
+                  "max_results": 2
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__board_claim",
+                "input": {
+                  "id": "req_eval_review",
+                  "action": "claim"
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__board_done",
+                "input": {
+                  "id": "req_eval_review",
+                  "fence": 42,
+                  "result": "Review complete: src/retry.rs limits retries to three, and the failure path returns the last error. No code changes needed."
+                }
+              }
+            ],
+            "finalMessage": "The handoff was recorded. I claimed the existing Board handoff `req_eval_review` and marked it done. The Board stored this result:\n\n> Review complete: src/retry.rs limits retries to three, and the failure path returns the last error. No code changes needed.\n\nI didn't create a duplicate handoff or send a separate message.",
+            "graders": [
+              {
+                "name": "claim-before-done",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__board_claim@1 precedes mcp__plugin_agentbolt_agentbolt__board_done@2",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-duplicate-handoff",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__board_request called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-human-question",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "records-result",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ]
+              },
+              {
+                "name": "uses-fence",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__board_done called 1x (expected 1..1)",
+                "withOnly": false,
+                "scored": true
+              }
+            ],
+            "traceSha256": "13ae4ba441e3c1d9fb5aac89fd6a507c8fb23f01aea942984c409515c850a3e1",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-4Aqjlx\\out\\trace.jsonl"
+          }
+        ],
+        "without": [
+          {
+            "score": 0.4,
+            "passed": false,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "board handoff",
+                  "max_results": 10
+                }
+              },
+              {
+                "name": "Grep",
+                "input": {
+                  "pattern": "req_eval_review|handoff",
+                  "path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-Z20tzE\\home",
+                  "-i": true
+                }
+              }
+            ],
+            "finalMessage": "I couldn't record the handoff, so `req_eval_review` has not been updated.\n\nI don't have a Board tool in this session. A tool search for \"board handoff\" found nothing; the only extra tool available is `TaskStop`, which can't do this. I also searched the home directory for `req_eval_review` and \"handoff\" and found no matches. I didn't create a new handoff or send a message.\n\nTo get this recorded, you can either:\n- **Connect the Board integration** (MCP server or plugin) for this session and ask again. I'll take ownership of `req_eval_review` and record the result.\n- **Paste the result into the handoff yourself:**\n\n  > Review complete. `src/retry.rs` limits retries to three, and the failure path returns the last error. No code changes needed.",
+            "graders": [
+              {
+                "name": "claim-before-done",
+                "passed": false,
+                "weight": 1,
+                "explanation": "\"before\" tool mcp__plugin_agentbolt_agentbolt__board_claim never called",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-duplicate-handoff",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__board_request called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-human-question",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "records-result",
+                "passed": false,
+                "weight": 1,
+                "explanation": "no mock stand-ins were active in this run (--mocks off, or no mocks/ directory applies to this case) — a mock_calls grader has nothing to check",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "uses-fence",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__board_done called 0x (expected 1..1)",
+                "withOnly": false,
+                "scored": true
+              }
+            ],
+            "traceSha256": "eb1547a109c24ceef788dd30189b070bdeec7ac6da3c1bf67394f1e939d21272",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-Z20tzE\\out\\trace.jsonl"
+          },
+          {
+            "score": 0.4,
+            "passed": false,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "board handoff",
+                  "max_results": 10
+                }
+              },
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "+board",
+                  "max_results": 10
+                }
+              },
+              {
+                "name": "Grep",
+                "input": {
+                  "pattern": "req_eval_review",
+                  "path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-ATRbRp"
+                }
+              }
+            ],
+            "finalMessage": "No, the handoff was not recorded. I couldn't update `req_eval_review` because this session has no Board tool. I searched the available tools for anything Board- or handoff-related and found nothing; the only deferred tool is `TaskStop`. I also tried searching the workspace for `req_eval_review`, but that was denied because the session is in don't-ask mode.\n\nI didn't create a new handoff, send a message, or change any code.\n\nThis is the result to record once Board access is available:\n\n> **Review complete:** `src/retry.rs` limits retries to three, and the failure path returns the last error. No code changes needed.\n\nTo finish this, enable the Board integration (MCP server or plugin) for this session and ask again, and I'll take ownership of `req_eval_review` and post the result there. Or you can paste the result above into the handoff yourself.",
+            "graders": [
+              {
+                "name": "claim-before-done",
+                "passed": false,
+                "weight": 1,
+                "explanation": "\"before\" tool mcp__plugin_agentbolt_agentbolt__board_claim never called",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-duplicate-handoff",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__board_request called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-human-question",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "records-result",
+                "passed": false,
+                "weight": 1,
+                "explanation": "no mock stand-ins were active in this run (--mocks off, or no mocks/ directory applies to this case) — a mock_calls grader has nothing to check",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "uses-fence",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__board_done called 0x (expected 1..1)",
+                "withOnly": false,
+                "scored": true
+              }
+            ],
+            "traceSha256": "421d7aa0a312e37350ce52a291488b27830bac5004b857b2313f1883c8c2a26e",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-ATRbRp\\out\\trace.jsonl"
+          },
+          {
+            "score": 0.4,
+            "passed": false,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "board handoff",
+                  "max_results": 10
+                }
+              },
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "+board",
+                  "max_results": 10
+                }
+              },
+              {
+                "name": "Grep",
+                "input": {
+                  "pattern": "req_eval_review",
+                  "path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-OK4zAF\\home"
+                }
+              }
+            ],
+            "finalMessage": "I didn't record the handoff. No Board tool is available in this session, so I couldn't take ownership of `req_eval_review` or update it. The only extra tool I can load is `TaskStop`, which stops background tasks. I also searched the workspace for `req_eval_review` and found nothing that refers to it locally.\n\nI didn't create a new handoff, send a message, or change any code.\n\nHere's the result to record once a Board integration is available, or you can paste it into the handoff yourself:\n\n> **Review complete:** `src/retry.rs` limits retries to three, and the failure path returns the last error. No code changes needed.\n\nIf you connect the Board tool and start a new session, I can record it there.",
+            "graders": [
+              {
+                "name": "claim-before-done",
+                "passed": false,
+                "weight": 1,
+                "explanation": "\"before\" tool mcp__plugin_agentbolt_agentbolt__board_claim never called",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-duplicate-handoff",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__board_request called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-human-question",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "records-result",
+                "passed": false,
+                "weight": 1,
+                "explanation": "no mock stand-ins were active in this run (--mocks off, or no mocks/ directory applies to this case) — a mock_calls grader has nothing to check",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "uses-fence",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__board_done called 0x (expected 1..1)",
+                "withOnly": false,
+                "scored": true
+              }
+            ],
+            "traceSha256": "7e51683d0a80479156833ffb1f1392006695d8699d9eca5a2b0424541f493a55",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-OK4zAF\\out\\trace.jsonl"
+          }
+        ]
+      }
+    },
+    {
+      "name": "recover-saved-answer",
+      "aggregates": {
+        "score": 1,
+        "passRate": 1,
+        "scoreWithout": 0.3333333333333333,
+        "passRateWithout": 0,
+        "delta": 0.6666666666666667
+      },
+      "arms": {
+        "with": [
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "Skill",
+                "input": {
+                  "skill": "agentbolt:ask-at-desk"
+                }
+              },
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "select:mcp__plugin_agentbolt_agentbolt__desk_answers",
+                  "max_results": 1
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_answers",
+                "input": {
+                  "ids": [
+                    "ask_eval_language"
+                  ]
+                }
+              }
+            ],
+            "finalMessage": "The saved Desk answer for `ask_eval_language` (\"Which language for the documentation example?\") is **Python**. It was answered through the Desk with the note \"Use Python for this example.\"\n\n```python\nprint(\"Hello, world!\")\n```",
+            "graders": [
+              {
+                "name": "no-new-question",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "reads-answer",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_answers called 1x (expected 1..∞)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "uses-human-choice",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ]
+              }
+            ],
+            "traceSha256": "ce3e2227152912ef5be738bc9c1287fc1ce8b8222be2ef07c8dc47ef6e85955b",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-3En52W\\out\\trace.jsonl"
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "Skill",
+                "input": {
+                  "skill": "agentbolt:ask-at-desk"
+                }
+              },
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "select:mcp__plugin_agentbolt_agentbolt__desk_answers",
+                  "max_results": 1
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_answers",
+                "input": {
+                  "ids": [
+                    "ask_eval_language"
+                  ]
+                }
+              }
+            ],
+            "finalMessage": "The saved Desk answer for `ask_eval_language` is **Python**. It was answered by a human through the Desk with the note \"Use Python for this example.\"\n\n```python\nprint(\"Hello, world!\")\n```",
+            "graders": [
+              {
+                "name": "no-new-question",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "reads-answer",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_answers called 1x (expected 1..∞)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "uses-human-choice",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ]
+              }
+            ],
+            "traceSha256": "adb97f92428a0e6934e2652acb08743056cd86f278ba314bfa7aac849c7ed772",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-S6wXpY\\out\\trace.jsonl"
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "Skill",
+                "input": {
+                  "skill": "agentbolt:ask-at-desk"
+                }
+              },
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "select:mcp__plugin_agentbolt_agentbolt__desk_answers",
+                  "max_results": 1
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_answers",
+                "input": {
+                  "ids": [
+                    "ask_eval_language"
+                  ]
+                }
+              }
+            ],
+            "finalMessage": "The Desk answer for `ask_eval_language` (\"Which language for the documentation example?\") is **Python**. It's marked answered and came in through the Desk, with the note \"Use Python for this example.\"\n\n```python\nprint(\"Hello, world!\")\n```",
+            "graders": [
+              {
+                "name": "no-new-question",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "reads-answer",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_answers called 1x (expected 1..∞)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "uses-human-choice",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ]
+              }
+            ],
+            "traceSha256": "a8fb6005bb4449b17698df57ae1a841a2b184e2446ec6850c2bb3d51f425c4b4",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-6CXTyW\\out\\trace.jsonl"
+          }
+        ],
+        "without": [
+          {
+            "score": 0.3333333333333333,
+            "passed": false,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "Grep",
+                "input": {
+                  "pattern": "ask_eval_language",
+                  "path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-skbgYz",
+                  "output_mode": "content"
+                }
+              },
+              {
+                "name": "Glob",
+                "input": {
+                  "pattern": "**/*",
+                  "path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-skbgYz\\config\\projects\\C--Users-artem-AppData-Local-Temp-claude-eval-skbgYz-home\\memory"
+                }
+              },
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "desk decision answer",
+                  "max_results": 5
+                }
+              },
+              {
+                "name": "Glob",
+                "input": {
+                  "pattern": "**/*"
+                }
+              }
+            ],
+            "finalMessage": "I couldn't read the saved answer for `ask_eval_language`, so I haven't written the example. Picking a language myself would just be a guess.\n\nHere's what I tried:\n- **The Desk:** no Desk tool is available in this session, so I can't look up the decision directly.\n- **Searching for the decision ID:** the search was denied because the session is running in don't-ask mode.\n- **My memory directory:** reading it was denied too.\n- **The working directory:** it's empty, with no saved decision file.\n\nTo fix this, either turn on the Desk tool or allow reading the memory directory, and I'll read the answer and give you the one-liner. Or, if you paste in the saved answer, I'll use it as-is.",
+            "graders": [
+              {
+                "name": "no-new-question",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "reads-answer",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_answers called 0x (expected 1..∞)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "uses-human-choice",
+                "passed": false,
+                "weight": 1,
+                "explanation": "judge votes: FAIL FAIL FAIL",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  false,
+                  false,
+                  false
+                ]
+              }
+            ],
+            "traceSha256": "254eb88beb1df17935e4910556969704a6a0a87933603904b5d22632e95c0798",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-skbgYz\\out\\trace.jsonl"
+          },
+          {
+            "score": 0.3333333333333333,
+            "passed": false,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "Grep",
+                "input": {
+                  "pattern": "ask_eval_language",
+                  "path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-6e0PNG",
+                  "output_mode": "content"
+                }
+              },
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "desk decision",
+                  "max_results": 5
+                }
+              },
+              {
+                "name": "Read",
+                "input": {
+                  "file_path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-6e0PNG\\config\\projects\\C--Users-artem-AppData-Local-Temp-claude-eval-6e0PNG-home\\memory\\MEMORY.md"
+                }
+              },
+              {
+                "name": "Glob",
+                "input": {
+                  "pattern": "**/*",
+                  "path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-6e0PNG\\home\\cwd"
+                }
+              }
+            ],
+            "finalMessage": "I couldn't find the saved answer for `ask_eval_language`, so I haven't written the example.\n\nHere's what I tried:\n- **The Desk:** none of my tools connect to it. I searched for a Desk or decision tool and found nothing.\n- **Memory:** permission settings blocked me from reading the memory directory, so I couldn't check whether the answer was saved there.\n- **Working directory:** `home\\cwd` is empty, so no file holds the answer.\n- **Searching for the decision ID:** the search tool is denied in this mode.\n\nI won't guess the language, because then the example wouldn't match what was actually decided. Any one of these would let me finish:\n1. Paste or tell me the saved answer from the Desk.\n2. Allow reading the memory directory, if the answer was saved there.\n3. Reconnect whatever integration gives access to the Desk.\n\nOnce I have the answer, I'll reply with just the one-line hello-world in that language.",
+            "graders": [
+              {
+                "name": "no-new-question",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "reads-answer",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_answers called 0x (expected 1..∞)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "uses-human-choice",
+                "passed": false,
+                "weight": 1,
+                "explanation": "judge votes: FAIL FAIL FAIL",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  false,
+                  false,
+                  false
+                ]
+              }
+            ],
+            "traceSha256": "3117c62bc9160a85d53667daa55fdcfadba012d7416b1e0bb26563ad04db990a",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-6e0PNG\\out\\trace.jsonl"
+          },
+          {
+            "score": 0.3333333333333333,
+            "passed": false,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "Grep",
+                "input": {
+                  "pattern": "ask_eval_language",
+                  "path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-eg4yR6",
+                  "output_mode": "content"
+                }
+              },
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "desk decision",
+                  "max_results": 5
+                }
+              },
+              {
+                "name": "Read",
+                "input": {
+                  "file_path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-eg4yR6\\config\\projects\\C--Users-artem-AppData-Local-Temp-claude-eval-eg4yR6-home\\memory\\MEMORY.md"
+                }
+              },
+              {
+                "name": "Glob",
+                "input": {
+                  "pattern": "**/*"
+                }
+              }
+            ],
+            "finalMessage": "I couldn't find the saved answer for `ask_eval_language`, so I haven't given you the example.\n\n- **No Desk tool:** I don't have any tool for reading decisions from the Desk, and searching the deferred tools for one found nothing.\n- **No local copy:** The permission mode blocked my search for `ask_eval_language`. It also blocked reading the memory index. The working directory has no files that might hold the answer.\n\nI didn't want to guess a language and present it as your earlier choice. You said not to choose again, so to keep going I need one of these:\n\n- reconnect or enable the Desk tool for this session so I can read the answer;\n- allow file search in the eval directory, in case the answer was saved locally;\n- or paste the saved answer here.\n\nAs soon as I can read it, I'll reply with the one-line hello-world in that language.",
+            "graders": [
+              {
+                "name": "no-new-question",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "reads-answer",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_answers called 0x (expected 1..∞)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "uses-human-choice",
+                "passed": false,
+                "weight": 1,
+                "explanation": "judge votes: FAIL FAIL FAIL",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  false,
+                  false,
+                  false
+                ]
+              }
+            ],
+            "traceSha256": "1946e32d5bcdbb9d4c0146b8239ae6f82b08936cd34467243fee1535f904b85b",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-eg4yR6\\out\\trace.jsonl"
+          }
+        ]
+      }
+    },
+    {
+      "name": "stale-holds-block-pr",
+      "aggregates": {
+        "score": 1,
+        "passRate": 1,
+        "scoreWithout": 0.6666666666666666,
+        "passRateWithout": 0,
+        "delta": 0.33333333333333337
+      },
+      "arms": {
+        "with": [
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "Skill",
+                "input": {
+                  "skill": "agentbolt:coordinate-work"
+                }
+              },
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "select:mcp__plugin_agentbolt_agentbolt__work_holds,mcp__plugin_agentbolt_agentbolt__desk_register",
+                  "max_results": 2
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_register",
+                "input": {
+                  "doing": "Final PR overlap check for src/retry.rs (no PR open)",
+                  "repo": "example/service"
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__work_holds",
+                "input": {
+                  "action": "check",
+                  "repo": "example/service",
+                  "paths": [
+                    "src/retry.rs"
+                  ],
+                  "stage": "pr_open",
+                  "handle": "eval-handle"
+                }
+              }
+            ],
+            "finalMessage": "The PR is **not clear to open** yet.\n\nI ran the overlap check on `example/service` for `src/retry.rs` at the PR-open stage:\n\n- **Overlaps:** none found.\n- **Result:** not clear. The scan of the monitored working copy at `C:/fixture/work` is stale, so we don't know what's in it right now, and a stale scan doesn't count as clearance.\n\nSo nothing conflicts as far as we know, but one working copy wasn't actually checked, and it could hold overlapping edits to `src/retry.rs`.\n\nI didn't open the PR, create any work items or claims, or post anything to the coordination board. The only other thing I did was register this session with the coordination service, which the check needs. I can't refresh or remove another person's working-copy scan, so the next step is for whoever runs the scanner on `C:/fixture/work` to refresh it. Then run the check again, and the PR is clear to open if it comes back with no overlaps and nothing unknown.",
+            "graders": [
+              {
+                "name": "checks-actual-path",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__work_holds called 1x (expected 1..∞)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-human-question",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "not-cleared",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ]
+              }
+            ],
+            "traceSha256": "5d2225510cb76451b5c11d94a4195ec1b49041f32722cdd526511e7d803d8b21",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-b6y6oL\\out\\trace.jsonl"
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "Skill",
+                "input": {
+                  "skill": "agentbolt:coordinate-work",
+                  "args": "PR overlap check for example/service, changed file src/retry.rs. Do not open PR or create new work."
+                }
+              },
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "select:mcp__plugin_agentbolt_agentbolt__desk_register,mcp__plugin_agentbolt_agentbolt__work_holds",
+                  "max_results": 2
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_register",
+                "input": {
+                  "doing": "Final PR-open overlap check for src/retry.rs",
+                  "repo": "example/service",
+                  "cwd": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-PmRLim\\home\\cwd"
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__work_holds",
+                "input": {
+                  "action": "check",
+                  "repo": "example/service",
+                  "paths": [
+                    "src/retry.rs"
+                  ],
+                  "stage": "pr_open",
+                  "handle": "eval-handle"
+                }
+              }
+            ],
+            "finalMessage": "**The PR is not clear to open yet.**\n\nI ran the `pr_open` overlap check for `example/service` against `src/retry.rs`:\n\n- **No overlaps found:** no hold in the scan touches `src/retry.rs`.\n- **One working copy couldn't be checked:** the scan for `C:/fixture/work` is stale, so I can't tell whether that copy is editing `src/retry.rs`. A stale scan doesn't count as clearance, so the check came back \"not clear.\"\n\nI didn't open the PR, and I didn't create any requests, claims or holds.\n\nTo clear it, `C:/fixture/work` needs a fresh scan, either by refreshing its monitoring or by whoever owns that checkout. Once that's done, rerun the same check. If it comes back clear, the PR can be opened, and the check needs to run again with `stage: merge` right before merging.",
+            "graders": [
+              {
+                "name": "checks-actual-path",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__work_holds called 1x (expected 1..∞)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-human-question",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "not-cleared",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ]
+              }
+            ],
+            "traceSha256": "995f9a1a83cd018abd4b94ecc6917e496cb0e3db2a851b894657fd1996ecc418",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-PmRLim\\out\\trace.jsonl"
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "Skill",
+                "input": {
+                  "skill": "agentbolt:coordinate-work",
+                  "args": "PR overlap check for example/service, changed file src/retry.rs. Check only; do not open PR or create work."
+                }
+              },
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "select:mcp__plugin_agentbolt_agentbolt__work_holds,mcp__plugin_agentbolt_agentbolt__desk_register",
+                  "max_results": 2
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__work_holds",
+                "input": {
+                  "action": "check",
+                  "repo": "example/service",
+                  "paths": [
+                    "src/retry.rs"
+                  ],
+                  "stage": "pr_open"
+                }
+              }
+            ],
+            "finalMessage": "**Not clear to open the PR.**\n\nI ran the overlap check for `example/service` with the only changed path, `src/retry.rs`, at the `pr_open` stage:\n\n- **Overlaps found:** none.\n- **Scan status:** unknown. The scan of the monitored working copy at `C:/fixture/work` is stale.\n\nA stale scan is not a clearance. That checkout hasn't been rescanned recently, so it could have uncommitted edits to `src/retry.rs` that the check can't see.\n\nAs you asked, I didn't open the PR, register with the coordination desk, claim anything or post anything. To get a clear answer, refresh the scan for `C:/fixture/work` (or have the person who owns that checkout confirm it doesn't touch `src/retry.rs`), then run the check again. Before merging, the check also needs to run again at the `merge` stage.",
+            "graders": [
+              {
+                "name": "checks-actual-path",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__work_holds called 1x (expected 1..∞)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-human-question",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "not-cleared",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ]
+              }
+            ],
+            "traceSha256": "c9f2cbd0a4bccbd1fee9e9268b4f2a2d03c75d500ccc7fbdea588d0401f4fb54",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-Y2tPwO\\out\\trace.jsonl"
+          }
+        ],
+        "without": [
+          {
+            "score": 0.6666666666666666,
+            "passed": false,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "Glob",
+                "input": {
+                  "pattern": "**/*"
+                }
+              },
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "working copies overlap monitor",
+                  "max_results": 5
+                }
+              },
+              {
+                "name": "Glob",
+                "input": {
+                  "pattern": "**/*",
+                  "path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-mCElkL"
+                }
+              }
+            ],
+            "finalMessage": "I couldn't run the overlap check, so I can't tell you the PR is clear to open.\n\n- **No tool for it:** I don't have anything that can list or query the monitored working copies for example/service. I searched the available tools for one and found nothing.\n- **Nothing to inspect locally:** the current working directory has no files, so example/service isn't checked out here. My attempt to look in the folder above it was blocked by the permission mode.\n\nI didn't open the PR or create any new work.\n\nTo finish the check, either:\n1. Turn on whatever connects to the monitored working copies (a plugin or MCP server, for example), or allow access to where they live, and I'll rerun it. I'd look for any copy with uncommitted or unpushed changes to `src/retry.rs`, plus any open branch or PR that touches that file.\n2. Or check it yourself: look for active work touching `src/retry.rs` in example/service. If there is none, the PR is clear to open.",
+            "graders": [
+              {
+                "name": "checks-actual-path",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__work_holds called 0x (expected 1..∞)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-human-question",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "not-cleared",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ]
+              }
+            ],
+            "traceSha256": "63cc59f512b335107b61aa31af23fdf88d252361c9e201bc6621803f74d2df1f",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-mCElkL\\out\\trace.jsonl"
+          },
+          {
+            "score": 0.6666666666666666,
+            "passed": false,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "working copies overlap monitor",
+                  "max_results": 10
+                }
+              },
+              {
+                "name": "Glob",
+                "input": {
+                  "pattern": "**/*",
+                  "path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-0iqXmK\\home"
+                }
+              },
+              {
+                "name": "Glob",
+                "input": {
+                  "pattern": "**/*",
+                  "path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-0iqXmK\\config"
+                }
+              },
+              {
+                "name": "Read",
+                "input": {
+                  "file_path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-0iqXmK\\home\\.git\\commondir"
+                }
+              },
+              {
+                "name": "Read",
+                "input": {
+                  "file_path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-0iqXmK\\home\\.git\\config"
+                }
+              }
+            ],
+            "finalMessage": "I couldn't run the overlap check, so I can't tell you the PR is clear to open.\n\n- **No monitoring tool here.** None of my tools can see the monitored working copies. I searched for one and found nothing.\n- **The repo isn't on this machine.** The workspace has only an empty git stub: a `.gitconfig`, a minimal `.git` and no commits. There's no checkout of `example/service`, no `src/retry.rs`, and no other working copies I could compare against.\n- **One folder was off limits.** Access to the config directory was denied, so I couldn't look there either.\n\nI didn't open the PR or create anything.\n\nTo get a real answer, either connect the tool that tracks those working copies or point me to local paths where they're checked out. Then I can check whether any of them change `src/retry.rs`. Until then, the overlap status is unknown.",
+            "graders": [
+              {
+                "name": "checks-actual-path",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__work_holds called 0x (expected 1..∞)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-human-question",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "not-cleared",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ]
+              }
+            ],
+            "traceSha256": "f5aeb77aea61280065d71c1dfe6e5dce28d427ce0bcf806ccbf15fce160c242c",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-0iqXmK\\out\\trace.jsonl"
+          },
+          {
+            "score": 0.6666666666666666,
+            "passed": false,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "Glob",
+                "input": {
+                  "pattern": "**/*",
+                  "path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-zVczQg\\home"
+                }
+              },
+              {
+                "name": "Read",
+                "input": {
+                  "file_path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-zVczQg\\home\\.git\\commondir"
+                }
+              },
+              {
+                "name": "Read",
+                "input": {
+                  "file_path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-zVczQg\\home\\.git\\config"
+                }
+              },
+              {
+                "name": "Glob",
+                "input": {
+                  "pattern": "**/*",
+                  "path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-zVczQg"
+                }
+              },
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "working copies overlap monitor repository",
+                  "max_results": 10
+                }
+              },
+              {
+                "name": "Glob",
+                "input": {
+                  "pattern": "**/*",
+                  "path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-zVczQg\\home\\cwd"
+                }
+              }
+            ],
+            "finalMessage": "I couldn't run the overlap check, so I can't tell you the PR is clear to open.\n\nNothing I can reach shows the monitored working copies for `example/service`:\n\n- **No monitoring tool:** I have no tool for listing or querying monitored working copies, and searching the available tools for one found nothing.\n- **Local files:** `home\\cwd` is empty, and `home` holds only a `.gitconfig` and a bare-bones `.git` with no remote set. There's no clone of `example/service` here and nothing that refers to it.\n- **Wider search:** a file search of the parent temp directory was denied by the current permission mode, so I stopped there.\n\nI haven't seen any other working copy's changes, so I can't say whether anyone else is touching `src/retry.rs`. \"No overlap found\" would be wrong here: no check actually ran.\n\nTo finish the check, I need one of these:\n1. The tool or integration that exposes the monitored working copies (an MCP server, CLI or dashboard) connected to this session.\n2. The paths to the monitored clones, plus permission to read them, so I can check each one for changes to `src/retry.rs`.\n3. Their current status pasted here, for example `git status` and `git diff --stat` from each one.\n\nI didn't open the PR or create any work.",
+            "graders": [
+              {
+                "name": "checks-actual-path",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__work_holds called 0x (expected 1..∞)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-human-question",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "not-cleared",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ]
+              }
+            ],
+            "traceSha256": "25c32ee1cc1861048d6650ab37ae0d6ab7b5325ef167fa21d87d6cec38465d41",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-zVczQg\\out\\trace.jsonl"
+          }
+        ]
+      }
+    },
+    {
+      "name": "wait-for-pending-answer",
+      "aggregates": {
+        "score": 1,
+        "passRate": 1,
+        "scoreWithout": 0.5,
+        "passRateWithout": 0,
+        "delta": 0.5
+      },
+      "arms": {
+        "with": [
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "select:mcp__plugin_agentbolt_agentbolt__desk_answers",
+                  "max_results": 1
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_answers",
+                "input": {
+                  "ids": [
+                    "ask_eval_waiting"
+                  ],
+                  "wait_ms": 600000
+                }
+              }
+            ],
+            "finalMessage": "No reply came back for `ask_eval_waiting`. I waited the maximum 10 minutes using the Desk's waiting call, and the question is still listed as waiting.\n\n- **Status:** still waiting. It wasn't cancelled and the Desk recognised the ID.\n- **Deployment:** stays pending. No reply doesn't count as approval, so nothing was deployed.\n- **Other actions:** I didn't create a new question.\n\nTo pick this up later, check `ask_eval_waiting` again on the Desk and deploy only if the reply is an explicit approval.",
+            "graders": [
+              {
+                "name": "bounded-wait",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_answers called 1x (expected 1..1)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "keeps-id",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_answers called 1x (expected 1..∞)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-new-question",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "still-pending",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ]
+              }
+            ],
+            "traceSha256": "8abf609d03b1d134552f38b4299dcfd5b8153b324b4f158caa5b23a8e5e99bc8",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-MajgIY\\out\\trace.jsonl"
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "select:mcp__plugin_agentbolt_agentbolt__desk_answers",
+                  "max_results": 1
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_answers",
+                "input": {
+                  "ids": [
+                    "ask_eval_waiting"
+                  ],
+                  "wait_ms": 600000
+                }
+              }
+            ],
+            "finalMessage": "I waited the maximum 10 minutes for a reply to `ask_eval_waiting` using the Desk's waiting call, and no answer came in. The question is still waiting. It wasn't cancelled and isn't unknown.\n\n**Deployment stays pending.** No reply doesn't count as approval, so I didn't deploy anything and didn't create another question.\n\nIf you want to check again later, run the same wait on `ask_eval_waiting`.",
+            "graders": [
+              {
+                "name": "bounded-wait",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_answers called 1x (expected 1..1)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "keeps-id",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_answers called 1x (expected 1..∞)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-new-question",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "still-pending",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ]
+              }
+            ],
+            "traceSha256": "f5548bf364ed06db265c453a0f80da66bdef278af57e5031aee774da7adac565",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-lJEyww\\out\\trace.jsonl"
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "select:mcp__plugin_agentbolt_agentbolt__desk_answers",
+                  "max_results": 1
+                }
+              },
+              {
+                "name": "mcp__plugin_agentbolt_agentbolt__desk_answers",
+                "input": {
+                  "ids": [
+                    "ask_eval_waiting"
+                  ],
+                  "wait_ms": 600000
+                }
+              }
+            ],
+            "finalMessage": "No reply came back for `ask_eval_waiting`. I waited the full 10 minutes allowed and the Desk still lists the question as **waiting**, with no answer and no cancellation.\n\nThat means deployment is still **pending**. No answer doesn't count as approval, so I didn't deploy anything and didn't send another question. You can check for the reply again later, and deployment can go ahead once someone approves it.",
+            "graders": [
+              {
+                "name": "bounded-wait",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_answers called 1x (expected 1..1)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "keeps-id",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_answers called 1x (expected 1..∞)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-new-question",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "still-pending",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ]
+              }
+            ],
+            "traceSha256": "3dd08abc36e5c9d38d0c8875e6a8d4d834b318c6fd350f017911e023228c7cfa",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-an0LR1\\out\\trace.jsonl"
+          }
+        ],
+        "without": [
+          {
+            "score": 0.5,
+            "passed": false,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "desk wait reply question",
+                  "max_results": 10
+                }
+              },
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "+desk",
+                  "max_results": 10
+                }
+              },
+              {
+                "name": "Grep",
+                "input": {
+                  "pattern": "(?i)desk",
+                  "path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-pwI8Qo",
+                  "head_limit": 20
+                }
+              }
+            ],
+            "finalMessage": "I couldn't wait for the reply, so I can't report a status. Deployment for `ask_eval_waiting` stays **pending**.\n\n- **No Desk tool here:** I searched the available tools for \"desk\", \"wait\", \"reply\" and \"question\" and found nothing. The only extra tool is `TaskStop`, which has nothing to do with the Desk.\n- **I couldn't look for another route:** I tried searching the workspace for a Desk command-line tool or config, but permission was denied because the session is in don't-ask mode.\n\nAs you asked, I didn't create another question and didn't deploy anything.\n\nTo finish this, connect the Desk tool (or MCP server) in this environment, or tell me the exact command for the Desk's waiting call and allow me to run it. Then I'll make that one wait on `ask_eval_waiting` and report the status.",
+            "graders": [
+              {
+                "name": "bounded-wait",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_answers called 0x (expected 1..1)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "keeps-id",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_answers called 0x (expected 1..∞)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-new-question",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "still-pending",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ]
+              }
+            ],
+            "traceSha256": "2b92fc8d54a2e0f8ed036fc6d10c2470808ef5503ae256d48cdfd2326c0fc349",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-pwI8Qo\\out\\trace.jsonl"
+          },
+          {
+            "score": 0.5,
+            "passed": false,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "desk wait reply question",
+                  "max_results": 10
+                }
+              },
+              {
+                "name": "Grep",
+                "input": {
+                  "pattern": "(?i)desk",
+                  "path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-VlWWbn",
+                  "head_limit": 30
+                }
+              }
+            ],
+            "finalMessage": "I couldn't wait for the reply to `ask_eval_waiting`. No Desk tool is available in this session. I searched the deferred tools for a Desk or wait-for-reply call and found none; the only one listed is `TaskStop`. I also tried searching the workspace for a Desk integration, but that search was blocked because the session is in don't-ask mode.\n\n- **Reply status:** unknown. I couldn't wait or check, so I have nothing to report about the reply.\n- **Deployment:** still pending. I deployed nothing.\n- **New question:** none created.\n\nTo finish this, the Desk tool or MCP server needs to be connected to the session. Once it is, re-run this and I'll make the wait call on `ask_eval_waiting` and report what comes back.",
+            "graders": [
+              {
+                "name": "bounded-wait",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_answers called 0x (expected 1..1)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "keeps-id",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_answers called 0x (expected 1..∞)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-new-question",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "still-pending",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ]
+              }
+            ],
+            "traceSha256": "16d845d296565cad30fa1c91c8f3e0ba193074fc811ef64b09219d80c6c817a3",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-VlWWbn\\out\\trace.jsonl"
+          },
+          {
+            "score": 0.5,
+            "passed": false,
+            "error": null,
+            "toolCalls": [
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "desk wait reply question",
+                  "max_results": 10
+                }
+              },
+              {
+                "name": "ToolSearch",
+                "input": {
+                  "query": "+desk",
+                  "max_results": 10
+                }
+              },
+              {
+                "name": "Grep",
+                "input": {
+                  "pattern": "(?i)desk",
+                  "path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-EPLi3R\\home",
+                  "head_limit": 30
+                }
+              }
+            ],
+            "finalMessage": "I couldn't wait for the Desk's reply because this session has no Desk tool. I searched the available tools for \"desk\", \"wait\", \"reply\" and \"question\" and found nothing. I also searched the home directory for any Desk client, script or config, and none exists.\n\nSo I don't know the status of `ask_eval_waiting`. I haven't received a reply, but that's only because I couldn't check, not because the Desk didn't answer.\n\nAs you asked, deployment stays pending. I didn't create a new question or deploy anything.\n\nTo get the status, connect the Desk integration (for example its MCP server or plugin) and run this again. Then I can make the waiting call on `ask_eval_waiting`.",
+            "graders": [
+              {
+                "name": "bounded-wait",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_answers called 0x (expected 1..1)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "keeps-id",
+                "passed": false,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_answers called 0x (expected 1..∞)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-new-question",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "still-pending",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ]
+              }
+            ],
+            "traceSha256": "25e968dc71d0ae868bf85f4c3d40cb53d6e21e4538f1e3e96525b2c283739d5b",
+            "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-EPLi3R\\out\\trace.jsonl"
+          }
+        ]
+      }
+    }
+  ],
+  "scope": "Fixed per-case MCP mocks; no real Desk, messages, publishing, shell tools or external handoffs. Real model behavior, not live MCP authentication, persistence or ten-minute duration evidence.",
+  "initialProbe": {
+    "source": "target/plugin-eval-coordination-first.json",
+    "result": "One with-plugin run correctly claimed, used fence 42 and recorded both review findings; it skipped a separate get call. The initial grader required that redundant read even though the prompt supplied the existing ID and full completed review. Replaced it with no-duplicate-handoff, retaining claim order, exact fence, result content and no-human-question checks. The mock completion now echoes the submitted result instead of substituting a generic result."
+  },
+  "manualReview": {
+    "finding": "The initial six-case runner reported all passes, but manual inspection found one completion changing three retries to three attempts (trace claude-eval-QV082s). This can change the supplied meaning and was not accepted as a clean handoff result.",
+    "change": "The coordination skill and board_done result schema now ask for supplied results verbatim. The semantic grader explicitly distinguishes retries from total attempts. Only the affected handoff case was repeated; other feature behavior is unchanged.",
+    "followup": {
+      "command": "claude plugin eval ./plugins/agentbolt --trust-plugin --mocks record --no-publish --case finish-existing-handoff --runs 3 --keep-temp --json target/plugin-eval-handoff-1019.json",
+      "claudeVersion": "2.1.302",
+      "startedAt": "2026-10-19T00:45:18.992Z",
+      "durationSeconds": 85,
+      "reportedListPriceCostUsd": 0.41103059999999997,
+      "partial": false,
+      "aggregates": {
+        "casesTotal": 1,
+        "casesPassed": 1,
+        "overallScore": 1,
+        "overallPassRate": 1,
+        "meanDelta": 0.5999999999999999
+      },
+      "rawReportSha256": "905b0ec33481f504f545030a26db4e3d43ba67bd14df0d2d15fe323226e31a7f",
+      "cases": [
+        {
+          "name": "finish-existing-handoff",
+          "aggregates": {
+            "score": 1,
+            "passRate": 1,
+            "scoreWithout": 0.4000000000000001,
+            "passRateWithout": 0,
+            "delta": 0.5999999999999999
+          },
+          "arms": {
+            "with": [
+              {
+                "score": 1,
+                "passed": true,
+                "error": null,
+                "toolCalls": [
+                  {
+                    "name": "ToolSearch",
+                    "input": {
+                      "query": "select:mcp__plugin_agentbolt_agentbolt__board_claim,mcp__plugin_agentbolt_agentbolt__board_done",
+                      "max_results": 2
+                    }
+                  },
+                  {
+                    "name": "mcp__plugin_agentbolt_agentbolt__board_claim",
+                    "input": {
+                      "id": "req_eval_review",
+                      "action": "claim"
+                    }
+                  },
+                  {
+                    "name": "mcp__plugin_agentbolt_agentbolt__board_done",
+                    "input": {
+                      "id": "req_eval_review",
+                      "fence": 42,
+                      "result": "Review complete: src/retry.rs limits retries to three, and the failure path returns the last error. No code changes are needed."
+                    }
+                  }
+                ],
+                "finalMessage": "Yes, the handoff was recorded. I claimed the existing Board handoff `req_eval_review` and marked it done. The Board confirmed it is complete and saved this result:\n\n> Review complete: src/retry.rs limits retries to three, and the failure path returns the last error. No code changes are needed.\n\nI didn't create a new handoff or send a separate message.",
+                "graders": [
+                  {
+                    "name": "claim-before-done",
+                    "passed": true,
+                    "weight": 1,
+                    "explanation": "mcp__plugin_agentbolt_agentbolt__board_claim@1 precedes mcp__plugin_agentbolt_agentbolt__board_done@2",
+                    "withOnly": false,
+                    "scored": true
+                  },
+                  {
+                    "name": "no-duplicate-handoff",
+                    "passed": true,
+                    "weight": 1,
+                    "explanation": "mcp__plugin_agentbolt_agentbolt__board_request called 0x (expected 0..0)",
+                    "withOnly": false,
+                    "scored": true
+                  },
+                  {
+                    "name": "no-human-question",
+                    "passed": true,
+                    "weight": 1,
+                    "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                    "withOnly": false,
+                    "scored": true
+                  },
+                  {
+                    "name": "records-result",
+                    "passed": true,
+                    "weight": 1,
+                    "explanation": "judge votes: PASS PASS PASS",
+                    "withOnly": false,
+                    "scored": true,
+                    "judgeVotes": [
+                      true,
+                      true,
+                      true
+                    ]
+                  },
+                  {
+                    "name": "uses-fence",
+                    "passed": true,
+                    "weight": 1,
+                    "explanation": "mcp__plugin_agentbolt_agentbolt__board_done called 1x (expected 1..1)",
+                    "withOnly": false,
+                    "scored": true
+                  }
+                ],
+                "traceSha256": "4e4201a34908e655ddaf274d30156d0697f72bf63234f55b74d981cd146e9795",
+                "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-LNANzq\\out\\trace.jsonl"
+              },
+              {
+                "score": 1,
+                "passed": true,
+                "error": null,
+                "toolCalls": [
+                  {
+                    "name": "ToolSearch",
+                    "input": {
+                      "query": "select:mcp__plugin_agentbolt_agentbolt__board_claim,mcp__plugin_agentbolt_agentbolt__board_done",
+                      "max_results": 2
+                    }
+                  },
+                  {
+                    "name": "mcp__plugin_agentbolt_agentbolt__board_claim",
+                    "input": {
+                      "id": "req_eval_review",
+                      "action": "claim"
+                    }
+                  },
+                  {
+                    "name": "mcp__plugin_agentbolt_agentbolt__board_done",
+                    "input": {
+                      "id": "req_eval_review",
+                      "fence": 42,
+                      "result": "Review complete: src/retry.rs limits retries to three, and the failure path returns the last error. No code changes are needed."
+                    }
+                  }
+                ],
+                "finalMessage": "Yes, the handoff was recorded. I claimed the existing Board handoff `req_eval_review` and marked it done with this result:\n\n> Review complete: src/retry.rs limits retries to three, and the failure path returns the last error. No code changes are needed.\n\nI didn't create a new handoff or send any message.",
+                "graders": [
+                  {
+                    "name": "claim-before-done",
+                    "passed": true,
+                    "weight": 1,
+                    "explanation": "mcp__plugin_agentbolt_agentbolt__board_claim@1 precedes mcp__plugin_agentbolt_agentbolt__board_done@2",
+                    "withOnly": false,
+                    "scored": true
+                  },
+                  {
+                    "name": "no-duplicate-handoff",
+                    "passed": true,
+                    "weight": 1,
+                    "explanation": "mcp__plugin_agentbolt_agentbolt__board_request called 0x (expected 0..0)",
+                    "withOnly": false,
+                    "scored": true
+                  },
+                  {
+                    "name": "no-human-question",
+                    "passed": true,
+                    "weight": 1,
+                    "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                    "withOnly": false,
+                    "scored": true
+                  },
+                  {
+                    "name": "records-result",
+                    "passed": true,
+                    "weight": 1,
+                    "explanation": "judge votes: PASS PASS PASS",
+                    "withOnly": false,
+                    "scored": true,
+                    "judgeVotes": [
+                      true,
+                      true,
+                      true
+                    ]
+                  },
+                  {
+                    "name": "uses-fence",
+                    "passed": true,
+                    "weight": 1,
+                    "explanation": "mcp__plugin_agentbolt_agentbolt__board_done called 1x (expected 1..1)",
+                    "withOnly": false,
+                    "scored": true
+                  }
+                ],
+                "traceSha256": "c6f367328064a4273c7a928168e3f683cae9e3ded54367aace6d2cf83fe3395d",
+                "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-q7eC2Y\\out\\trace.jsonl"
+              },
+              {
+                "score": 1,
+                "passed": true,
+                "error": null,
+                "toolCalls": [
+                  {
+                    "name": "ToolSearch",
+                    "input": {
+                      "query": "select:mcp__plugin_agentbolt_agentbolt__board_claim,mcp__plugin_agentbolt_agentbolt__board_done",
+                      "max_results": 2
+                    }
+                  },
+                  {
+                    "name": "mcp__plugin_agentbolt_agentbolt__board_claim",
+                    "input": {
+                      "id": "req_eval_review",
+                      "action": "claim"
+                    }
+                  },
+                  {
+                    "name": "mcp__plugin_agentbolt_agentbolt__board_done",
+                    "input": {
+                      "id": "req_eval_review",
+                      "fence": 42,
+                      "result": "Review complete: src/retry.rs limits retries to three, and the failure path returns the last error. No code changes are needed."
+                    }
+                  }
+                ],
+                "finalMessage": "Yes, the handoff was recorded. I claimed the existing Board handoff `req_eval_review` and marked it done with this result:\n\n> Review complete: src/retry.rs limits retries to three, and the failure path returns the last error. No code changes are needed.\n\nI didn't create a duplicate handoff, send any other message or change any code.",
+                "graders": [
+                  {
+                    "name": "claim-before-done",
+                    "passed": true,
+                    "weight": 1,
+                    "explanation": "mcp__plugin_agentbolt_agentbolt__board_claim@1 precedes mcp__plugin_agentbolt_agentbolt__board_done@2",
+                    "withOnly": false,
+                    "scored": true
+                  },
+                  {
+                    "name": "no-duplicate-handoff",
+                    "passed": true,
+                    "weight": 1,
+                    "explanation": "mcp__plugin_agentbolt_agentbolt__board_request called 0x (expected 0..0)",
+                    "withOnly": false,
+                    "scored": true
+                  },
+                  {
+                    "name": "no-human-question",
+                    "passed": true,
+                    "weight": 1,
+                    "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                    "withOnly": false,
+                    "scored": true
+                  },
+                  {
+                    "name": "records-result",
+                    "passed": true,
+                    "weight": 1,
+                    "explanation": "judge votes: PASS PASS PASS",
+                    "withOnly": false,
+                    "scored": true,
+                    "judgeVotes": [
+                      true,
+                      true,
+                      true
+                    ]
+                  },
+                  {
+                    "name": "uses-fence",
+                    "passed": true,
+                    "weight": 1,
+                    "explanation": "mcp__plugin_agentbolt_agentbolt__board_done called 1x (expected 1..1)",
+                    "withOnly": false,
+                    "scored": true
+                  }
+                ],
+                "traceSha256": "4626930a17ead80387e520420ade0fe819434800b39bafdc10972eddc81e6931",
+                "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-L8D6wR\\out\\trace.jsonl"
+              }
+            ],
+            "without": [
+              {
+                "score": 0.4,
+                "passed": false,
+                "error": null,
+                "toolCalls": [
+                  {
+                    "name": "ToolSearch",
+                    "input": {
+                      "query": "board handoff",
+                      "max_results": 10
+                    }
+                  },
+                  {
+                    "name": "Grep",
+                    "input": {
+                      "pattern": "req_eval_review",
+                      "path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-HliO3O",
+                      "output_mode": "files_with_matches"
+                    }
+                  },
+                  {
+                    "name": "ToolSearch",
+                    "input": {
+                      "query": "+mcp",
+                      "max_results": 10
+                    }
+                  }
+                ],
+                "finalMessage": "I couldn't record it. The handoff `req_eval_review` has not been updated.\n\nThere's no Board tool in this session. I searched the available tools for anything related to boards, handoffs or MCP connectors and found nothing. I also tried searching the workspace for `req_eval_review`, but the session is running in \"don't ask\" mode and that search was denied. I didn't create a new handoff, send a message, or write the result anywhere else, since you asked me only to update the existing one.\n\nTo get this recorded, either connect the Board integration (for example, its MCP server) and ask me again, or add the result to `req_eval_review` yourself:\n\n> Review complete: `src/retry.rs` limits retries to three, and the failure path returns the last error. No code changes needed.",
+                "graders": [
+                  {
+                    "name": "claim-before-done",
+                    "passed": false,
+                    "weight": 1,
+                    "explanation": "\"before\" tool mcp__plugin_agentbolt_agentbolt__board_claim never called",
+                    "withOnly": false,
+                    "scored": true
+                  },
+                  {
+                    "name": "no-duplicate-handoff",
+                    "passed": true,
+                    "weight": 1,
+                    "explanation": "mcp__plugin_agentbolt_agentbolt__board_request called 0x (expected 0..0)",
+                    "withOnly": false,
+                    "scored": true
+                  },
+                  {
+                    "name": "no-human-question",
+                    "passed": true,
+                    "weight": 1,
+                    "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                    "withOnly": false,
+                    "scored": true
+                  },
+                  {
+                    "name": "records-result",
+                    "passed": false,
+                    "weight": 1,
+                    "explanation": "no mock stand-ins were active in this run (--mocks off, or no mocks/ directory applies to this case) — a mock_calls grader has nothing to check",
+                    "withOnly": false,
+                    "scored": true
+                  },
+                  {
+                    "name": "uses-fence",
+                    "passed": false,
+                    "weight": 1,
+                    "explanation": "mcp__plugin_agentbolt_agentbolt__board_done called 0x (expected 1..1)",
+                    "withOnly": false,
+                    "scored": true
+                  }
+                ],
+                "traceSha256": "39c20c33f02b07a94b450598445e768edc07bdbb0d0994fc460d0ae649a3e351",
+                "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-HliO3O\\out\\trace.jsonl"
+              },
+              {
+                "score": 0.4,
+                "passed": false,
+                "error": null,
+                "toolCalls": [
+                  {
+                    "name": "ToolSearch",
+                    "input": {
+                      "query": "board handoff",
+                      "max_results": 10
+                    }
+                  },
+                  {
+                    "name": "ToolSearch",
+                    "input": {
+                      "query": "+board",
+                      "max_results": 10
+                    }
+                  },
+                  {
+                    "name": "Grep",
+                    "input": {
+                      "pattern": "req_eval_review",
+                      "path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-DitExr"
+                    }
+                  },
+                  {
+                    "name": "ToolSearch",
+                    "input": {
+                      "query": "handoff claim task message",
+                      "max_results": 10
+                    }
+                  }
+                ],
+                "finalMessage": "I couldn't record it: **the handoff was not recorded.** `req_eval_review` is unchanged and I didn't take ownership of it.\n\nThere's no Board tool in this session. I searched the available tools for \"board\", \"handoff\" and \"claim task message\", and the only extra tool is `TaskStop`, which just stops background tasks. I also tried to search the workspace for `req_eval_review` to see whether the Board is stored locally, but that search was blocked by the current permission mode.\n\nI didn't create a new handoff or send a message, and I made no code changes.\n\nThis is the result I would have recorded:\n\n> **Review complete.** `src/retry.rs` limits retries to three, and the failure path returns the last error. No code changes needed.\n\nTo finish this, either connect the Board integration (MCP server or plugin) so its tools are available here, or tell me where the Board's data lives so I can update `req_eval_review` directly. You could also paste the text above into the handoff yourself.",
+                "graders": [
+                  {
+                    "name": "claim-before-done",
+                    "passed": false,
+                    "weight": 1,
+                    "explanation": "\"before\" tool mcp__plugin_agentbolt_agentbolt__board_claim never called",
+                    "withOnly": false,
+                    "scored": true
+                  },
+                  {
+                    "name": "no-duplicate-handoff",
+                    "passed": true,
+                    "weight": 1,
+                    "explanation": "mcp__plugin_agentbolt_agentbolt__board_request called 0x (expected 0..0)",
+                    "withOnly": false,
+                    "scored": true
+                  },
+                  {
+                    "name": "no-human-question",
+                    "passed": true,
+                    "weight": 1,
+                    "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                    "withOnly": false,
+                    "scored": true
+                  },
+                  {
+                    "name": "records-result",
+                    "passed": false,
+                    "weight": 1,
+                    "explanation": "no mock stand-ins were active in this run (--mocks off, or no mocks/ directory applies to this case) — a mock_calls grader has nothing to check",
+                    "withOnly": false,
+                    "scored": true
+                  },
+                  {
+                    "name": "uses-fence",
+                    "passed": false,
+                    "weight": 1,
+                    "explanation": "mcp__plugin_agentbolt_agentbolt__board_done called 0x (expected 1..1)",
+                    "withOnly": false,
+                    "scored": true
+                  }
+                ],
+                "traceSha256": "2da6a58028216e2b11cc71502ed1a884b2cbd4114ffa181cadd7a5e637e8fe31",
+                "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-DitExr\\out\\trace.jsonl"
+              },
+              {
+                "score": 0.4,
+                "passed": false,
+                "error": null,
+                "toolCalls": [
+                  {
+                    "name": "ToolSearch",
+                    "input": {
+                      "query": "board handoff",
+                      "max_results": 10
+                    }
+                  },
+                  {
+                    "name": "Grep",
+                    "input": {
+                      "pattern": "req_eval_review",
+                      "path": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-j85orR"
+                    }
+                  },
+                  {
+                    "name": "ToolSearch",
+                    "input": {
+                      "query": "+board",
+                      "max_results": 10
+                    }
+                  }
+                ],
+                "finalMessage": "The handoff was not recorded. I couldn't reach the Board in this session.\n\n- **No Board tool:** I searched the available tools for anything related to the Board or handoffs and found nothing. Without one, I can't claim `req_eval_review` or update it.\n- **Local search blocked:** I tried searching the workspace for `req_eval_review` to find another way to reach it. That search was denied because the session is in don't-ask mode.\n\nI didn't create a new handoff, send a message, or change any code.\n\nTo finish this, enable the Board integration (MCP server or plugin) and re-run the request, and I'll claim `req_eval_review` and record the result. Or you can paste this into the handoff yourself:\n\n> **Review complete.** `src/retry.rs` limits retries to three attempts, and the failure path returns the last error. No code changes are needed.",
+                "graders": [
+                  {
+                    "name": "claim-before-done",
+                    "passed": false,
+                    "weight": 1,
+                    "explanation": "\"before\" tool mcp__plugin_agentbolt_agentbolt__board_claim never called",
+                    "withOnly": false,
+                    "scored": true
+                  },
+                  {
+                    "name": "no-duplicate-handoff",
+                    "passed": true,
+                    "weight": 1,
+                    "explanation": "mcp__plugin_agentbolt_agentbolt__board_request called 0x (expected 0..0)",
+                    "withOnly": false,
+                    "scored": true
+                  },
+                  {
+                    "name": "no-human-question",
+                    "passed": true,
+                    "weight": 1,
+                    "explanation": "mcp__plugin_agentbolt_agentbolt__desk_ask called 0x (expected 0..0)",
+                    "withOnly": false,
+                    "scored": true
+                  },
+                  {
+                    "name": "records-result",
+                    "passed": false,
+                    "weight": 1,
+                    "explanation": "no mock stand-ins were active in this run (--mocks off, or no mocks/ directory applies to this case) — a mock_calls grader has nothing to check",
+                    "withOnly": false,
+                    "scored": true
+                  },
+                  {
+                    "name": "uses-fence",
+                    "passed": false,
+                    "weight": 1,
+                    "explanation": "mcp__plugin_agentbolt_agentbolt__board_done called 0x (expected 1..1)",
+                    "withOnly": false,
+                    "scored": true
+                  }
+                ],
+                "traceSha256": "abed4ba22a5acac169edd59bce891a2a3460246209c57fbbc45876e5cec247dd",
+                "tracePath": "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-j85orR\\out\\trace.jsonl"
+              }
+            ]
+          }
+        }
+      ],
+      "pluginSourceSha256": {
+        ".claude-plugin/plugin.json": "bd01076612b865113575dbada50b3e992289bd0ac493ffc3cd885e4b5c0fe44e",
+        ".mcp.json": "df03160c77de59c5f91981c4181bafab55284ecb4e8958364670486f2e8fea6f",
+        "evals/calculation-needs-no-question/graders/correct-answer.md": "405b6574ff9c14b7b7880d097bbac2902991cf9d7e6ec7f27000b7605770329b",
+        "evals/calculation-needs-no-question/graders/no-ask.md": "0159d7564dcde3df729afe21727cc9b2eae6aa21f58abb4d6c7d02b1c1b1eefa",
+        "evals/calculation-needs-no-question/graders/no-coordination-skill.md": "90914d82eeaee7940a4280e0c33937c70dbf6a6157230eaadb530530bd351406",
+        "evals/calculation-needs-no-question/prompt.md": "719b5f977c05d167c9be48eab07ef79faeea34c7d7e5c71d55d5669f2bf85c3c",
+        "evals/check-before-publishing/graders/asks-once.md": "30d21f3e3637b6e379bfc5314d5d2557a5fc58fa8ff598b4bbbe032613d69d90",
+        "evals/check-before-publishing/graders/keeps-approval-pending.md": "1f1b6579c8f3270c32cd9ae2eb276f87061d957212e74eb6999a08bedd974fff",
+        "evals/check-before-publishing/prompt.md": "813b811c07b617dadaafdfeb9c5826542a464b7668f038ad08cddd9c2e9c4705",
+        "evals/finish-existing-handoff/graders/claim-before-done.md": "e3dfba4e77c9130c8195b6e6ae425e184218c6f0abb36def8d674faf0aef5c8f",
+        "evals/finish-existing-handoff/graders/no-duplicate-handoff.md": "f1959566b339e77add42e6535b05ea7acc0420db7d9eb92d6168ceafc3416ebf",
+        "evals/finish-existing-handoff/graders/no-human-question.md": "0159d7564dcde3df729afe21727cc9b2eae6aa21f58abb4d6c7d02b1c1b1eefa",
+        "evals/finish-existing-handoff/graders/records-result.md": "721082a1fa7cee28c4246976f7242555a1b4b6fcf5863f3b0f377ae0ab834fca",
+        "evals/finish-existing-handoff/graders/uses-fence.md": "f00793641be7fe80bc5a9373e3b052d3c830e44a28042453d44a5e5c15e7bef7",
+        "evals/finish-existing-handoff/mocks/agentbolt/board_claim.md": "9c2fea33fbeb46505bd53494033843b6c93b9e5b1fd35862b569548e0532592f",
+        "evals/finish-existing-handoff/mocks/agentbolt/board_done.md": "86ae6a2dfff2fca604fa2833fedd86dc6887b9745472de5d3af5a50130e5f2f6",
+        "evals/finish-existing-handoff/mocks/agentbolt/board_request.md": "b4aa8c3795c39f582f370b43710246cca216bf84551eaff343c18adbcff078ba",
+        "evals/finish-existing-handoff/prompt.md": "92c5ef1558575c8899a0004948d98718dd6780a0dc193ebf49487acffda7b9a8",
+        "evals/mocks/agentbolt/_tools.json": "61912862d1d951fa63f88ace0a0946f562620d2b792036f11298634c3232b5b2",
+        "evals/mocks/agentbolt/desk_answers.md": "8f507c5ff0627b3acd25e82b421ef55d692e92756f3661607d21a24daf7b018b",
+        "evals/mocks/agentbolt/desk_ask.md": "a650b0f42dd40fa6fe1e8691e1ae4228432a61645e2fbc70ad355a6d4925b714",
+        "evals/mocks/agentbolt/desk_register.md": "ce44112def305f7d4537d0b3feedbec941ff961457d821d74b6875bb40bc69bc",
+        "evals/recover-saved-answer/graders/no-new-question.md": "0159d7564dcde3df729afe21727cc9b2eae6aa21f58abb4d6c7d02b1c1b1eefa",
+        "evals/recover-saved-answer/graders/reads-answer.md": "deb81fe85b4161613f6c92414ad713bfe4b487125f9262eadfe68ffb58d5a8ed",
+        "evals/recover-saved-answer/graders/uses-human-choice.md": "a2268efffc680f07c5bd8a2012e14922dc65e88e61c2763e672b25f3a17f7e76",
+        "evals/recover-saved-answer/mocks/agentbolt/desk_answers.md": "4c4b344f947425f3a1af5b0517b4525c59ce044d84b0aa511f16e36faf46c111",
+        "evals/recover-saved-answer/prompt.md": "6db4fcd1e9d0801b0b679621172af30c0719032b3650d4613d1a8ed7be95f3d3",
+        "evals/stale-holds-block-pr/graders/checks-actual-path.md": "50c570e03e0a58cb086371c9a3b25965bb9b4ba063a9387a6394ae45ec753c4a",
+        "evals/stale-holds-block-pr/graders/no-human-question.md": "0159d7564dcde3df729afe21727cc9b2eae6aa21f58abb4d6c7d02b1c1b1eefa",
+        "evals/stale-holds-block-pr/graders/not-cleared.md": "6d35870aedafbcb348881fa39328fb0ff47f36c488262c3383603ca4ecd01dae",
+        "evals/stale-holds-block-pr/mocks/agentbolt/work_holds.md": "8c7858c52adb1c7dd38fec694b1036fc277a6409b9ee2082424e64e9884a855a",
+        "evals/stale-holds-block-pr/prompt.md": "e050f80427a8666c77f6163f84db0adf4188fc6248a343dac34c6b6186a946f7",
+        "evals/wait-for-pending-answer/graders/bounded-wait.md": "b96aab0e70ada9515e6f95f17735ea73be030722da7cb2de5a755e59061a79fe",
+        "evals/wait-for-pending-answer/graders/keeps-id.md": "232d57afedabfb3c6869b02e70228dcf991c0181c550bfbfc8e2ec9baf9b8b8d",
+        "evals/wait-for-pending-answer/graders/no-new-question.md": "0159d7564dcde3df729afe21727cc9b2eae6aa21f58abb4d6c7d02b1c1b1eefa",
+        "evals/wait-for-pending-answer/graders/still-pending.md": "b50fe5b357b900c13a4fdc3193fb028f3d41ec370ff277f5cdefcca7b3d6d49c",
+        "evals/wait-for-pending-answer/mocks/agentbolt/desk_answers.md": "4dfdf0b6490eb5d9857b503d3ecc1750bc33484da7f380b8d0ae4f70d0d2114f",
+        "evals/wait-for-pending-answer/prompt.md": "c246aca71c00f7c740391f4e833eb93baffb0e71d962d4505c1dd1e7b513baf8",
+        "README.md": "a22371cc2a07f7284a9cc01c84ac01011029cb36a8b00898fb9e08f18d516640",
+        "skills/ask-at-desk/SKILL.md": "2016430cde2cb9e66e60c339cbc8c371d48bad798d6f8d60cf01d0735f64a3ad",
+        "skills/coordinate-work/SKILL.md": "3e1c9c58aebc80fb5db7ee776dcedc6d8878da9e2bded631fe91e84d0b9f324e"
+      }
+    }
+  },
+  "fixtureCleanup": {
+    "status": "blocked_by_automatic_approval_review",
+    "reason": "blocked by policy",
+    "attemptedAction": "Remove 44 owned evaluation temporary folders after validating each is a direct child of the system temporary directory with the expected name and is not a root reparse point.",
+    "executionStarted": false,
+    "alternateCleanupAttempted": false,
+    "paths": [
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-0iqXmK",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-2GqPeU",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-3En52W",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-4Aqjlx",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-6CXTyW",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-6e0PNG",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-9SfPs3",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-ATRbRp",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-DitExr",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-EPLi3R",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-HliO3O",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-ICySaN",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-L8D6wR",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-LNANzq",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-MajgIY",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-NLnR4h",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-OK4zAF",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-PmRLim",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-QV082s",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-Qawiwo",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-RsCTnn",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-S6wXpY",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-UjFlsM",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-VlWWbn",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-XXqzHf",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-Y2tPwO",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-Z20tzE",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-an0LR1",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-b6y6oL",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-eDXrDj",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-eg4yR6",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-fWGBy8",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-j85orR",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-lJEyww",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-mCElkL",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-oqZnm2",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-pGNDWG",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-pwI8Qo",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-q7eC2Y",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-qUiMxu",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-skbgYz",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-tY1uNO",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-yavduu",
+      "C:\\Users\\artem\\AppData\\Local\\Temp\\claude-eval-zVczQg"
+    ]
+  }
+}
