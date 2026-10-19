@@ -199,6 +199,12 @@ covered by live regression fixtures. The follow-up review found no remaining act
   migration verify the account, executable, arguments and working folder; changed task snapshots are refused.
 
 ## Release work
+- **Current implementation build — `d33c261`:** all three Windows release programs and the Linux CLI
+  compile from the locked dependency graph. Both CLIs report version 0.2.0. Copies and checksums are preserved
+  under `target/prepared-d33c261`; [the build record](docs/BUILD-d33c261.json) pins their source and scope.
+  These are raw unsigned binaries, not new release ZIPs. The named feature implementation is present;
+  next come final Windows/Linux checks, current notices and packaging, followed by packaged/native/live
+  checks and a fresh idle/reliability run. Existing archives below remain historical evidence.
 - **Deferred by Artem (Desk answer, 2026-10-18 20:33 UTC):** code signing may wait until after 0.2.
   Label the 0.2 candidate unsigned; do not claim signed-build validation.
 - **Prepared and locally verified — release tooling:** version 0.2.0, Installed Apps registration, a locked-build

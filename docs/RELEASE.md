@@ -6,8 +6,9 @@ cover the full M2–M7 scope; [PRODUCTION-READINESS.md](PRODUCTION-READINESS.md)
 M0/M1 release evidence. Keep generated artifacts under `target/`.
 
 The packager includes tracked Markdown and JSON documentation and the README's linked `AGENTS.md`, so
-local evidence and development-guidance links remain readable in the main ZIP. The standalone Claude plugin ZIP points its repository documentation links at the
-same source revision as the binaries. Those hosted links become available when that revision is pushed;
+local evidence and development-guidance links remain readable in the main ZIP. The standalone Claude
+plugin ZIP points its repository documentation links at the same source revision as the binaries.
+Those hosted links become available when that revision is pushed;
 packaging does not push, tag or publish it.
 
 ## Third-party notices

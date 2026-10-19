@@ -1,0 +1,53 @@
+{
+  "date": "2026-10-19",
+  "sourceRevision": "d33c261a3aa7b47547c58c17b5ae8c9448147aee",
+  "version": "0.2.0",
+  "stage": "Release binaries prepared; distribution packaging and final validation pending",
+  "codeSigned": false,
+  "sourceCleanBeforeAndAfterBuild": true,
+  "rustc": "1.98.1 (48a229cea 2026-09-01)",
+  "cargoLockSha256": "a028c115a3d7c1a3085a7144f8488d073fae09fa466bcb43380113df9c1dbeee",
+  "preservedDirectory": "target/prepared-d33c261",
+  "windows": {
+    "command": "cargo build --release --locked --target x86_64-pc-windows-msvc -p agentbolt -p agentbolt-daemon -p agentbolt-desk --bins",
+    "channel": "release-prepare-1019",
+    "exitCode": 0,
+    "cliVersionOutput": "agentbolt 0.2.0",
+    "binaries": [
+      {
+        "path": "windows-x64/agentbolt.exe",
+        "bytes": 4453376,
+        "sha256": "edf19bb67052305a7be48fdea3b4c2f3430ce9656c55e39a74562cc09c41a820"
+      },
+      {
+        "path": "windows-x64/agentbolt-daemon.exe",
+        "bytes": 7987712,
+        "sha256": "9e7f534cc7ee7572173a95fc3b0e8ff95b16ed3fe44dac5728392ee5b7f43b96"
+      },
+      {
+        "path": "windows-x64/agentbolt-desk.exe",
+        "bytes": 9859584,
+        "sha256": "c0bfcf5b55ea5648d64e914c5afe13f8d12f39919a3c3e955c9b77b4910cb864"
+      }
+    ]
+  },
+  "linux": {
+    "host": "WSL Ubuntu x64",
+    "command": "cargo build --release --locked --target x86_64-unknown-linux-gnu -p agentbolt --bins --message-format=json",
+    "channel": "release-prepare-1019",
+    "targetDirectory": "/home/skulitom/.cache/agentbolt-release-builds",
+    "exitCode": 0,
+    "cliVersionOutput": "agentbolt 0.2.0",
+    "path": "linux-x64/agentbolt",
+    "bytes": 3464440,
+    "sha256": "05c5f9383f820156fc6d796267815e2669b37382267108b356ce886096093de0",
+    "note": "The first build exited successfully but its expected temporary output directory was absent at collection time. The preserved build uses the executable path reported by Cargo. Both the source binary and its preserved copy report 0.2.0."
+  },
+  "limits": [
+    "These are unsigned raw build outputs, not distributable ZIPs or a production-readiness result.",
+    "Version execution and checksum preservation do not prove live feature behavior.",
+    "Current dependency notices, final Windows/Linux checks and packaged installation/upgrade checks remain pending.",
+    "No main-channel operation, installation, daemon start, notification, host chat, idle probe or reliability run was performed for this build preparation.",
+    "No tag, push, hosted workflow or publication was performed."
+  ]
+}
