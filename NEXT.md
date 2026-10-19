@@ -46,6 +46,8 @@ See [the security record](docs/SECURITY-EXPANDED-2026-10-19.md). Final-candidate
 The full-plan audit also added the missing one-click adoption measure. Activity now distinguishes direct,
 edited/batch and unmeasured answers, includes older backlog first shown during the period, and preserves
 unknown evidence in older drafts, answers and saved baselines. See [Activity methodology](docs/ADOPTION.md).
+Native interaction checks now confirm direct choice/form/reply/Not needed submissions, retained edits
+after a restart or clearing a note, and the Activity total. Schema 15 installed upgrade remains open.
 No phone account, scan, adoption period or live workflow has been activated.
 
 

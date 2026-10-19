@@ -369,3 +369,23 @@ These are local service, migration and headless checks. The new Activity row and
 yet had a native interaction check, and schema 15 has not yet had an installed upgrade check. No real
 baseline/adoption period was started, and no main-channel install, external account, licensing, package
 or long reliability run was changed.
+
+## Native answer interaction follow-up (2026-10-19)
+
+The runtime built from `493e726` now passes the opt-in `interaction_gui` fixture in Anode session 4,
+using only `gui-interaction-65116`. Seven synthetic owners each submitted one question. All answers
+were entered through actual Desk controls; the fixture only seeded questions and read the result.
+
+- Direct choice, untouched numeric form, untouched prefilled reply and Not needed counted as direct.
+- An edited reply was saved, the owned Desk process was terminated, and the new Desk restored its
+  exact text and edited status before submission.
+- Typing and clearing a note still counted as edited, while the resulting answer contained no note.
+- Before the final answer, the native Activity row displayed `4 / 7 (57%)`. After the final direct
+  answer, the persisted report contained five direct and two edited answers, seven shown questions,
+  no unmeasured answers, and the exact share `5 / 7`.
+
+The fixture passed in 146.63 seconds. Its daemon and both Desk processes exited, no Agentbolt window
+remained in the seat, the channel data was removed, and the desktop lease was released. No installer,
+protocol handler, task, external account, real baseline or main-channel setting was used. Focused
+fixture Clippy and both repository guard checks pass. Schema 15 installed upgrade and release checks
+remain open; this verifies the new UI behavior only.
