@@ -1035,7 +1035,7 @@ impl DeskApp {
                 }
             }
             ui.add_space(4.0);
-            if let Some(target) = chat_button(ui, ask.asking_client.as_deref().unwrap_or_default(), ask.asking_session.as_deref(), ask.asking_machine.as_deref())
+            if let Some(target) = chat_button(ui, ask.asking_client.as_deref().unwrap_or_default(), ask.asking_session.as_deref(), ask.asking_machine.as_deref(), ask.asking_cwd.as_deref())
                 && let Err(e) = os::open_chat(&target, ask.asking_cwd.as_deref()) {
                 self.note(e, true);
             }
@@ -1540,12 +1540,19 @@ impl DeskApp {
                             }
                             ui.label(view::ago(&a.last_seen, now))
                                 .on_hover_text(&a.last_seen);
-                            if let Some(target) = chat_button(
-                                ui,
-                                &a.client,
-                                a.session_ref.as_deref(),
-                                Some(&a.machine),
-                            ) {
+                            // Keep navigation and its copy fallback in the single Session column.
+                            let target = ui
+                                .vertical(|ui| {
+                                    chat_button(
+                                        ui,
+                                        &a.client,
+                                        a.session_ref.as_deref(),
+                                        Some(&a.machine),
+                                        a.cwd.as_deref(),
+                                    )
+                                })
+                                .inner;
+                            if let Some(target) = target {
                                 open = Some((target, a.cwd.clone()));
                             }
                             if let Some(req) = mute_control(ui, &a.owner, a.muted) {
@@ -1677,7 +1684,7 @@ impl DeskApp {
                                         let agent = self.board.claimants.iter().chain(&self.board.agents).find(|a| &a.id == claimant);
                                         ui.label(format!("Claimed by {}", agent.map_or(claimant.as_str(), |a| a.owner.as_str())));
                                         if let Some(agent) = agent
-                                            && let Some(target) = chat_button(ui, &agent.client, agent.session_ref.as_deref(), Some(&agent.machine)) {
+                                            && let Some(target) = chat_button(ui, &agent.client, agent.session_ref.as_deref(), Some(&agent.machine), agent.cwd.as_deref()) {
                                             open = Some((target, agent.cwd.clone()));
                                         }
                                     }
@@ -1759,6 +1766,7 @@ impl DeskApp {
                                     &a.client,
                                     a.session_ref.as_deref(),
                                     Some(&a.machine),
+                                    a.cwd.as_deref(),
                                 ) {
                                     open = Some((target, a.cwd.clone()));
                                 }
@@ -2342,7 +2350,18 @@ fn chat_button(
     client: &str,
     session: Option<&str>,
     machine: Option<&str>,
+    cwd: Option<&str>,
 ) -> Option<agentbolt_core::navigation::ChatTarget> {
+    if machine.is_none_or(str::is_empty) {
+        ui.add_enabled(false, egui::Button::new("Open chat"))
+            .on_hover_text("The source computer was not recorded. Copy the session reference and open it on the originating computer.");
+        if let Some(session) = session
+            && ui.small_button("Copy session reference").clicked()
+        {
+            ui.ctx().copy_text(session.to_owned());
+        }
+        return None;
+    }
     if let Some(machine) = machine.and_then(|m| m.strip_prefix("remote:")) {
         ui.add_enabled(false,egui::Button::new(format!("Open chat on {machine}"))).on_hover_text("This chat belongs to another computer. Its session and working folder will not be opened locally.");
         if let Some(session) = session
@@ -2354,9 +2373,17 @@ fn chat_button(
     }
     let target = agentbolt_core::navigation::ChatTarget::from_host(client, session);
     let label = target.as_ref().map_or("Open chat", |t| t.label());
-    if ui.add_enabled(target.is_some(), egui::Button::new(label))
+    let open = ui.add_enabled(target.is_some(), egui::Button::new(label))
         .on_disabled_hover_text("This host did not provide a supported session id. Older asks may lack their original client details.")
-        .clicked() { target } else { None }
+        .clicked();
+    if let Some(command) = target.as_ref().and_then(|target| target.resume_command())
+        && ui.small_button("Copy resume command")
+            .on_hover_text(format!("Paste into a terminal opened in this chat's original folder. Useful when automatic navigation is unavailable or Windows Terminal asks for administrator consent.\nRecorded folder: {}", cwd.unwrap_or("not provided by this host")))
+            .clicked()
+    {
+        ui.ctx().copy_text(command);
+    }
+    open.then_some(target).flatten()
 }
 
 fn delivery_rows(ui: &mut egui::Ui, records: &[agentbolt_core::model::Delivery]) {

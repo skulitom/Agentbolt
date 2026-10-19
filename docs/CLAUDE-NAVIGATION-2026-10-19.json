@@ -1,0 +1,79 @@
+{
+  "date": "2026-10-19",
+  "baseCommit": "9475cd2d0010d7873830080fbb2b1b5f76460b62",
+  "scope": "Real Claude CLI session provenance, attempted native resume, and subsequent copy-command/origin fixes",
+  "anodeSession": 4,
+  "versions": { "claudeCode": "2.1.302", "windowsTerminal": "1.24.12741.0" },
+  "fixture": {
+    "channel": "claude-resume-68816",
+    "job": "j_fa19f86dd8204b4292912552535d02a4",
+    "folder": "C:\\DEV\\Agentbolt\\target\\terminal resume café e5710b500a",
+    "askId": "ask_ca4159f2f760aa26",
+    "sessionId": "3adf6b39-c41a-47f6-893b-cd3d7657be95",
+    "marker": "AGENTBOLT RESUME 76A25D0B9050",
+    "hostEnvironment": {
+      "CLAUDE_CODE_HOST_SESSION_ID": null,
+      "CLAUDE_CODE_SESSION_ID": "3adf6b39-c41a-47f6-893b-cd3d7657be95"
+    },
+    "sessionMetadataManufactured": false,
+    "initialClientResult": "Created one persistent synthetic conversation, registered and asked once, then stopped. The actual host environment matched the result session ID.",
+    "resumeIsolation": "Desk launch inherited CLAUDE_CODE_SAFE_MODE=1 for the terminal child; no follow-up prompt was sent.",
+    "nativeResume": {
+      "status": "unverified",
+      "questionButtonInvoked": true,
+      "exactConversationVisible": false,
+      "reason": "Windows Terminal profiles.defaults.elevate is true. Launches requested administrator consent in the hidden session. No consent was granted; no resumed Claude process was observed.",
+      "diagnosticNewWindowAttempt": "Also requested consent; not a pass or a production change",
+      "userTerminalSettingsModified": false
+    }
+  },
+  "copyCommandFix": {
+    "runtime": "Current source after 9475cd2 with Copy resume command added",
+    "questionClipboardJob": "j_53b0f748456c4ad3888cc3e495589a4a",
+    "agentsClipboardJob": "j_11b5b2f0bf8e4a4496459febb71aea05",
+    "expectedClipboard": "claude --resume 3adf6b39-c41a-47f6-893b-cd3d7657be95",
+    "bothIndependentOsClipboardReadsMatched": true,
+    "copiedCommandExecuted": false,
+    "scope": "Validated local Claude/Codex session IDs only; the tooltip identifies the recorded folder. Copying never launches a process or changes permissions."
+  },
+  "unknownOriginFix": {
+    "channel": "gui-origin-99276",
+    "job": "j_9db22673a18545e7ad70dd53b7edeb05",
+    "durationSeconds": 42.73,
+    "exitCode": 0,
+    "nativeObservations": [
+      "An older question with a retained session ID but null machine disables Open chat.",
+      "Copy session reference reaches the OS clipboard; no local Copy resume command is offered.",
+      "The existing Unicode paste and remote-session clipboard assertions still pass."
+    ],
+    "dataRemoved": true
+  },
+  "checks": {
+    "windowsCoreNavigation": "1 test passed",
+    "linuxCoreNavigation": "1 test passed in WSL Ubuntu",
+    "windowsDeskUnits": "23 tests passed",
+    "windowsDeskAllTargetClippy": "passed with warnings denied",
+    "repositoryGuards": "2 tests passed"
+  },
+  "cleanup": {
+    "ownedProcessesStopped": true,
+    "ownedWindowsRemaining": 0,
+    "consentPromptsRemaining": 0,
+    "desktopLease": "released",
+    "syntheticClaudeProjectState": "Removed through claude purge after an exact-project dry run; verified absent",
+    "retainedAgentboltData": "C:\\Users\\artem\\AppData\\Local\\Agentbolt\\claude-resume-68816",
+    "dataRemoval": "Automatic approval review rejected the verified exact-path PowerShell removal before execution: blocked by policy. No alternate cleanup was attempted for this data folder.",
+    "mainChannelOrWorkingChatsModified": false,
+    "installationsOrHandlersRegistered": false
+  },
+  "limits": [
+    "Copy-command success does not prove the conversation resumed.",
+    "Claude CLI resume still needs native observation with an approved user Terminal configuration.",
+    "Claude Desktop and visible Codex navigation remain unverified.",
+    "No reliability run, package rebuild, licensing pass or publication occurred."
+  ],
+  "terminalReferences": [
+    "https://learn.microsoft.com/en-us/windows/terminal/customize-settings/profile-general#automatically-run-as-administrator",
+    "https://raw.githubusercontent.com/microsoft/terminal/v1.24.12741.0/src/cascadia/TerminalApp/AppCommandlineArgs.cpp"
+  ]
+}

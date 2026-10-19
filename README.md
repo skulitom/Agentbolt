@@ -50,6 +50,8 @@ agent ──stdio──► agentbolt mcp ──user-only pipe──► agentbolt
   Repeated reads return the same answer ID; agents should avoid acting twice on the same answer.
 - **Question history:** answered and withdrawn questions keep their evidence, answer notes, delivery history
   and Open chat, including when the Inbox is empty.
+- **Chat navigation:** open the originating chat, or copy a validated Claude/Codex resume command for an
+  existing terminal. Remote sessions and older questions with no recorded source computer stay copy-only.
 - **Agent Board:** roles and current work, routed messages, deduplicated handoffs, one claimant per request,
   and renewable leases with fencing tokens. A stale claimant cannot overwrite a later claimant's result.
 - **Work holds:** explicitly allowlisted working copies expose dirty/unpushed paths; agents can check for

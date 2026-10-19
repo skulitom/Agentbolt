@@ -61,6 +61,19 @@ impl ChatTarget {
         }
     }
 
+    /// A command the user can paste into an existing terminal. This never includes agent-supplied
+    /// folders or shell syntax, and is not executed by the Desk.
+    pub fn resume_command(&self) -> Option<String> {
+        if !valid_session_id(self.id()) {
+            return None;
+        }
+        match self {
+            Self::ClaudeTerminal(id) => Some(format!("claude --resume {id}")),
+            Self::Codex(id) => Some(format!("codex resume {id}")),
+            Self::ClaudeDesktop(_) => None,
+        }
+    }
+
     /// Rebuild the URL from a validated id even if a caller constructed the enum directly.
     pub fn url(&self) -> Option<String> {
         if !valid_session_id(self.id()) {
@@ -112,10 +125,31 @@ mod tests {
             assert!(!valid_session_id(bad), "{bad}");
             assert!(ChatTarget::from_host("codex", Some(bad)).is_none());
             assert!(ChatTarget::Codex(bad.into()).url().is_none());
+            assert!(ChatTarget::Codex(bad.into()).resume_command().is_none());
+            assert!(
+                ChatTarget::ClaudeTerminal(bad.into())
+                    .resume_command()
+                    .is_none()
+            );
             assert!(claude_desktop_ref(&format!("local_{bad}")).is_none());
         }
         assert!(valid_session_id("a1b2c3d4e5f60708"));
         assert!(!valid_session_id("--------5165-7e62-a9ba-88c35a72cfce"));
         assert!(claude_desktop_ref(ID).is_none());
+        assert_eq!(
+            ChatTarget::ClaudeTerminal(ID.into())
+                .resume_command()
+                .as_deref(),
+            Some(format!("claude --resume {ID}").as_str())
+        );
+        assert_eq!(
+            ChatTarget::Codex(ID.into()).resume_command().as_deref(),
+            Some(format!("codex resume {ID}").as_str())
+        );
+        assert!(
+            ChatTarget::ClaudeDesktop(ID.into())
+                .resume_command()
+                .is_none()
+        );
     }
 }

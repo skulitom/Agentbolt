@@ -57,6 +57,8 @@ computer: the Desk offers **Copy reference**, without probing the local filesyst
 app here. HTTPS evidence still opens normally. Board messages retain the sender's machine when posted,
 including after its registration expires or another machine retries the same deduplicated post.
 Older messages without recorded origin remain readable; their file and chat references are copyable.
+Older questions without a recorded source computer also disable Open chat and offer Copy session
+reference. Local resume commands are offered only when the source is recorded as local.
 
 SSH account access is the authentication boundary; machine labels describe origin, not separate users.
 The same-user trust limit still applies. For a restricted SSH key, an administrator can configure a forced

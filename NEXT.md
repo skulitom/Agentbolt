@@ -60,6 +60,12 @@ copy-only. Board and Activity sections now honor native accessibility Expand/Col
 the same adapter covers recent questions, handoffs, agents and work holds.
 No phone account, scan, adoption period or live workflow has been activated.
 
+Local Claude/Codex chats now offer **Copy resume command**, including the recorded folder in its tooltip.
+An older question without a source computer stays copy-only even when it retains a session ID. Native
+clipboard/origin checks pass. Actual Claude terminal resume encountered this PC's administrator Terminal
+profile and remains unverified; no consent or settings change was made. See
+[the navigation evidence](docs/CLAUDE-NAVIGATION-2026-10-19.json).
+
 
 **Current order: all features first, then validation.** The long CPU
 probe and 72-hour run were stopped, and the hourly monitor is paused. The full-plan source inventory is now recorded. Address any newly discovered feature gaps first; then

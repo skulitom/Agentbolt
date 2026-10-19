@@ -42,6 +42,12 @@ environment. It must never manufacture host metadata. No global client setting i
    through the test Desk and confirm the client reads it through both result branches.
 4. Repeat visible **Open chat** from an ask and Agents row for one authorized temporary Codex chat. Codex's
    transport and active/idle receipt are already verified; visible destination selection is the missing evidence.
+5. Create a persistent synthetic Claude CLI session in its own folder and retain its real host session ID.
+   From both the question and Agents row, confirm **Resume in a terminal** displays that exact saved
+   conversation. The 2026-10-19 hidden-desktop attempt encountered this PC's Terminal setting that runs
+   profiles as administrator. It did not establish a resume pass. Any consent must come from Artem;
+   do not change his Terminal defaults or automate the secure prompt. **Copy resume command** is an
+   independently verified fallback for use in an existing terminal in the recorded folder.
 
 Record exact outcomes, host versions and timestamps, including failures. Then close/archive only the test
 chats, remove only their temporary project connection, and uninstall/purge the `manual-*` fixture through its

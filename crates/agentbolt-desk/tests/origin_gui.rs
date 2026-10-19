@@ -99,6 +99,15 @@ fn evidence_controls_respect_the_originating_computer() {
         handle: remote.handle.clone(),
         ask: input.clone(),
     });
+    let unknown: AskResult = serde_json::from_value(call(McpOp::Ask {
+        handle: remote.handle.clone(),
+        ask: AskInput {
+            title: "03 Unknown origin question".into(),
+            body: "This older question retains a session reference but no source computer. Only copying the reference is safe.".into(),
+            ..input.clone()
+        },
+    }))
+    .unwrap();
     let finish:AskResult=serde_json::from_value(call(McpOp::Ask {
         handle:local.handle.clone(),ask:AskInput {
             title:"02 Finish origin review".into(),body:"Inspect the remote ask, Agents, and three Board messages. Paste Clipboard round trip: café — 雪 🚀 into this note from the OS clipboard. Verify Activity export, then copy the remote session last and answer Finish.".into(),
@@ -135,6 +144,11 @@ fn evidence_controls_respect_the_originating_computer() {
     drop(service);
     // Simulate a message predating immutable origin tracking, before the real writer starts.
     let db = agentbolt_core::store::open_file(&names.db_path().unwrap()).unwrap();
+    db.execute(
+        "UPDATE asks SET asking_machine=NULL WHERE id=?1",
+        [&unknown.id],
+    )
+    .unwrap();
     db.execute(
         "UPDATE board_messages SET sender_machine=NULL WHERE id=?1",
         [&legacy],

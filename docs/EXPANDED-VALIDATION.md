@@ -466,3 +466,37 @@ released. No install, handler, task, main-channel setting or external account wa
 The Desk's 23 unit tests, Desk all-target Clippy and both repository guards pass. Packages and dependency
 notices have not been rebuilt for the new clipboard dependency graph; licensing and heavy release
 checks remain deferred in the feature-first work order.
+
+## Terminal navigation and origin follow-up (2026-10-19)
+
+A real persistent Claude Code 2.1.302 session created one synthetic question on `claude-resume-68816`.
+Its actual MCP child environment carried the same session ID as the CLI result, with no desktop-host
+ID. The Desk's Resume in a terminal button was invoked. Windows Terminal 1.24.12741.0 requested
+administrator consent because the user's profile defaults have `elevate: true`; a diagnostic new-window
+launch also requested consent. No consent was given and no resumed conversation was observed. The
+native resume check remains unverified, regardless of successful launcher return codes. The settings
+were read, not changed. This behavior is consistent with Microsoft's
+[administrator profile setting](https://learn.microsoft.com/en-us/windows/terminal/customize-settings/profile-general#automatically-run-as-administrator);
+the [installed version's argument parser](https://raw.githubusercontent.com/microsoft/terminal/v1.24.12741.0/src/cascadia/TerminalApp/AppCommandlineArgs.cpp)
+has no elevation override.
+
+The Desk now offers Copy resume command for local Claude CLI and Codex sessions. The copied command is
+built only from a validated host ID, includes no folder/shell expressions and is never executed by the
+copy action. Its tooltip shows the recorded folder so the user can open an existing terminal there.
+Independent Windows clipboard reads confirmed the exact original Claude session command from both
+the question and Agents row. This is fallback evidence, not proof of automatic navigation.
+
+Review also found that old questions without `asking_machine` still offered local chat launch, unlike
+their copy-only evidence references. They now disable Open chat and offer Copy session reference.
+The extended `origin_gui` fixture on `gui-origin-99276` confirmed the disabled launch, absent local resume
+command and exact copied session reference. Its Unicode paste/final clipboard assertions passed in
+42.73 seconds. Fixture processes, windows and data were removed and the lease released. Core navigation
+validation passes on Windows and Linux. The 23 Desk unit tests, Desk all-target Clippy and two repository
+guards pass. Navigation and copy controls share one Session cell in the Agents grid.
+
+All terminal-attempt processes/windows are stopped, the consent prompts have closed, and the lease is
+free. The synthetic Claude project transcript was purged through the CLI after a scoped dry run and
+verified absent. Automatic approval review rejected removal of
+`C:\Users\artem\AppData\Local\Agentbolt\claude-resume-68816` with “blocked by policy” before execution;
+that data remains and its cleanup was not retried by another method. No installation, handler, main
+channel, Terminal settings or working chat changed. [Bounded evidence](CLAUDE-NAVIGATION-2026-10-19.json).
