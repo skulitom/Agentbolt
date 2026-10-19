@@ -21,7 +21,10 @@ complete delivery history and fixed-period adoption reporting are implemented to
 [feature inventory](docs/FEATURE-INVENTORY.md) maps the full plan to code. Implementation coverage is
 recorded; Windows workspace tests and Linux core/MCP/IPC/daemon checks pass, including phone HTTP mocks.
 All-target Clippy passes on both platforms, and native ordinary/warm Desk lifecycle checks pass in Anode.
-Expanded tab/paging interaction, security and live host validation remain open.
+Native 60-item paging/search and draft navigation now pass. Board sections and working-copy settings
+are directly accessible; delivery history and Activity breakdowns are bounded. Off-page/inactive
+claimants retain their name and chat context, and pre-install Activity periods show unknown history.
+Expanded security, final-candidate and live host validation remain open.
 No phone account, scan, adoption period or live workflow has been activated.
 
 

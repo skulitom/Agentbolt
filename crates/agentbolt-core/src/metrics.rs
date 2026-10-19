@@ -99,6 +99,7 @@ fn period(db: &Connection, from: i64, to: i64) -> Result<Period, String> {
         .map_err(db_err)?;
     let mut report = Period {
         history_span_days: first_record
+            .filter(|first| *first < to)
             .map(|first| (to - from.max(first)).max(0) as f64 / DAY as f64),
         from: fmt_ms(from),
         to: fmt_ms(to),

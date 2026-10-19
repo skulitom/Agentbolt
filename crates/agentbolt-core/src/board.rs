@@ -166,6 +166,9 @@ pub struct BoardMessage {
 pub struct Snapshot {
     pub agents: Vec<BoardAgent>,
     pub requests: Vec<BoardRequest>,
+    /// Exact claimant cards for these requests, independent of the paged agent directory.
+    #[serde(default)]
+    pub claimants: Vec<BoardAgent>,
     pub messages: Vec<BoardMessage>,
     pub notice: String,
     #[serde(default)]
@@ -378,6 +381,35 @@ fn profile(db: &Connection, handle: &str) -> Result<(Vec<String>, Option<String>
     }
 }
 
+fn agent_card(db: &Connection, now: i64, handle: &str) -> Result<Option<BoardAgent>, String> {
+    let Some(a) = store::agent(db, handle).map_err(db_err)? else {
+        return Ok(None);
+    };
+    let (roles, repo) = profile(db, &a.handle)?;
+    let ceiling = lease_seconds(db, &a.owner)?;
+    let last = db
+        .query_row(
+            "SELECT last_seen_ms FROM agents WHERE handle = ?1",
+            [&a.handle],
+            |r| r.get::<_, i64>(0),
+        )
+        .map_err(db_err)?;
+    Ok(Some(BoardAgent {
+        id: public_id(&a.handle),
+        owner: a.owner,
+        roles,
+        repo,
+        doing: a.doing,
+        client: a.client,
+        session_ref: a.session_ref,
+        cwd: a.cwd,
+        machine: a.machine,
+        last_seen: a.last_seen,
+        alive: now < last.saturating_add(i64::from(ceiling) * 1000),
+        lease_seconds: ceiling,
+    }))
+}
+
 pub fn who_page(
     db: &Connection,
     now: i64,
@@ -405,34 +437,7 @@ pub fn who_page(
     let next = page.last().map_or(after, |r| r.0) as u64;
     let agents = page
         .into_iter()
-        .map(|(_, handle)| {
-            let a = store::agent(db, &handle)
-                .map_err(db_err)?
-                .ok_or("agent disappeared")?;
-            let (roles, repo) = profile(db, &a.handle)?;
-            let ceiling = lease_seconds(db, &a.owner)?;
-            let last = db
-                .query_row(
-                    "SELECT last_seen_ms FROM agents WHERE handle = ?1",
-                    [&a.handle],
-                    |r| r.get::<_, i64>(0),
-                )
-                .map_err(db_err)?;
-            Ok(BoardAgent {
-                id: public_id(&a.handle),
-                owner: a.owner,
-                roles,
-                repo,
-                doing: a.doing,
-                client: a.client,
-                session_ref: a.session_ref,
-                cwd: a.cwd,
-                machine: a.machine,
-                last_seen: a.last_seen,
-                alive: now < last.saturating_add(i64::from(ceiling) * 1000),
-                lease_seconds: ceiling,
-            })
-        })
+        .map(|(_, handle)| agent_card(db, now, &handle)?.ok_or_else(|| "agent disappeared".into()))
         .collect::<Result<Vec<_>, String>>()?;
     Ok(AgentsPage {
         agents,
@@ -608,9 +613,24 @@ pub fn snapshot_page(db: &Connection, now: i64, query: DeskQuery) -> Result<Snap
     let more_messages = messages.len() > PAGE;
     messages.truncate(PAGE);
     let message_next = messages.last().map(|m| m.seq);
+    // Only resolve the at-most-50 visible requests, never the full agent directory.
+    let ids: Vec<_> = requests.iter().map(|r| &r.id).collect();
+    let mut statement = db.prepare("SELECT DISTINCT claimant FROM board_requests WHERE id IN (SELECT value FROM json_each(?1)) AND claimant IS NOT NULL ORDER BY claimant").map_err(db_err)?;
+    let handles = statement
+        .query_map([json!(ids).to_string()], |row| row.get::<_, String>(0))
+        .map_err(db_err)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_err)?;
+    let mut claimants = Vec::new();
+    for handle in handles {
+        if let Some(card) = agent_card(db, now, &handle)? {
+            claimants.push(card);
+        }
+    }
     Ok(Snapshot {
         agents: agents.agents,
         requests,
+        claimants,
         messages,
         notice: DATA_NOTICE.into(),
         request_next,

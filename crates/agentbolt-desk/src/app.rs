@@ -32,6 +32,13 @@ enum Tab {
     Settings,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum BoardSection {
+    Handoffs,
+    Messages,
+    Agents,
+}
+
 enum Conn {
     Unknown,
     Up,
@@ -149,6 +156,7 @@ pub struct DeskApp {
     board: agentbolt_core::board::Snapshot,
     board_query: agentbolt_core::board::DeskQuery,
     board_search: String,
+    board_section: BoardSection,
     board_request_back: Vec<Option<agentbolt_core::board::RequestCursor>>,
     board_message_back: Vec<Option<u64>>,
     board_agent_back: Vec<u64>,
@@ -162,6 +170,7 @@ pub struct DeskApp {
     verdict_draft: String,
     holds: agentbolt_core::holds::Snapshot,
     holds_after: Option<String>,
+    configure_holds: bool,
     holds_back: Vec<Option<String>>,
     holds_inflight: bool,
     last_holds: Option<Instant>,
@@ -290,6 +299,7 @@ impl DeskApp {
             board: Default::default(),
             board_query: Default::default(),
             board_search: String::new(),
+            board_section: BoardSection::Handoffs,
             board_request_back: Vec::new(),
             board_message_back: Vec::new(),
             board_agent_back: Vec::new(),
@@ -304,6 +314,7 @@ impl DeskApp {
             holds: Default::default(),
             holds_inflight: false,
             holds_after: None,
+            configure_holds: false,
             holds_back: Vec::new(),
             last_holds: None,
             hold_draft: None,
@@ -1246,18 +1257,13 @@ impl DeskApp {
             if view.busy {
                 ui.weak("Loading delivery records...");
             }
-            delivery_rows(ui, &view.page.deliveries);
+            egui::ScrollArea::vertical()
+                .id_salt(("delivery-history", &answer.ask_id, view.query.before))
+                .max_height(280.0)
+                .show(ui, |ui| delivery_rows(ui, &view.page.deliveries));
         } else {
             if answer.deliveries.is_empty() {
                 ui.weak("Available for the agent to read; no delivery recorded yet.");
-            }
-            delivery_rows(ui, &answer.deliveries);
-            if answer.more_deliveries {
-                ui.weak(format!(
-                    "Latest {} of {} delivery records",
-                    answer.deliveries.len(),
-                    answer.delivery_total
-                ));
             }
             if answer.delivery_total > 0 && ui.button("Browse delivery history").clicked() {
                 let query = agentbolt_core::protocol::DeliveryQuery {
@@ -1272,6 +1278,15 @@ impl DeskApp {
                 });
                 request = Some(query);
             }
+            let recent = &answer.deliveries[answer.deliveries.len().saturating_sub(3)..];
+            if answer.delivery_total as usize > recent.len() {
+                ui.weak(format!(
+                    "Latest {} of {} delivery records",
+                    recent.len(),
+                    answer.delivery_total
+                ));
+            }
+            delivery_rows(ui, recent);
         }
         if close {
             self.delivery_view = None;
@@ -1538,97 +1553,285 @@ impl DeskApp {
         let mut open = None;
         let mut save = None;
         let mut reload = false;
-        egui::ScrollArea::vertical().auto_shrink([false,false]).show(ui,|ui| {
-            ui.heading("Agent handoffs");
-            ui.weak("Messages and requests between agents. They do not grant approval or replace the work ledger.");
-            ui.horizontal_wrapped(|ui|{
-                ui.add(egui::TextEdit::singleline(&mut self.board_search).hint_text("Find request or message").desired_width(240.0));
-                if ui.button("Search / newest").clicked() {
-                    self.board_query.search=self.board_search.trim().into(); self.board_query.requests_before=None; self.board_query.messages_before=None;
-                    self.board_request_back.clear(); self.board_message_back.clear(); reload=true;
-                }
-                if ui.checkbox(&mut self.board_query.include_closed,"Include completed and cancelled").changed() {
-                    self.board_query.requests_before=None;self.board_request_back.clear();reload=true;
-                }
-            });
-            ui.horizontal(|ui|{
-                if ui.add_enabled(!self.board_inflight && !self.board_request_back.is_empty(),egui::Button::new("Newer handoffs")).clicked() {
-                    self.board_query.requests_before=self.board_request_back.pop().flatten();reload=true;
-                }
-                if ui.add_enabled(!self.board_inflight && self.board.more_requests,egui::Button::new("Older handoffs")).clicked() {
-                    self.board_request_back.push(self.board_query.requests_before.clone());self.board_query.requests_before=self.board.request_next.clone();reload=true;
-                }
-                ui.weak(format!("{} matching handoffs · page {}",self.board.total_requests,self.board_request_back.len()+1));
-            });
-            if self.board.requests.is_empty() { ui.label("No handoffs yet."); }
-            for r in &self.board.requests {
-                egui::CollapsingHeader::new(format!("{} · {}",r.status,r.input.title)).id_salt(&r.id).show(ui,|ui| {
-                    ui.weak(format!("From {} · {}",r.owner,r.created_at));
-                    if let Some(role)=&r.input.to_role {ui.label(format!("For {role}"));}
-                    if let Some(repo)=&r.input.repo {ui.label(format!("{repo} · {}",r.input.paths.join(", ")));}
-                    if let Some(beads)=&r.input.beads_issue {ui.label(format!("Beads issue: {beads}"));}
-                    ui.add(egui::Label::new(&r.input.body).selectable(true).wrap());
-                    if let Some(claimant)=&r.claimant {
-                        let agent=self.board.agents.iter().find(|a|&a.id==claimant);
-                        ui.label(format!("Claimed by {}",agent.map_or(claimant.as_str(),|a|a.owner.as_str())));
-                        if let Some(a)=agent && let Some(target)=chat_button(ui,&a.client,a.session_ref.as_deref(),Some(&a.machine)) {open=Some((target,a.cwd.clone()));}
-                    }
-                    if let Some(until)=&r.lease_until {ui.label(format!("Lease until {until}"));}
-                    if r.lapsing {ui.colored_label(ui.visuals().warn_fg_color,"Lease expires within 15 minutes unless the agent checks in.");}
-                    if let Some(result)=&r.result {ui.strong("Result");ui.add(egui::Label::new(result).selectable(true).wrap());}
-                });
-            }
-            ui.separator(); ui.heading("Who is working");
-            ui.horizontal_wrapped(|ui|{
-                if ui.checkbox(&mut self.board_query.include_inactive,"Include inactive agents").changed() {
-                    self.board_query.agents_after=0;self.board_agent_back.clear();reload=true;
-                }
-                if ui.add_enabled(!self.board_inflight && !self.board_agent_back.is_empty(),egui::Button::new("Previous agents")).clicked() {
-                    self.board_query.agents_after=self.board_agent_back.pop().unwrap_or(0);reload=true;
-                }
-                if ui.add_enabled(!self.board_inflight && self.board.more_agents,egui::Button::new("More agents")).clicked() {
-                    self.board_agent_back.push(self.board_query.agents_after);self.board_query.agents_after=self.board.agent_next;reload=true;
-                }
-                ui.weak(format!("{} agents · page {}",self.board.total_agents,self.board_agent_back.len()+1));
-            });
-            for a in &self.board.agents {
-                egui::CollapsingHeader::new(format!("{} · {} · {}",a.owner,if a.alive {"active"} else {"inactive"},a.roles.join(", "))).id_salt(&a.id).show(ui,|ui| {
-                    ui.label(format!("{} on {}",a.client,a.machine));
-                    if let Some(doing)=&a.doing {ui.add(egui::Label::new(doing).wrap());}
-                    ui.weak(format!("Last seen {}",a.last_seen));
-                    if let Some(target)=chat_button(ui,&a.client,a.session_ref.as_deref(),Some(&a.machine)) {open=Some((target,a.cwd.clone()));}
-                    ui.horizontal_wrapped(|ui| {
-                        let seconds=self.lease_drafts.entry(a.owner.clone()).or_insert(a.lease_seconds);
-                        ui.label("Release claims after inactivity (seconds)");
-                        ui.add(egui::DragValue::new(seconds).range(60..=86_400).speed(60));
-                        if ui.button("Save ceiling").clicked() {save=Some(Req::SetLease{owner:a.owner.clone(),seconds:*seconds});}
-                    });
-                });
-            }
-            ui.separator(); ui.heading("Messages");
-            ui.horizontal(|ui|{
-                if ui.add_enabled(!self.board_inflight && !self.board_message_back.is_empty(),egui::Button::new("Newer messages")).clicked() {
-                    self.board_query.messages_before=self.board_message_back.pop().flatten();reload=true;
-                }
-                if ui.add_enabled(!self.board_inflight && self.board.more_messages,egui::Button::new("Older messages")).clicked() {
-                    self.board_message_back.push(self.board_query.messages_before);self.board_query.messages_before=self.board.message_next;reload=true;
-                }
-                ui.weak(format!("{} matching messages · page {}",self.board.total_messages,self.board_message_back.len()+1));
-            });
-            if self.board.messages.is_empty() {ui.label("No messages yet.");}
-            for m in &self.board.messages {
-                egui::CollapsingHeader::new(format!("{} · {}",m.owner,m.input.title)).id_salt(&m.id).show(ui,|ui| {
-                    use agentbolt_core::board::Destination;
-                    let to=match &m.input.to {Destination::Everyone=>"everyone".into(),Destination::Role(s)=>format!("role {s}"),Destination::Owner(s)=>format!("owner {s}"),Destination::Agent(s)=>s.clone()};
-                    ui.weak(format!("To {to} · {}",m.created_at));
-                    if let Some(thread)=&m.input.thread {ui.label(format!("Thread {thread}"));}
-                    ui.add(egui::Label::new(&m.input.body).selectable(true).wrap());
-                    for reference in &m.input.references {
-                        evidence_row(ui, reference, reference, &HashMap::new());
-                    }
-                });
+        ui.heading("Agent Board");
+        ui.weak("Messages and requests between agents. They do not grant approval or replace the work ledger.");
+        ui.horizontal_wrapped(|ui| {
+            for (section, label, count) in [
+                (
+                    BoardSection::Handoffs,
+                    "Handoffs",
+                    self.board.total_requests,
+                ),
+                (
+                    BoardSection::Messages,
+                    "Messages",
+                    self.board.total_messages,
+                ),
+                (
+                    BoardSection::Agents,
+                    "Who is working",
+                    self.board.total_agents,
+                ),
+            ] {
+                ui.selectable_value(
+                    &mut self.board_section,
+                    section,
+                    format!("{label} ({count})"),
+                );
             }
         });
+        if self.board_section != BoardSection::Agents {
+            ui.horizontal_wrapped(|ui| {
+                let field = ui.add(
+                    egui::TextEdit::singleline(&mut self.board_search)
+                        .hint_text("Find request or message")
+                        .desired_width(240.0),
+                );
+                if ui.button("Search / newest").clicked()
+                    || (field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                {
+                    self.board_query.search = self.board_search.trim().into();
+                    self.board_query.requests_before = None;
+                    self.board_query.messages_before = None;
+                    self.board_request_back.clear();
+                    self.board_message_back.clear();
+                    reload = true;
+                }
+                if self.board_section == BoardSection::Handoffs
+                    && ui
+                        .checkbox(
+                            &mut self.board_query.include_closed,
+                            "Include completed, failed and cancelled",
+                        )
+                        .changed()
+                {
+                    self.board_query.requests_before = None;
+                    self.board_request_back.clear();
+                    reload = true;
+                }
+            });
+        }
+        match self.board_section {
+            BoardSection::Handoffs => {
+                ui.horizontal(|ui| {
+                    if ui
+                        .add_enabled(
+                            !self.board_inflight && !self.board_request_back.is_empty(),
+                            egui::Button::new("Newer handoffs"),
+                        )
+                        .clicked()
+                    {
+                        self.board_query.requests_before = self.board_request_back.pop().flatten();
+                        reload = true;
+                    }
+                    if ui
+                        .add_enabled(
+                            !self.board_inflight && self.board.more_requests,
+                            egui::Button::new("Older handoffs"),
+                        )
+                        .clicked()
+                    {
+                        self.board_request_back
+                            .push(self.board_query.requests_before.clone());
+                        self.board_query.requests_before = self.board.request_next.clone();
+                        reload = true;
+                    }
+                    ui.weak(format!(
+                        "{} matching handoffs · page {}",
+                        self.board.total_requests,
+                        self.board_request_back.len() + 1
+                    ));
+                });
+
+                egui::ScrollArea::vertical()
+                    .id_salt(("board-handoffs", self.board_query.requests_before.as_ref().map(|c| (&c.id, c.updated_ms)), &self.board_query.search, self.board_query.include_closed))
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        if self.board.requests.is_empty() { ui.label("No handoffs yet."); }
+                        for request in &self.board.requests {
+                            egui::CollapsingHeader::new(format!("{} · {}", request.status, request.input.title))
+                                .id_salt(&request.id)
+                                .show(ui, |ui| {
+                                    ui.weak(format!("From {} · {}", request.owner, request.created_at));
+                                    if let Some(role) = &request.input.to_role { ui.label(format!("For {role}")); }
+                                    if let Some(repo) = &request.input.repo { ui.label(format!("{repo} · {}", request.input.paths.join(", "))); }
+                                    if let Some(beads) = &request.input.beads_issue { ui.label(format!("Beads issue: {beads}")); }
+                                    ui.add(egui::Label::new(&request.input.body).selectable(true).wrap());
+                                    if let Some(claimant) = &request.claimant {
+                                        let agent = self.board.claimants.iter().chain(&self.board.agents).find(|a| &a.id == claimant);
+                                        ui.label(format!("Claimed by {}", agent.map_or(claimant.as_str(), |a| a.owner.as_str())));
+                                        if let Some(agent) = agent
+                                            && let Some(target) = chat_button(ui, &agent.client, agent.session_ref.as_deref(), Some(&agent.machine)) {
+                                            open = Some((target, agent.cwd.clone()));
+                                        }
+                                    }
+                                    if let Some(until) = &request.lease_until { ui.label(format!("Lease until {until}")); }
+                                    if request.lapsing { ui.colored_label(ui.visuals().warn_fg_color, "Lease expires within 15 minutes unless the agent checks in."); }
+                                    if let Some(result) = &request.result {
+                                        ui.strong("Result");
+                                        ui.add(egui::Label::new(result).selectable(true).wrap());
+                                    }
+                                });
+                        }
+                    });
+            }
+            BoardSection::Agents => {
+                ui.horizontal_wrapped(|ui| {
+                    if ui
+                        .checkbox(
+                            &mut self.board_query.include_inactive,
+                            "Include inactive agents",
+                        )
+                        .changed()
+                    {
+                        self.board_query.agents_after = 0;
+                        self.board_agent_back.clear();
+                        reload = true;
+                    }
+                    if ui
+                        .add_enabled(
+                            !self.board_inflight && !self.board_agent_back.is_empty(),
+                            egui::Button::new("Previous agents"),
+                        )
+                        .clicked()
+                    {
+                        self.board_query.agents_after = self.board_agent_back.pop().unwrap_or(0);
+                        reload = true;
+                    }
+                    if ui
+                        .add_enabled(
+                            !self.board_inflight && self.board.more_agents,
+                            egui::Button::new("More agents"),
+                        )
+                        .clicked()
+                    {
+                        self.board_agent_back.push(self.board_query.agents_after);
+                        self.board_query.agents_after = self.board.agent_next;
+                        reload = true;
+                    }
+                    ui.weak(format!(
+                        "{} agents · page {}",
+                        self.board.total_agents,
+                        self.board_agent_back.len() + 1
+                    ));
+                });
+
+                egui::ScrollArea::vertical()
+                    .id_salt((
+                        "board-agents",
+                        self.board_query.agents_after,
+                        self.board_query.include_inactive,
+                    ))
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        for a in &self.board.agents {
+                            egui::CollapsingHeader::new(format!(
+                                "{} · {} · {}",
+                                a.owner,
+                                if a.alive { "active" } else { "inactive" },
+                                a.roles.join(", ")
+                            ))
+                            .id_salt(&a.id)
+                            .show(ui, |ui| {
+                                ui.label(format!("{} on {}", a.client, a.machine));
+                                if let Some(doing) = &a.doing {
+                                    ui.add(egui::Label::new(doing).wrap());
+                                }
+                                ui.weak(format!("Last seen {}", a.last_seen));
+                                if let Some(target) = chat_button(
+                                    ui,
+                                    &a.client,
+                                    a.session_ref.as_deref(),
+                                    Some(&a.machine),
+                                ) {
+                                    open = Some((target, a.cwd.clone()));
+                                }
+                                ui.horizontal_wrapped(|ui| {
+                                    let seconds = self
+                                        .lease_drafts
+                                        .entry(a.owner.clone())
+                                        .or_insert(a.lease_seconds);
+                                    ui.label("Release claims after inactivity (seconds)");
+                                    ui.add(
+                                        egui::DragValue::new(seconds).range(60..=86_400).speed(60),
+                                    );
+                                    if ui.button("Save ceiling").clicked() {
+                                        save = Some(Req::SetLease {
+                                            owner: a.owner.clone(),
+                                            seconds: *seconds,
+                                        });
+                                    }
+                                });
+                            });
+                        }
+                    });
+            }
+            BoardSection::Messages => {
+                ui.horizontal(|ui| {
+                    if ui
+                        .add_enabled(
+                            !self.board_inflight && !self.board_message_back.is_empty(),
+                            egui::Button::new("Newer messages"),
+                        )
+                        .clicked()
+                    {
+                        self.board_query.messages_before = self.board_message_back.pop().flatten();
+                        reload = true;
+                    }
+                    if ui
+                        .add_enabled(
+                            !self.board_inflight && self.board.more_messages,
+                            egui::Button::new("Older messages"),
+                        )
+                        .clicked()
+                    {
+                        self.board_message_back
+                            .push(self.board_query.messages_before);
+                        self.board_query.messages_before = self.board.message_next;
+                        reload = true;
+                    }
+                    ui.weak(format!(
+                        "{} matching messages · page {}",
+                        self.board.total_messages,
+                        self.board_message_back.len() + 1
+                    ));
+                });
+
+                egui::ScrollArea::vertical()
+                    .id_salt((
+                        "board-messages",
+                        self.board_query.messages_before,
+                        &self.board_query.search,
+                    ))
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        if self.board.messages.is_empty() {
+                            ui.label("No messages yet.");
+                        }
+                        for m in &self.board.messages {
+                            egui::CollapsingHeader::new(format!("{} · {}", m.owner, m.input.title))
+                                .id_salt(&m.id)
+                                .show(ui, |ui| {
+                                    use agentbolt_core::board::Destination;
+                                    let to = match &m.input.to {
+                                        Destination::Everyone => "everyone".into(),
+                                        Destination::Role(s) => format!("role {s}"),
+                                        Destination::Owner(s) => format!("owner {s}"),
+                                        Destination::Agent(s) => s.clone(),
+                                    };
+                                    ui.weak(format!("To {to} · {}", m.created_at));
+                                    if let Some(thread) = &m.input.thread {
+                                        ui.label(format!("Thread {thread}"));
+                                    }
+                                    ui.add(egui::Label::new(&m.input.body).selectable(true).wrap());
+                                    for reference in &m.input.references {
+                                        evidence_row(ui, reference, reference, &HashMap::new());
+                                    }
+                                });
+                        }
+                    });
+            }
+        }
         if reload {
             self.last_board = None;
         }
@@ -1646,8 +1849,11 @@ impl DeskApp {
         let mut request = None;
         egui::ScrollArea::vertical().auto_shrink([false,false]).show(ui,|ui| {
             ui.heading("Is the Desk helping?");
+            ui.weak("Recorded activity only. Missing history is unknown; defaults are separate from human answers.");
             let Some(report)=&self.metrics else {ui.label("Loading recorded activity…");return;};
-            ui.add(egui::Label::new(&report.explanation).wrap());
+            egui::CollapsingHeader::new("How these measures are calculated").show(ui, |ui| {
+                ui.add(egui::Label::new(&report.explanation).wrap());
+            });
             let current=report.observation.as_ref().unwrap_or(&report.current);
             let previous=report.baseline.as_ref().map_or(&report.previous,|b|&b.period);
             ui.add_space(8.0);
@@ -1663,22 +1869,31 @@ impl DeskApp {
                     ("PR/merge overlap checks",current.collision_checks,previous.collision_checks),
                     ("Checks finding overlap",current.overlapping_checks,previous.overlapping_checks),
                     ("Checks with unknown scans",current.unknown_checks,previous.unknown_checks),
-                ] {ui.label(label);ui.label(a.to_string());ui.label(b.to_string());ui.end_row();}
+                ] {
+                    ui.label(label);
+                    ui.label(if current.history_span_days.is_some() { a.to_string() } else { "Unknown".into() });
+                    ui.label(if previous.history_span_days.is_some() { b.to_string() } else { "Unknown".into() });
+                    ui.end_row();
+                }
                 ui.label("Recorded history span");
                 for p in [current,previous] {ui.label(p.history_span_days.map_or("Unknown".into(),|d|format!("{d:.1} days")));}ui.end_row();
                 ui.label("Median answer time");
-                for p in [current,previous] {ui.label(p.median_answer_hours.map_or("No human answers".into(),|h|format!("{h:.1} hours")));}ui.end_row();
+                for p in [current,previous] {ui.label(if p.history_span_days.is_none() { "Unknown".into() } else {p.median_answer_hours.map_or("No human answers".into(),|h|format!("{h:.1} hours"))});}ui.end_row();
                 ui.label("Unanswered at deadline");
-                for p in [current,previous] {ui.label(p.unanswered_deadline_share.map_or("No elapsed deadlines".into(),|v|format!("{:.0}%",v*100.0)));}ui.end_row();
+                for p in [current,previous] {ui.label(if p.history_span_days.is_none() { "Unknown".into() } else {p.unanswered_deadline_share.map_or("No elapsed deadlines".into(),|v|format!("{:.0}%",v*100.0))});}ui.end_row();
             });
             ui.label(format!("{} reversible questions have waited over 48 hours.",report.reversible_waiting_over_48h));
             ui.label(format!("{} irreversible questions are still open{}.",report.irreversible_open,report.oldest_irreversible_hours.map(|h|format!("; oldest {h:.1} hours")).unwrap_or_default()));
-            ui.separator();ui.heading("By agent owner");
+            ui.separator();
+            egui::CollapsingHeader::new("By agent owner").show(ui, |ui| {
+            egui::ScrollArea::both().id_salt("activity-owners-scroll").max_height(220.0).show(ui, |ui| {
             egui::Grid::new("activity-owners").striped(true).show(ui,|ui| {
                 for title in ["Owner","Submitted","Not needed / submitted","Missed deadlines"] {ui.strong(title);}ui.end_row();
                 for o in &current.owners {
                     ui.label(&o.owner);ui.label(o.submitted.to_string());ui.label(format!("{} / {}",o.not_needed,o.submitted));ui.label(o.unanswered_deadlines.to_string());ui.end_row();
                 }
+            });
+            });
             });
             egui::CollapsingHeader::new("Questions submitted by day (UTC)").show(ui,|ui| {
                 for (day,count) in &current.submissions_by_day {ui.label(format!("{day}: {count}"));}
@@ -1706,16 +1921,36 @@ impl DeskApp {
 
     fn holds_tab(&mut self, ui: &mut egui::Ui) {
         let mut request = None;
-        egui::ScrollArea::vertical().auto_shrink([false,false]).show(ui,|ui|{
-            ui.heading("Work holds");
-            ui.label("Agents can check these holds before opening or merging a PR. A hold is advisory; it does not edit or lock your files.");
+        ui.heading("Work holds");
+        ui.label("Agents can check these holds before opening or merging a PR. A hold is advisory; it does not edit or lock your files.");
+        ui.horizontal_wrapped(|ui| {
+            ui.selectable_value(&mut self.configure_holds, false, "Active holds");
+            ui.selectable_value(&mut self.configure_holds, true, "Configure working copies");
+        });
+        if !self.configure_holds {
             ui.horizontal_wrapped(|ui| {
-                ui.label(format!("{} active agent holds · page {}", self.holds.total_agent_holds, self.holds_back.len() + 1));
-                if ui.add_enabled(!self.holds_inflight && !self.holds_back.is_empty(), egui::Button::new("Previous holds")).clicked() {
+                ui.label(format!(
+                    "{} active agent holds · page {}",
+                    self.holds.total_agent_holds,
+                    self.holds_back.len() + 1
+                ));
+                if ui
+                    .add_enabled(
+                        !self.holds_inflight && !self.holds_back.is_empty(),
+                        egui::Button::new("Previous holds"),
+                    )
+                    .clicked()
+                {
                     self.holds_after = self.holds_back.pop().flatten();
                     self.last_holds = None;
                 }
-                if ui.add_enabled(!self.holds_inflight && self.holds.more, egui::Button::new("More holds")).clicked() {
+                if ui
+                    .add_enabled(
+                        !self.holds_inflight && self.holds.more,
+                        egui::Button::new("More holds"),
+                    )
+                    .clicked()
+                {
                     self.holds_back.push(self.holds_after.clone());
                     self.holds_after = self.holds.next.clone();
                     self.last_holds = None;
@@ -1726,7 +1961,12 @@ impl DeskApp {
                     self.last_holds = None;
                 }
             });
+            egui::ScrollArea::vertical().id_salt(("active-holds", &self.holds_after)).auto_shrink([false, false]).show(ui, |ui| {
             let now=agentbolt_core::store::to_ms(time::OffsetDateTime::now_utc());
+            if self.holds.config.working_copies.is_empty() {
+                ui.weak("No working copies configured. Filesystem scanning is off; only agent holds are shown.");
+            }
+            if self.holds.holds.is_empty() { ui.label("No active holds on this page."); }
             for source in &self.holds.config.working_copies {
                 ui.strong(&source.repo);ui.label(&source.path);
                 if agentbolt_core::holds::excluded(&source.path,&self.holds.config) { ui.colored_label(ui.visuals().warn_fg_color,"This copy overlaps an excluded root; collision status is unknown."); }
@@ -1745,7 +1985,10 @@ impl DeskApp {
                     for path in &hold.paths{ui.add(egui::Label::new(path).selectable(true).wrap());}
                 });
             }
-            ui.separator();ui.heading("Working-copy allowlist");
+            });
+        } else {
+            egui::ScrollArea::vertical().id_salt("configure-holds").auto_shrink([false, false]).show(ui, |ui| {
+            ui.heading("Working-copy allowlist");
             ui.label("Only the folders saved here are scanned, using read-only Git status and unpushed history. Scanning is off when the list is empty. Add closed or private roots to exclusions before importing a list.");
             ui.label("Excluded roots, one absolute folder per line");
             ui.add(egui::TextEdit::multiline(&mut self.hold_excludes).desired_rows(3));
@@ -1773,6 +2016,7 @@ impl DeskApp {
                 }
             }
         });
+        }
         if let Some(request) = request {
             self.send(request);
         }

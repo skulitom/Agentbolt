@@ -53,6 +53,6 @@ refer to older commits; live integrations and production readiness remain unveri
   rollout/publication. Merely implementing their measurement or distribution interface cannot satisfy them.
 
 The named product features now have implementations. Focused core/CLI/MCP/Git checks have begun and
-found fixes recorded in the validation report. Continue security/platform/UI checks before rebuilding packages, live-host checks,
+found fixes recorded in the validation report. Native synthetic 60-item paging/search and draft navigation now pass; Board sections, delivery browsing and working-copy configuration remain directly reachable with long lists. Claimant details are resolved independently of agent-directory paging. Activity distinguishes periods before stored history from observed zero activity. Continue security/platform/UI checks before rebuilding packages, live-host checks,
 idle measurement or a fresh uninterrupted reliability run. Signing remains explicitly deferred for 0.2.
 The production goal stays active until its required evidence exists; nothing has been tagged or published.

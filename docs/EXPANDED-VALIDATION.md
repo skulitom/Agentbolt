@@ -114,3 +114,64 @@ Remaining work includes expanded native tab/paging interaction, final-candidate 
 performance checks, live Claude/plugin/phone/SSH validation, packaging and a new reliability run.
 The previous junction fixture rejection remains unresolved. No new licensing run or adoption period
 was started; no release was tagged or published.
+
+## Native expanded-Desk pass
+
+This pass starts from `ce533ed` and uses Anode session 4 at 1280×720, with a 900×620 Desk
+client area and debug binaries. `crates/agentbolt-desk/tests/expanded_gui.rs` is an ignored,
+self-cleaning fixture with 60 owners/agents, open questions, archived questions, handoffs, messages
+and advisory agent holds; one archived question has 55 synthetic delivery records. It seeds the
+store before starting the daemon, then gives the daemon sole ownership. No working copies,
+phone service, chat wake permissions, installation registrations or real accounts are configured.
+
+Run in Anode with `cargo test -p agentbolt-desk --test expanded_gui -- --ignored --nocapture --test-threads=1`.
+Inspect the tabs and pages, enter `Keep across pages` on Inbox question 00, navigate away and back,
+and send that reply to finish. The fixture verifies a Desk-originated answer through the MCP pipe,
+then stops its processes and removes its fresh channel directory. It times out after 15 minutes.
+
+Observed through the native window:
+
+- Inbox page two shows questions 50–59; Previous restores the edited question-00 reply.
+  The reply also survives visits to History, Board, Work holds, Activity and Agents.
+- History reaches its second page and finds `Archived decision 00` with search. The delivery
+  browser reaches all 55 records, with the final five on page two and Older disabled at the end.
+- Board handoffs, messages and active agents reach their second pages. The closed filter reveals
+  the failed handoff and its result. Separate section buttons keep messages and agent controls
+  accessible without scrolling through the other lists.
+- Work holds reaches page two. Configuration is a directly selectable view; its empty allowlist
+  stays empty. Agents directory paging and the Activity totals (120 submitted, 60 answered) render.
+- After the follow-up fix, the failed handoff displays `Claimed by fixture-59` even though that
+  agent is outside the first 50 directory entries. The Activity period before the first stored
+  event displays Unknown instead of zeros; the current synthetic period retains its counts.
+
+Three successful fixture runs used `gui-expanded-109892` (132.10 s), `gui-expanded-75868`
+(159.06 s), and `gui-expanded-117496` (69.25 s). The final run rebuilt both daemon and Desk to
+verify the claimant and missing-history fixes. No matching windows or data directories remain,
+and the desktop lease was released. These durations include manual interaction and are not
+performance measurements. Expansion was checked with pointer input; Anode's accessibility
+Expand action did not expand an egui collapsing header, so that accessibility path is not proven.
+
+The pass led to these changes:
+
+- Fixed Board navigation above independently scrolling Handoffs, Messages and Who is working;
+  page/search changes use their own scroll state. The closed filter now explicitly names failed work.
+- Direct Active holds / Configure working copies navigation, with an explicit scanning-off state.
+- Delivery summary limited to the last three records, with the complete browser immediately
+  accessible and its paging controls outside a bounded list.
+- Expandable Activity methodology and owner breakdown, keeping the baseline and verdict reachable.
+- Exact claimant cards for the visible handoffs, independent of the agent page or liveness filter.
+  The card includes public identity and chat context, never the bearer handle; lookup remains bounded
+  by the 50 visible requests. Older daemon snapshots remain readable with an empty card default.
+- Periods wholly before the first event have no known history span. The Desk renders their measures
+  as Unknown and keeps a brief explanation visible even when methodology is collapsed.
+
+Focused verification after these changes: Windows core 92 unit tests plus two repository guards,
+Desk 19 unit tests plus four headless checks pass. Opt-in GUI/startup cases remain ignored in the
+ordinary command. Core/Desk all-target Clippy passes. WSL Ubuntu passes all 17 expanded service
+tests, including the new off-page/inactive claimant and missing-history regressions. The native
+fixture's successful end checks are in addition to those ordinary tests.
+
+This covers synthetic native navigation, not every large-data mutation, keyboard/accessibility path,
+installed upgrade or live integration. The final-candidate release, security/live-host, actual phone/SSH,
+performance and reliability gates above remain open. No licensing run, adoption period or publication
+was started by this pass.

@@ -63,6 +63,69 @@ fn configure_copy(t: &T) {
 }
 
 #[test]
+fn desk_handoffs_resolve_claimants_outside_the_agent_page_and_after_inactivity() {
+    let t = T::new();
+    let requester = t.register("requester");
+    for i in 0..55 {
+        t.register(&format!("other-{i}"));
+    }
+    let claimant = t.register("off-page-reviewer");
+    let id = request(&t, &requester, "Off-page claimant")["request"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let fence = board(&t, &claimant, BoardOp::Claim { id: id.clone() }).unwrap()["fence"]
+        .as_u64()
+        .unwrap();
+    let snapshot: crate::board::Snapshot = de(t.desk(DeskOp::Board).unwrap().0);
+    assert_eq!(snapshot.agents.len(), 50);
+    assert!(
+        snapshot
+            .agents
+            .iter()
+            .all(|a| a.owner != "off-page-reviewer")
+    );
+    assert_eq!(snapshot.claimants.len(), 1);
+    assert_eq!(snapshot.claimants[0].owner, "off-page-reviewer");
+    assert_eq!(
+        snapshot.claimants[0].session_ref.as_deref(),
+        Some("off-page-reviewer-session")
+    );
+    assert_eq!(
+        snapshot.claimants[0].id,
+        snapshot.requests[0].claimant.clone().unwrap()
+    );
+    assert!(
+        !json!(snapshot).to_string().contains(&claimant),
+        "no bearer handle in Desk cards"
+    );
+    board(
+        &t,
+        &claimant,
+        BoardOp::Done {
+            id,
+            fence,
+            result: "Reviewed".into(),
+            failed: false,
+        },
+    )
+    .unwrap();
+    t.advance(Duration::hours(5));
+    let snapshot: crate::board::Snapshot = de(t
+        .desk(DeskOp::BoardPage {
+            query: crate::board::DeskQuery {
+                include_closed: true,
+                ..Default::default()
+            },
+        })
+        .unwrap()
+        .0);
+    assert!(snapshot.agents.is_empty());
+    assert_eq!(snapshot.claimants[0].owner, "off-page-reviewer");
+    assert!(!snapshot.claimants[0].alive);
+}
+
+#[test]
 fn twenty_agents_race_for_one_claim_and_stale_fences_never_finish_it() {
     let t = T::new();
     let handles: Vec<_> = (0..20).map(|i| t.register(&format!("racer-{i}"))).collect();
@@ -891,6 +954,23 @@ fn phone_settings_change_allows_a_fresh_reply_after_revoking_a_queued_one() {
             .as_deref(),
         Some("No")
     );
+}
+
+#[test]
+fn activity_before_the_first_stored_event_is_unknown() {
+    let t = T::new();
+    let a = t.register("new-install");
+    t.ask(&a, t.input("First recorded question"));
+    t.advance(Duration::seconds(1));
+    let report: crate::metrics::Report = de(t.desk(DeskOp::Metrics).unwrap().0);
+    assert_eq!(report.current.submitted, 1);
+    assert!(
+        report
+            .current
+            .history_span_days
+            .is_some_and(|days| days > 0.0)
+    );
+    assert!(report.previous.history_span_days.is_none());
 }
 
 #[test]
