@@ -31,12 +31,12 @@ refer to older commits; live integrations and production readiness remain unveri
 | M6: protected phone questions and one-time replies | Core/daemon phone modules; Desk-only settings and receipt activation; durable outbox/receipts; private-topic checks, bounded HTTPS and acknowledgements | Real protected ntfy service, offline/replay/revocation cases, credential handling and phone behavior |
 | Beads linkage | CLI exact-issue importer creates a linked deduplicated Board handoff; leaves the source issue unchanged | Isolated real-format adapter and CLI cases |
 | Claude plugin and integrations | Decision/coordination skills; twelve-tool generated catalog; Registry/Glama/winget/Scoop/release sources | Expanded behavioral evaluation and hosted acceptance; no publication has occurred |
-| M7: other machines | SSH-key relay, verified host keys, MCP-only operations, explicit remote machine identity and safe-read reconnection | Actual Linux/Windows SSH sessions, reconnect/uncertain-mutation and identity cases |
+| M7: other machines | SSH-key relay, optional host-specific config, verified host keys, MCP-only operations, explicit remote machine identity and safe-read reconnection | Real OpenSSH encrypted loopback, authentication, identity, reconnect/uncertain writes and capacity pass; actual cross-machine deployment remains open |
 | MCP content rendering and compact discovery | Full JSON text mirrored in structured content, no output schema; shared generated host-aware tool schemas | Both protocol revisions and real client rendering |
 
 ## What implementation does not establish
 
-- No real phone credentials, SSH connection, monitored working copy, dispatcher schedule, baseline or
+- No real phone credentials, external SSH account, monitored working copy, dispatcher schedule, baseline or
   adoption period was configured during this work. Those rollout steps have their own external state.
 - Dispatcher charter/notes changes belong to the authorized dispatcher workflow. The repository contains
   the adapter and instructions; the live Compass files were not edited. Host-required approvals still

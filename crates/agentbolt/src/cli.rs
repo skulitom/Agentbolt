@@ -84,6 +84,7 @@ agentbolt: Artem's desk for agents (CLI and MCP server)
 Usage:
   agentbolt mcp [--owner NAME] [--client NAME] [--max-wait-ms N]   MCP server on stdio
                 [--ssh HOST --machine LABEL --remote-exe PATH]  use the Desk on a trusted SSH host
+                [--ssh-config FILE]  optional absolute SSH config file for this MCP host
   agentbolt relay --machine LABEL [--channel NAME]              MCP-only bridge, normally started by SSH
   agentbolt relay-notes --owner NAME --notes FILE --recipient-owner NAME... [--before ASK_ID] [--write]
                                                 preview or durably append authorized answer handoffs
@@ -217,12 +218,16 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String>
                 ssh: None,
             };
             let (mut ssh_host, mut machine, mut remote_exe) = (None, None, "agentbolt".to_string());
+            let mut ssh_config = None;
             while let Some((flag, inline)) = a.next_flag() {
                 match flag.as_str() {
                     "--channel" => m.channel = Some(a.value(&flag, inline)?),
                     "--owner" => m.owner = Some(nonempty(&flag, a.value(&flag, inline)?)?),
                     "--client" => m.client = Some(nonempty(&flag, a.value(&flag, inline)?)?),
                     "--ssh" => ssh_host = Some(a.value(&flag, inline)?),
+                    "--ssh-config" => {
+                        ssh_config = Some(std::path::PathBuf::from(a.value(&flag, inline)?))
+                    }
                     "--machine" => machine = Some(a.value(&flag, inline)?),
                     "--remote-exe" => remote_exe = a.value(&flag, inline)?,
                     "--max-wait-ms" => {
@@ -239,11 +244,12 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String>
                     host,
                     machine: machine.ok_or("--ssh requires --machine to identify this computer")?,
                     executable: remote_exe,
+                    config_file: ssh_config,
                 };
                 config.validate()?;
                 m.ssh = Some(config);
-            } else if machine.is_some() || remote_exe != "agentbolt" {
-                return Err("--machine and --remote-exe require --ssh".into());
+            } else if machine.is_some() || remote_exe != "agentbolt" || ssh_config.is_some() {
+                return Err("--machine, --remote-exe and --ssh-config require --ssh".into());
             }
             Ok(Command::Mcp(m))
         }
@@ -656,10 +662,27 @@ mod tests {
         };
         assert_eq!(remote.max_wait_ms, 600_000);
         assert_eq!(remote.ssh.unwrap().machine, "laptop");
+        let temp = crate::testutil::TempDir::new();
+        let config = temp.path().join("host ssh config");
+        std::fs::write(&config, "Host desk\n").unwrap();
+        let Command::Mcp(remote) = p(&[
+            "mcp",
+            "--ssh",
+            "desk",
+            "--machine",
+            "laptop",
+            "--ssh-config",
+            config.to_str().unwrap(),
+        ])
+        .unwrap() else {
+            panic!()
+        };
+        assert_eq!(remote.ssh.unwrap().config_file, Some(config));
         for flags in [
             vec!["mcp", "--ssh", "desk"],
             vec!["mcp", "--machine", "laptop"],
             vec!["mcp", "--remote-exe", "custom"],
+            vec!["mcp", "--ssh-config", "file"],
             vec!["relay"],
         ] {
             assert!(p(&flags).is_err(), "{flags:?}");

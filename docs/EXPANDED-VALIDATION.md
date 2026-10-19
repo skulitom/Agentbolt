@@ -175,3 +175,40 @@ This covers synthetic native navigation, not every large-data mutation, keyboard
 installed upgrade or live integration. The final-candidate release, security/live-host, actual phone/SSH,
 performance and reliability gates above remain open. No licensing run, adoption period or publication
 was started by this pass.
+
+## Per-host SSH configuration and encrypted loopback (2026-10-19)
+
+`agentbolt mcp --ssh-config FILE` selects an existing absolute SSH configuration file for that MCP
+host, including paths with spaces. It remains a separate local argument and is absent from the remote
+command. Strict host verification and the existing noninteractive/forwarding restrictions still override
+configuration values. Without this option, SSH keeps its normal configuration discovery.
+
+The opt-in `crates/agentbolt/tests/ssh_loopback.rs` uses Windows OpenSSH 9.5p2 and an ephemeral
+127.0.0.1 endpoint built with the already installed Paramiko 2.8.1. It launches the actual relay and
+headless daemon against a fresh channel; only the fixture accepts SSH connections. Its exact command
+allowlist launches the relay as separate arguments without a shell. No install, real account, shared
+SSH setting or firewall is changed. The fixture's synthetic private keys have user-only permissions;
+an initial attempt correctly failed because inherited Windows group permissions made them unacceptable
+to OpenSSH. Paramiko emits an installed-library deprecation warning; it is not a product dependency.
+
+Final run: `ssh-loop-104740`, 1.52 seconds (after compilation), passes:
+
+- Wrong host and client keys refuse every operation. The test config requests permissive host checking,
+  confirming Agentbolt's strict setting wins. A valid key then connects successfully.
+- Registrations retain `remote:loopback-a` and `remote:loopback-b`. An explicitly shared owner recovers
+  its offline-seeded historical answer and cancellation state through a fresh connection.
+- A committed read with its response dropped reconnects once. A committed ask with its response dropped
+  reports an uncertain outcome and is forwarded only once. An explicit dedupe retry returns the same ask.
+- Three concurrent answer waits leave the fourth connection available for Board reads and cancellation.
+  A fourth wait is refused before submission; all three waiting reads observe the cancellation.
+- The actual MCP command accepts the configuration path with spaces, initializes over stdio, and
+  registers through SSH. Its full JSON text and structured result match, including the durable answer.
+- The server closes transports and reaps its relay children before exit. The daemon, keys, temporary
+  configuration and channel data are removed. No human answer was submitted over MCP: the historical
+  answer was seeded offline before starting the daemon.
+
+Focused checks: Windows CLI 38 unit tests, Linux CLI 36 unit tests, Windows repository guards two;
+CLI all-target Clippy on Windows and Linux. The opt-in fixture is ignored by ordinary test commands.
+This proves a real encrypted local transport and process integration. It does not prove an external SSH
+account, remote shell quoting, cross-machine operating-system combinations, a deployed phone service,
+or the final-candidate reliability gates. No licensing, packaging or long-running check was started.

@@ -8,7 +8,7 @@ use agentbolt_core::{
 use agentbolt_ipc::Pipe;
 use serde::Serialize;
 use serde_json::Value;
-use std::{process::Stdio, sync::Mutex, time::Duration};
+use std::{path::PathBuf, process::Stdio, sync::Mutex, time::Duration};
 use tokio::{
     io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::{Child, ChildStdin, ChildStdout},
@@ -24,6 +24,8 @@ pub struct Config {
     pub host: String,
     pub machine: String,
     pub executable: String,
+    /// Explicit host-owned SSH configuration, passed as one local argument; never sent remotely.
+    pub config_file: Option<PathBuf>,
 }
 
 pub fn validate_machine(machine: &str) -> Result<(), String> {
@@ -65,6 +67,15 @@ impl Config {
                 .all(|b| b.is_ascii_alphanumeric() || b"._-:/\\ ".contains(&b))
         {
             return Err("remote executable must be agentbolt or a literal local path using letters, digits, spaces, dots, underscores, hyphens and path separators".into());
+        }
+        if let Some(path) = &self.config_file
+            && (!path.is_absolute()
+                || !path
+                    .to_str()
+                    .is_some_and(|s| s.len() <= 4096 && !s.chars().any(char::is_control))
+                || !path.is_file())
+        {
+            return Err("--ssh-config needs an existing absolute configuration file without control characters".into());
         }
         Ok(())
     }
@@ -134,6 +145,9 @@ impl Remote {
             .command(&self.channel)
             .map_err(CallError::Other)?;
         let mut command = tokio::process::Command::new("ssh");
+        if let Some(config_file) = &self.config.config_file {
+            command.arg("-F").arg(config_file);
+        }
         command
             .args([
                 "-T",
@@ -392,11 +406,38 @@ mod tests {
     use agentbolt_core::{board::BoardOp, holds::HoldOp};
 
     #[test]
+    fn explicit_config_is_a_local_existing_file_and_not_part_of_remote_command() {
+        let temp = crate::testutil::TempDir::new();
+        let path = temp.path().join("host config with spaces");
+        std::fs::write(&path, "Host fixture\n  HostName 127.0.0.1\n").unwrap();
+        let mut config = Config {
+            host: "fixture".into(),
+            machine: "test-client".into(),
+            executable: "agentbolt".into(),
+            config_file: Some(path),
+        };
+        assert_eq!(
+            config.command("remote-test").unwrap(),
+            "\"agentbolt\" relay --channel remote-test --machine test-client"
+        );
+        for invalid in [
+            PathBuf::from("relative-file"),
+            temp.path().to_owned(),
+            temp.path().join("missing"),
+            temp.path().join("bad\nfile"),
+        ] {
+            config.config_file = Some(invalid);
+            assert!(config.validate().is_err());
+        }
+    }
+
+    #[test]
     fn ssh_command_has_no_shell_expansion_or_caller_selected_identity() {
         let base = Config {
             host: "artem@desk.example.test".into(),
             machine: "laptop-2".into(),
             executable: "C:\\Program Files\\Agentbolt\\agentbolt.exe".into(),
+            config_file: None,
         };
         assert_eq!(
             base.command("remote-test").unwrap(),
@@ -443,6 +484,7 @@ mod tests {
                 host: "unused.invalid".into(),
                 machine: "test".into(),
                 executable: "agentbolt".into(),
+                config_file: None,
             },
             "remote-test".into(),
         );
@@ -527,6 +569,7 @@ mod tests {
                 host: "unused.invalid".into(),
                 machine: "test".into(),
                 executable: "agentbolt".into(),
+                config_file: None,
             },
             "remote-test".into(),
         );

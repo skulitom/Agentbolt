@@ -61,7 +61,7 @@ The next expanded pass adds these features (compilation only):
 - M6: `agentbolt beads` imports an exact existing issue into a linked, deduplicated handoff. It does not
   claim, change or close the issue. [Beads adapter](BEADS.md).
 - M7: `agentbolt mcp --ssh ... --machine ...` and the MCP-only SSH relay; verified host keys, no password
-  prompts, bounded connections, safe-read reconnection and explicit remote-machine provenance on asks.
+  prompts, optional host-specific `--ssh-config`, bounded connections, safe-read reconnection and explicit remote-machine provenance on asks.
   A remote chat is not opened or queued as if it were local. [Remote machines](REMOTE-MACHINES.md).
 - Workflow adapters: `relay-notes` filters an explicit owner allowlist, durably appends once to the chosen
   notes file, then records delivery; `pr-check` computes complete paths from immutable Git commits and

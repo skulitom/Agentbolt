@@ -24,6 +24,9 @@ All-target Clippy passes on both platforms, and native ordinary/warm Desk lifecy
 Native 60-item paging/search and draft navigation now pass. Board sections and working-copy settings
 are directly accessible; delivery history and Activity breakdowns are bounded. Off-page/inactive
 claimants retain their name and chat context, and pre-install Activity periods show unknown history.
+Remote MCP hosts can now select their own SSH configuration file. A real encrypted loopback relay
+passes authentication, origin, durable-state, reconnect, uncertain-write and concurrency checks, including
+the MCP command and matching text/structured results. Actual cross-machine deployment remains open.
 Expanded security, final-candidate and live host validation remain open.
 No phone account, scan, adoption period or live workflow has been activated.
 

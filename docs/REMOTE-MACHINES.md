@@ -18,6 +18,14 @@ agent's originating computer, taken from the host configuration, never from tool
 `--max-wait-ms 600000` for a Claude client that should permit long waits. The remote executable defaults
 to `agentbolt` if it is already on the SSH account's PATH; otherwise supply its literal installed path.
 
+For a host-specific configuration, add `--ssh-config "C:/Users/you/Agentbolt/ssh config"` (or an
+absolute Unix path). The file must already exist and is read by the local SSH client. This keeps
+ports, identities and jump-host settings separate from your shared SSH configuration; it does not
+copy the file to the Desk computer. Without this option, SSH uses its usual configuration files.
+Agentbolt still enforces noninteractive key authentication, verified host keys and disabled forwarding.
+As with your normal SSH configuration, use a file you control: SSH configuration can itself invoke
+local helpers for connections and proxies.
+
 The relay runs `agentbolt relay --machine <label>` over encrypted stdio. It accepts only the typed MCP
 protocol and forwards it to the local user-only MCP pipe. There is no human-answer operation. Session
 metadata still comes from the originating host. Unbound owner identities include the machine label;
@@ -39,3 +47,10 @@ SSH account access is the authentication boundary; machine labels describe origi
 The same-user trust limit still applies. For a restricted SSH key, an administrator can configure a forced
 `agentbolt relay` command and restrict forwarding in SSH itself. This repository does not modify account
 or SSH configuration. Live cross-machine validation follows the full feature implementation.
+
+The opt-in `ssh_loopback` fixture exercises a real OpenSSH client against a temporary loopback SSH
+endpoint and the actual relay/daemon. It requires Python with Paramiko already installed and a built
+daemon beside the CLI. Set `AGENTBOLT_SSH_TEST_PYTHON` to that Python executable, build the CLI and daemon,
+then run `cargo test -p agentbolt --test ssh_loopback --locked -- --ignored --nocapture`.
+The fixture creates and removes its own channel, keys and configuration; it never registers an install
+or uses a real account. This is transport evidence on one computer, not a cross-machine deployment check.
