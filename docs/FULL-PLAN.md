@@ -2,8 +2,11 @@
 
 Artem explicitly expanded this task to M2–M7 on 2026-10-18. The private v4 plan's latest feedback still
 wins over older text. Implement every feature first; heavy validation, licensing, packages and live-client
-checks follow after the implementation is complete. Existing checks are historical evidence only.
-Do not tag or publish. Do not change the real main-channel installation as part of development.
+checks follow after the implementation is complete and testing is authorized again. Existing checks
+are historical evidence only. On 2026-10-23 Artem authorized publishing the intermediate source under
+MIT on the public repository, with explicit README gaps. The production-readiness goal and testing
+remain paused. Binary releases and tags are outside that source-publication step. Do not change the
+real main-channel installation as part of development.
 
 ## Feature work
 

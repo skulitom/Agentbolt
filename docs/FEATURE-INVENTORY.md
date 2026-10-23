@@ -64,6 +64,14 @@ unverified. This supersedes `85c66d2`, whose source audit exposed the background
   rollout/publication. Merely implementing their measurement or distribution interface cannot satisfy them.
 
 The named product features now have implementations. Focused core/CLI/MCP/Git checks have begun and
-found fixes recorded in the validation report. Native synthetic 60-item paging/search and draft navigation now pass; Board sections, delivery browsing and working-copy configuration remain directly reachable with long lists. Claimant details are resolved independently of agent-directory paging. Activity distinguishes periods before stored history from observed zero activity. Continue security/platform/UI checks before rebuilding packages, live-host checks,
-idle measurement or a fresh uninterrupted reliability run. Signing remains explicitly deferred for 0.2.
-The production goal stays active until its required evidence exists; nothing has been tagged or published.
+found fixes recorded in the validation report. Historical native synthetic 60-item paging/search and
+draft-navigation checks passed; Board sections, delivery browsing and working-copy configuration
+remain directly reachable with long lists. Claimant details are resolved independently of directory
+paging. Activity distinguishes periods before stored history from observed zero activity.
+Security/platform/UI, live-host, idle and reliability evidence remains required on the current build
+once testing is authorized again. Signing remains explicitly deferred for 0.2.
+
+On 2026-10-23 Artem paused the production-readiness goal and kept all testing stopped. He subsequently
+authorized publication of the intermediate source under MIT, with explicit gaps in the README.
+Source publication does not establish production readiness or resume testing; no binary release or
+tag is part of that step.

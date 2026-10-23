@@ -1,7 +1,12 @@
 # Next: from 0.1 to production
 
-The design and milestones are in Compass's `work/2026-10-18-agentbolt/PLAN.md` (v4). 0.1 is M0 plus most of M1. This
-list is what's left before a public release. Do the first section first.
+The design and milestones are in Compass's `work/2026-10-18-agentbolt/PLAN.md` (v4). 0.1 was M0 plus most of M1.
+The current 0.2 source includes M2–M7 and the later UX work. This list tracks what remains before production readiness.
+
+**Public intermediate source snapshot (2026-10-23):** Artem requested publication on the public
+`skulitom/Agentbolt` repository under MIT, with the gaps stated in the [README](README.md).
+This authorizes source publication only; no binary release is tagged or published by this step.
+The production-readiness goal is paused at his request, and all testing remains stopped.
 
 **Testing paused at Artem's request (2026-10-19): "Stop all testing for now."** Do not start or resume
 tests from the older checklists or readiness answers below. The normal-desktop fixture and fresh

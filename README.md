@@ -5,14 +5,52 @@
 You run agents everywhere: Claude Code in a terminal, Claude chats, Codex threads, scheduled jobs. When one of them needs
 you, the question gets lost in a session you'll never reopen. Agentbolt gives them one place to ask: a tray icon and a
 window, like an inbox. Each ask comes with its evidence, the options, a recommended default and a deadline. You answer
-in one click, and the answer reaches the agent that asked, even if its session has ended since.
+in one click, and the answer stays available for the agent's next checkpoint, even if its session has ended since.
 
 Local by default, with no account or API key for the Desk. Optional phone delivery uses your ntfy account;
-remote machines use your SSH setup. MIT licensed. Windows first; the MCP server also builds on Linux and macOS.
+remote machines use your SSH setup. [MIT licensed](LICENSE). The desktop targets Windows; Linux CLI/MCP
+builds are available from source. macOS support has not been validated.
 
-> Status: **0.2.0, full-plan implementation in progress.** The Board, work holds and Activity reporting are
-> implemented on the candidate branch, alongside phone replies, SSH access, Beads and workflow adapters.
-> Feature work comes before final verification. See [NEXT.md](NEXT.md) and [the feature tracker](docs/FULL-PLAN.md).
+> **Public intermediate snapshot — 0.2.0 development, 23 October 2026.** The M2–M7 features are implemented,
+> alongside the later UI, session search and automatic agent access changes. **Production readiness is
+> unverified.** Testing and the production-readiness goal are paused at the maintainer's request.
+> This source publication does not resume them or establish a stable release.
+
+## Known gaps and unfinished work
+
+The latest application source (`753f12d`) has successful Windows and Linux release builds, locally
+prepared archives, and a normal Windows app update. The [candidate record](docs/CANDIDATE-753f12d.json)
+pins their source and hashes. Earlier test reports cover older revisions; they do not validate the
+current snapshot. The following gaps remain:
+
+| Area | Current implementation and remaining gap |
+|---|---|
+| Chat navigation and replies | Exact-chat links and terminal resume controls are implemented. End-to-end Claude Desktop/Codex navigation and terminal resume still need verification on the current build. Codex wake-up is opt-in; a successful queue command does not prove delivery. Earlier checks found that a finished, unloaded chat did not resume. Answers remain available through durable reads. |
+| Claude delivery (M2) | Long waits, relay handoffs and next-run recovery are implemented. Full timeout/background behavior, Claude Desktop use and the live dispatcher workflow remain unverified or undeployed. |
+| Activity and adoption (M3) | Baseline and 14-day reporting are implemented. A real baseline, observation period and maintainer verdict have not been completed. No adoption or productivity benefit has been established. |
+| Working-copy holds (M4) | Allowlisted Git scans, advisory holds and PR/merge checks are implemented. Real repository/workflow rollout and Windows junction/permission cases remain open. Missing or stale scans mean unknown, never clearance to merge. |
+| Agent Board (M5) | Messages, requests, claims and renewable leases are implemented. Current-build multi-client, crash/restart and cross-machine behavior still needs validation. |
+| Phone replies and integrations (M6) | Protected ntfy replies, Beads links, the Claude plugin and workflow adapters are implemented. Real phone-service delivery, offline/replay/revocation behavior and external configurations remain unverified. Phone buttons support only simple reversible questions with at most three short choices; other questions require the Desk. |
+| Other machines (M7) | SSH transport and remote identity are implemented. Earlier checks used encrypted local loopback; deployment to an actual second computer remains unverified. Remote sessions use copy controls rather than local chat launch. |
+| Session discovery and search | Discovery covers local Windows Codex and Claude Code sessions, including Claude Desktop Code chats. Browser chats, Cowork VM sessions, remote sessions and archived Codex chats are outside discovery. Search is local keyword search with bounded history, so it can miss older messages. Provider-format changes may require adapter updates. [Full limits](docs/SESSIONS.md). |
+| Desktop polish and automatic access | Collapsed history, activity animation, local message search and automatic agent registration are implemented. Their current-build UI, accessibility and regression checks have not been completed. |
+
+Release verification also remains unfinished:
+
+- Current-source Windows/Linux tests, lint checks, repository checks, dependency-policy review and
+  security review have not been completed after the later changes.
+- Final-build installation, upgrade/rollback, draft preservation, uninstall and silent notification
+  checks need repeating. The successful normal app update is narrower evidence.
+- Startup latency, hidden-window behavior and idle CPU need measuring again after the session/search
+  changes. Earlier performance measurements apply to older binaries.
+- **No uninterrupted 72-hour reliability run has passed.** Previous runs were stopped; testing remains paused.
+- Windows binaries are unsigned; signing is deferred beyond 0.2. Locally prepared archives have not
+  been published as a GitHub release. Hosted release execution, package-manager distribution and
+  registry acceptance remain unverified.
+
+See [the feature inventory](docs/FEATURE-INVENTORY.md), [implementation tracker](docs/FULL-PLAN.md)
+and [remaining work](NEXT.md) for detailed evidence and scope. These are recorded gaps, not claims
+that the features have passed production validation.
 
 ## How it works
 ```
@@ -54,8 +92,9 @@ agent ──stdio──► agentbolt mcp ──user-only pipe──► agentbolt
 - **Chat navigation:** open the originating chat, or copy a validated Claude/Codex resume command for an
   existing terminal. Remote sessions and older questions with no recorded source computer stay copy-only.
 - **Sessions:** find open local Codex and Claude Code sessions, including Claude Desktop Code chats,
-  even when they haven't connected to Agentbolt. Search by title or project and open a desktop chat
-  directly. Recent chats stay collapsed; terminal sessions offer resume. [Discovery and limits](docs/SESSIONS.md).
+  even when they haven't connected to Agentbolt. Search local chat messages, titles and projects, then
+  open a desktop chat directly. Running sessions have an activity animation; idle and recent chats stay
+  collapsed. Terminal sessions offer resume. [Discovery and limits](docs/SESSIONS.md).
 - **Agent Board:** roles and current work, routed messages, deduplicated handoffs, one claimant per request,
   and renewable leases with fencing tokens. A stale claimant cannot overwrite a later claimant's result.
 - **Work holds:** explicitly allowlisted working copies expose dirty/unpushed paths; agents can check for
@@ -73,8 +112,23 @@ agent ──stdio──► agentbolt mcp ──user-only pipe──► agentbolt
 - **Integrations:** link an existing Beads issue to a Board handoff; give Reception durable notes delivery;
   derive PR paths from Git for work-hold checks. [Beads](docs/BEADS.md), [workflow adapters](docs/WORKFLOW-INTEGRATION.md).
 
-## Install
-Extract the Windows release ZIP, keep its three programs together, and run `agentbolt.exe install`.
+## Build and install this snapshot
+
+There is no published binary release for this snapshot. With Rust/rustup and the Windows C++ build
+tools installed, build the pinned source from this repository:
+
+```powershell
+git clone https://github.com/skulitom/Agentbolt.git
+cd Agentbolt
+cargo build --release --locked -p agentbolt -p agentbolt-daemon -p agentbolt-desk
+.\target\release\agentbolt.exe install
+```
+
+The repository pins its Rust toolchain in [rust-toolchain.toml](rust-toolchain.toml). On Linux,
+`cargo build --release --locked -p agentbolt` builds the CLI/MCP executable; the Desk is Windows-only.
+
+If using a separately prepared Windows ZIP, extract it, keep its three programs together, and run
+`agentbolt.exe install`.
 For subsequent commands and MCP setup, use the installed copy in `%LOCALAPPDATA%\Programs\Agentbolt`.
 
 ```powershell
@@ -106,3 +160,8 @@ See [release preparation](docs/RELEASING.md) for archives, checksums, notices an
 
 ## Develop
 See [AGENTS.md](AGENTS.md). The old Node and C# AgentUI code is on the `legacy` branch.
+
+## License
+
+Agentbolt source is available under the [MIT License](LICENSE), copyright © 2026 Artem Skulimovskiy.
+Third-party dependencies retain their own licenses; packaged builds include their notices.
