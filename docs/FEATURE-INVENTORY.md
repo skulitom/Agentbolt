@@ -11,7 +11,9 @@ search and automatic agent access. These changes have release-build evidence, bu
 below have not been repeated on them. The [older `0229139` candidate](CANDIDATE-0229139.json) has passing
 platform/package/installed-upgrade, warm-start/idle and normal-session notification checks. Those results
 do not establish the latest code's readiness. Testing remains paused at Artem's request, including the
-reliability monitor. Remaining evidence is a backlog, not an instruction to restart testing.
+reliability monitor. Remaining evidence is a backlog, not an instruction to restart testing. The
+[refreshed `85c66d2` archives](CANDIDATE-85c66d2.json) contain the current code and updated notes;
+only build/package integrity was checked during that preparation, not the remaining runtime requirements.
 
 | Requirement | Implementation | Evidence still needed |
 |---|---|---|

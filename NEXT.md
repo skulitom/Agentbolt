@@ -240,6 +240,16 @@ covered by live regression fixtures. The follow-up review found no remaining act
   migration verify the account, executable, arguments and working folder; changed task snapshots are refused.
 
 ## Release work
+- **Current packaged review candidate — `85c66d2` (2026-10-23):** current Windows, Linux CLI/MCP and
+  Claude-plugin archives are in `target/dist-85c66d2`. Both locked release builds completed, and the
+  packager recorded source revision and binary hashes. Archive checksums and embedded binary hashes
+  match. The release notes include the later UI/session/message-search and automatic-agent changes.
+  [Candidate record and remaining requirements](docs/CANDIDATE-85c66d2.json).
+  This is packaging progress only: no tests, Clippy, licensing run, live-client/UI fixture, installer
+  check, performance measurement or reliability run was resumed. Earlier target notices were retained;
+  locked package names/versions/sources/checksums are unchanged. The existing main installation was
+  left untouched and still matches the automatic-agent build recorded in the UX log. Nothing was tagged
+  or published. Final-candidate verification remains required before production readiness can be claimed.
 - **Historical packaged review candidate — `0229139`:** Windows, Linux and Claude-plugin ZIPs are in
   `target/dist-0229139`, with checksums, source/binary manifests and complete current notices. Both
   extracted CLIs pass twelve-tool discovery under the 2025 and 2026 protocols without output schemas.
