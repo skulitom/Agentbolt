@@ -22,6 +22,9 @@ pub struct Page {
     snapshot: Snapshot,
     last: Option<Instant>,
     busy: bool,
+    /// Set only by the app's focused/visible/not-minimized polling gate.
+    active: bool,
+    refresh_requested: bool,
     search: String,
     app: AppFilter,
     background: bool,
@@ -38,6 +41,8 @@ impl Page {
             snapshot: Snapshot::default(),
             last: None,
             busy: false,
+            active: false,
+            refresh_requested: true,
             search: String::new(),
             app: AppFilter::All,
             background: false,
@@ -49,21 +54,29 @@ impl Page {
     }
 
     pub fn enter(&mut self) {
-        self.last = None;
+        self.refresh_requested = true;
         self.recent_open = None;
         self.other_open = None;
     }
 
-    pub fn poll(&mut self, visible: bool) {
+    pub fn poll(&mut self, active: bool) {
         if let Some(snapshot) = self.worker.latest() {
             self.snapshot = snapshot;
             self.busy = false;
             self.last = Some(Instant::now());
         }
+        // A completed in-flight batch may be collected while hidden, but must not schedule
+        // another. Keep a resume refresh pending even if that batch is still running.
+        self.refresh_requested |= active && !self.active;
+        self.active = active;
+        if !active {
+            return;
+        }
         let query = self.search.trim().to_lowercase();
-        let refresh = self
-            .last
-            .is_none_or(|t| t.elapsed() >= Duration::from_secs(2));
+        let refresh = self.refresh_requested
+            || self
+                .last
+                .is_none_or(|t| t.elapsed() >= Duration::from_secs(2));
         let ready = self
             .query_changed
             .is_none_or(|t| t.elapsed() >= Duration::from_millis(180));
@@ -72,12 +85,11 @@ impl Page {
             && self
                 .last
                 .is_none_or(|t| t.elapsed() >= Duration::from_millis(200));
-        if visible
-            && !self.busy
-            && ready
-            && (refresh || query != self.snapshot.query || continue_messages)
-        {
+        if !self.busy && ready && (refresh || query != self.snapshot.query || continue_messages) {
             self.busy = self.worker.refresh(&query, refresh);
+            if self.busy {
+                self.refresh_requested = false;
+            }
         }
     }
 
@@ -102,12 +114,14 @@ impl Page {
             if !self.search.is_empty() && ui.button("Clear").clicked() {
                 self.search.clear();
                 self.query_changed = None;
+                ui.ctx().request_repaint();
             }
             if ui
                 .add_enabled(!self.busy, egui::Button::new("Refresh"))
                 .clicked()
             {
-                self.last = None;
+                self.refresh_requested = true;
+                ui.ctx().request_repaint();
             }
         });
         ui.horizontal_wrapped(|ui| {
@@ -127,8 +141,9 @@ impl Page {
             });
         });
         ui.add_space(8.0);
-        self.poll(true);
-        if self.snapshot.messages_pending {
+        // Rendering can also happen for a hidden warm Desk. Only the app's poll gate
+        // starts discovery/indexing; rendering must never turn background work back on.
+        if self.active && !self.search.trim().is_empty() && self.snapshot.messages_pending {
             ui.ctx().request_repaint_after(Duration::from_millis(200));
         }
         let query = self.search.trim().to_lowercase();
@@ -161,7 +176,8 @@ impl Page {
             .filter(|s| !s.open)
             .take(crate::sessions::recent_limit())
             .collect();
-        let animate = ui.style().animation_time > 0.0
+        let animate = self.active
+            && ui.style().animation_time > 0.0
             && self
                 .last
                 .is_some_and(|t| t.elapsed() < Duration::from_secs(10))
@@ -175,7 +191,7 @@ impl Page {
                 ui.horizontal(|ui| {
                     ui.strong(if searching { "Searching chats…".into() } else { format!("Search results ({})", matches.len()) });
                     if !searching { ui.weak("Best matches first"); }
-                    if self.busy || searching { ui.spinner(); }
+                    if self.active && (self.busy || searching) { ui.spinner(); }
                 });
                 ui.add_space(4.0);
                 if let Some((done,total)) = self.snapshot.message_progress && self.snapshot.messages_pending {
@@ -195,7 +211,7 @@ impl Page {
             } else {
             ui.horizontal(|ui| {
                 ui.strong(format!("Running now ({})", running.len()));
-                if self.busy { ui.spinner(); }
+                if self.active && self.busy { ui.spinner(); }
             });
             ui.add_space(4.0);
             if running.is_empty() && !self.busy {

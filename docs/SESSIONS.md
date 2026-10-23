@@ -30,8 +30,12 @@ discarded from the view. Messages start indexing when a nonempty search is enter
 is provisional while “Searching local messages” shows progress. Live message sources are checked
 about every 15 seconds after the initial scan; the session activity view still refreshes every two.
 Messages, queries, and the SQLite search index stay in memory (including temporary sorting). Agentbolt
-does not upload them or persist another copy. Clearing the query stops further message indexing;
-closing the Desk process releases the cache.
+does not upload them or persist another copy. Clearing the query stops further message indexing.
+Discovery and indexing also stop scheduling new batches when the Desk is hidden, minimized, unfocused,
+or showing another tab. A batch already in flight may finish; its result is retained without starting
+another. Returning to focused Sessions requests fresh activity metadata even if an older batch is still
+finishing. Progress spinners, search-progress repaints and running-card animations use the same activity
+gate. Closing the Desk process releases the cache.
 
 Metadata covers the latest 5,000 unarchived Codex chats plus older open chats, and retained Claude
 session registry entries. Message search also finds up to 5,000 local Claude transcript files, including

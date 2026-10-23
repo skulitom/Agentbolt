@@ -32,6 +32,10 @@ with matching excerpts and an in-memory index. [Search scope and bounds](docs/SE
 All agents are now enabled automatically, including existing pending registrations. The owner-review
 queue and approval prompts are removed; Settings → Agent preferences contains optional notifications
 and reply delivery. Available friendly names apply immediately without changing access to other chats.
+A 2026-10-23 source audit found that rendering Sessions could bypass its visibility gate. That path
+is removed: discovery and indexing schedule only while Sessions is focused and visible; search-progress
+repaints and animations pause when inactive. Reopening requests fresh metadata. Runtime idle CPU and
+startup timing on this change remain unverified while testing is paused.
 
 **Current scope (Artem, 2026-10-18): implement the full plan, including M2–M7.** This overrides the older
 handoff's M0/M1 limit and the evidence gate before building the Board. Finish all features before heavy
