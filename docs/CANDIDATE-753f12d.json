@@ -1,0 +1,155 @@
+{
+  "date": "2026-10-23",
+  "sourceRevision": "753f12d57597c7bf39ec7c9f0536454323c8d798",
+  "applicationSourceRevision": "753f12d57597c7bf39ec7c9f0536454323c8d798",
+  "version": "0.2.0",
+  "status": "unsigned local review candidate; production readiness unverified; testing paused",
+  "scope": "Current application including the Sessions visibility-gate fix; build/package evidence only",
+  "artifacts": {
+    "windows-x64/agentbolt-0.2.0-claude-plugin.zip": {
+      "path": "target/dist-753f12d/windows-x64/agentbolt-0.2.0-claude-plugin.zip",
+      "bytes": 20488,
+      "sha256": "c5337f94cf515496565022f891d89f0912a701ef02b0e9c86cc7bf2a116e77dc"
+    },
+    "windows-x64/agentbolt-0.2.0-windows-x64.zip": {
+      "path": "target/dist-753f12d/windows-x64/agentbolt-0.2.0-windows-x64.zip",
+      "bytes": 10752152,
+      "sha256": "768882426616703e2dac839338b8f20f7b4f75ae5dbc9ed9c6ef0278dcc5c3ce"
+    },
+    "windows-x64/scoop/agentbolt.json": {
+      "path": "target/dist-753f12d/windows-x64/scoop/agentbolt.json",
+      "bytes": 1317,
+      "sha256": "3d6fa83377a7937b0c494c9f0ef42df122311620113fe3f3676dbc939bb000f7"
+    },
+    "windows-x64/server.json": {
+      "path": "target/dist-753f12d/windows-x64/server.json",
+      "bytes": 459,
+      "sha256": "0d04c2b66bd6cf3b1aa1215794095b8361d37f9c404e489ac6802daabee69195"
+    },
+    "windows-x64/SHA256SUMS": {
+      "path": "target/dist-753f12d/windows-x64/SHA256SUMS",
+      "bytes": 460,
+      "sha256": "717554406e1f8519622798c29b5b4bce979bbb09be86200c3b1763461aaa58f6"
+    },
+    "windows-x64/winget/Skulitom.Agentbolt.yaml": {
+      "path": "target/dist-753f12d/windows-x64/winget/Skulitom.Agentbolt.yaml",
+      "bytes": 1655,
+      "sha256": "ae152f00a45e7dfbe8b964383a6b263ee0d156cd37ea5a186f0f0dee0910d641"
+    },
+    "linux-x64/agentbolt-0.2.0-linux-x64.zip": {
+      "path": "target/dist-753f12d/linux-x64/agentbolt-0.2.0-linux-x64.zip",
+      "bytes": 1640572,
+      "sha256": "0b7ca8ac1d802b618734d1d8e979c481216addfa96da0349da5cbac7defbc393"
+    },
+    "linux-x64/server.json": {
+      "path": "target/dist-753f12d/linux-x64/server.json",
+      "bytes": 459,
+      "sha256": "0d04c2b66bd6cf3b1aa1215794095b8361d37f9c404e489ac6802daabee69195"
+    },
+    "linux-x64/SHA256SUMS": {
+      "path": "target/dist-753f12d/linux-x64/SHA256SUMS",
+      "bytes": 174,
+      "sha256": "8bd5163253e4288084afe2d97f6ece6670beffd8332021087f4cbc914803956a"
+    }
+  },
+  "packagedPrograms": {
+    "windows-x64": {
+      "binarySha256": {
+        "agentbolt-daemon.exe": "6981a4c11eacbf31eb33a7422a4f6122ea0317b0758d5bc74e42a90170fee92b",
+        "agentbolt-desk.exe": "0c1c83c15c0aa63c053c39c3eddf3d538a3445ca6706373c43137d071b70ce1f",
+        "agentbolt.exe": "937ee28deb06750aebd38fb306b519c6fa0fccfa8d586ca9791d1e9a39bc2667"
+      },
+      "codeSigned": false,
+      "linuxSupport": "CLI/MCP discovery, tools and SSH client; the installed Desk requires Windows",
+      "name": "Agentbolt",
+      "revision": "753f12d57597c7bf39ec7c9f0536454323c8d798",
+      "target": "windows-x64",
+      "version": "0.2.0"
+    },
+    "linux-x64": {
+      "binarySha256": {
+        "agentbolt": "0d8106f11efc7cc4935b05afe4a36f17476feabd6b0722649aefdc8b9e82840f"
+      },
+      "codeSigned": false,
+      "linuxSupport": "CLI/MCP discovery, tools and SSH client; the installed Desk requires Windows",
+      "name": "Agentbolt",
+      "revision": "753f12d57597c7bf39ec7c9f0536454323c8d798",
+      "target": "linux-x64",
+      "version": "0.2.0"
+    }
+  },
+  "notices": {
+    "windows-x64": {
+      "source": "target/dist-0229139/extracted-windows-x64/THIRD_PARTY_NOTICES.md",
+      "sha256": "ecfb245c38085a237949ba6d5449b408a04558fe23d3ff58e12c75ae5fe12b42",
+      "freshPolicyCheck": false,
+      "note": "Reused earlier target notices; locked package names/versions/sources/checksums unchanged. No licensing run was resumed."
+    },
+    "linux-x64": {
+      "source": "target/dist-0229139/extracted-linux-x64/THIRD_PARTY_NOTICES.md",
+      "sha256": "84873ccd0367bcc25ef9fe390e44c8c7d29c31c814a66ec8ec3927b0092968f9",
+      "freshPolicyCheck": false,
+      "note": "Reused earlier target notices; locked package names/versions/sources/checksums unchanged. No licensing run was resumed."
+    }
+  },
+  "preparation": {
+    "windows": "locked release build and package completed",
+    "linux": "locked CLI/MCP release build and package completed in Ubuntu WSL",
+    "plugin": "packaged from the same committed source",
+    "cliVersion": "packager required agentbolt 0.2.0 on each platform",
+    "sourceTree": "clean at both package starts and after both builds",
+    "packageIntegrity": "archive digests, embedded binary hashes and source revision checked without launching app fixtures"
+  },
+  "validation": {
+    "newAutomatedTests": false,
+    "newClippy": false,
+    "newLicenseChecks": false,
+    "newUiOrLiveClientChecks": false,
+    "newInstallerOrUpgradeChecks": false,
+    "newPerformanceOrReliabilityRun": false,
+    "historicalEvidence": "docs/CANDIDATE-0229139.json and linked reports describe earlier sources; not validation of this candidate"
+  },
+  "unverifiedReleaseRequirements": [
+    "Final-source Windows workspace and Linux core/IPC/MCP/daemon checks, clippy, repo guard and dependency policy",
+    "Fast cold or warm Desk timing and hidden-window/default-clock behavior on the current build",
+    "Idle CPU below 0.5 percent of one core with session discovery and message search present",
+    "Exact Claude Desktop and Codex chat navigation and terminal resume on normal desktop",
+    "Current-host active, idle and finished Codex delivery with original sandbox and approval policy",
+    "Current-candidate security, wrong-option/replayed toast tokens and silent live notifications",
+    "Final archive install, open-Desk/MCP upgrade, rollback, older-release preservation and uninstall on throwaway channels",
+    "A fresh uninterrupted 72-hour scheduled reliability run; interrupted runs cannot be resumed or accumulated",
+    "Native historical-remake scenarios and all latest UI/search/automatic-agent regressions"
+  ],
+  "externalIntegrationEvidenceStillOpen": [
+    "Full Claude long-wait timeout/background transition and authorized dispatcher/next-run rollout",
+    "Protected phone service and offline/replay/revocation behavior",
+    "Actual second-machine SSH deployment and authorized PR/merge holds workflow",
+    "Baseline/adoption observation and Artem verdict after explicitly authorized rollout",
+    "Hosted provenance, distribution acceptance and outside adoption after an authorized publication"
+  ],
+  "releaseActions": {
+    "tagged": false,
+    "published": false,
+    "installedThisPass": true,
+    "codeSigned": false,
+    "signing": "deferred beyond 0.2 by Artem"
+  },
+  "sourceLockSha256": "5888347bdd589580ec6793d76e1423358560e1673d1b739438e26b042a574d2d",
+  "supersedes": "docs/CANDIDATE-85c66d2.json",
+  "changesSincePreviousCandidate": [
+    "Removed renderer-driven discovery/indexing that bypassed the app visibility gate",
+    "Paused session progress repaints, spinners and running-card animation while inactive",
+    "Preserved a fresh-metadata request across an in-flight batch when returning to Sessions"
+  ],
+  "mainInstallUpdate": {
+    "installerJob": "j_dc5811ab50064897a7931e837827f16a",
+    "exitCode": 0,
+    "binarySha256": {
+      "agentbolt-daemon.exe": "6981a4c11eacbf31eb33a7422a4f6122ea0317b0758d5bc74e42a90170fee92b",
+      "agentbolt-desk.exe": "0c1c83c15c0aa63c053c39c3eddf3d538a3445ca6706373c43137d071b70ce1f",
+      "agentbolt.exe": "937ee28deb06750aebd38fb306b519c6fa0fccfa8d586ca9791d1e9a39bc2667"
+    },
+    "source": "target/dist-753f12d/install-windows-x64",
+    "scope": "Normal supported app update; not an isolated installer/upgrade validation run"
+  }
+}

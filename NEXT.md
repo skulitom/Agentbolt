@@ -244,7 +244,15 @@ covered by live regression fixtures. The follow-up review found no remaining act
   migration verify the account, executable, arguments and working folder; changed task snapshots are refused.
 
 ## Release work
-- **Current packaged review candidate — `85c66d2` (2026-10-23):** current Windows, Linux CLI/MCP and
+- **Current packaged review candidate — `753f12d` (2026-10-23):** replaces `85c66d2` with the Sessions
+  visibility-gate repair. Windows, Linux CLI/MCP and Claude-plugin archives are in `target/dist-753f12d`.
+  The Desk and both package builds succeeded; archive checksums and binary manifests match. The normal
+  app was updated through the supported draft-preserving installer (exit 0); all three installed programs
+  match the Windows archive. [Candidate record](docs/CANDIDATE-753f12d.json).
+  This normal update does not replace isolated installer/upgrade checks. No test, Clippy, licensing,
+  UI fixture, performance or reliability run was started. Idle CPU and reopening targets on this repair
+  still require measurement after testing is resumed. No release was tagged or published.
+- **Previous packaged review candidate — `85c66d2` (2026-10-23):** current Windows, Linux CLI/MCP and
   Claude-plugin archives are in `target/dist-85c66d2`. Both locked release builds completed, and the
   packager recorded source revision and binary hashes. Archive checksums and embedded binary hashes
   match. The release notes include the later UI/session/message-search and automatic-agent changes.
