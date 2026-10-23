@@ -4,6 +4,9 @@ The expanded M2–M7 features are implemented, with integration fixes and releas
 progress. This candidate has not been tagged or published. See [NEXT.md](../NEXT.md), the
 [feature inventory](FEATURE-INVENTORY.md) and [expanded validation](EXPANDED-VALIDATION.md) for current
 coverage and outstanding checks. Earlier [release evidence](PRODUCTION-READINESS.md) describes older code.
+Testing has been paused since 2026-10-19. The later UX, session/message-search and automatic-agent changes
+have been built and installed, but have not completed the final candidate checks. Preparing an archive
+or listing historical results below does not establish production readiness.
 
 The expanded candidate adds Board handoffs/claims, advisory working-copy holds, adoption reporting,
 protected phone choices, an SSH relay for other machines, Beads issue links and durable Reception/PR
@@ -25,9 +28,16 @@ resume still needs confirmation on this PC, whose default Terminal profile reque
 
 Edited answers can be sent as an atomic batch. Unsent drafts survive restarts and coordinated upgrades.
 Optional yes/no fields retain “Not answered” unless a value is chosen or supplied as the question's default.
-Agents are enabled automatically, including existing registrations previously waiting for review. Available friendly names take effect immediately. Optional controls live in Agent preferences. A supervisor restarts a failed daemon; installed tasks and
+Agents are enabled automatically, including existing registrations previously waiting for review.
+Available friendly names take effect immediately. Optional controls live in Agent preferences.
+A supervisor restarts a failed daemon; installed tasks and
 pipe discovery are isolated by Windows account. Upgrades preserve open MCP clients and reopen visible Desks
 in their original Windows sessions. Windows Installed Apps can detect and remove the installation.
+
+The Desk keeps past questions and idle/recent chats collapsed. Sessions highlights confirmed running
+work and offers direct navigation. Local keyword search covers chat titles, projects and visible
+Codex/Claude messages, with ranked results and matching excerpts. Queries and the message index stay
+in memory on this computer. Animation respects Windows' reduced-motion preference.
 
 Board and Activity sections support native accessibility Expand/Collapse actions. File/session copies,
 Unicode paste and Activity exports use the system clipboard. Activity records direct versus edited/batch

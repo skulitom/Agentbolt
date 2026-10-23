@@ -6,10 +6,12 @@ evidence gate. The table records implementation coverage, not observed behavior 
 Expanded features now have [focused local checks](EXPANDED-VALIDATION.md). Earlier release test reports
 refer to older commits; live integrations and production readiness remain unverified.
 
-**Current status:** the `0229139` candidate has passing platform/package/installed-upgrade checks,
-final warm startup/idle measurements and normal-session notification checks. Testing stopped at Artem's
-2026-10-19 request, including the fresh reliability run; its monitor is paused. Remaining evidence in
-the table is a backlog, not an instruction to restart testing. [Current candidate record](CANDIDATE-0229139.json).
+**Current status (2026-10-23):** source `1cca2b5` includes the later UI polish, local session/message
+search and automatic agent access. These changes have release-build evidence, but the broader checks
+below have not been repeated on them. The [older `0229139` candidate](CANDIDATE-0229139.json) has passing
+platform/package/installed-upgrade, warm-start/idle and normal-session notification checks. Those results
+do not establish the latest code's readiness. Testing remains paused at Artem's request, including the
+reliability monitor. Remaining evidence is a backlog, not an instruction to restart testing.
 
 | Requirement | Implementation | Evidence still needed |
 |---|---|---|

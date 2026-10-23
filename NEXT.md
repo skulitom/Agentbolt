@@ -115,8 +115,9 @@ Validated chat navigation, direct Inbox, Not needed, persistent mute and per-own
 Dedicated Codex delivery workers and execution-time wake-permission checks are implemented.
 Batch answering passed live GUI checks for edited choices, replies and required numeric forms, including
 disabled Send on invalid input and atomic delivery of all answers.
-Owner-name proposals now require explicit Desk approval and passed a live reject/approve MCP/GUI test;
-renaming preserves asks, answers, caps and preferences, with cross-owner claims refused.
+The older owner-review flow passed a live reject/approve MCP/GUI check. It was superseded by automatic
+agent access on 2026-10-19; names now apply immediately while preserving state and identity isolation.
+That older GUI result does not validate the current automatic-access behavior.
 The installed supervisor recovers from a killed daemon in 2 seconds; install, MCP-open upgrade and uninstall
 passed on a throwaway channel. Open-Desk upgrade now passes; the 72-hour soak remains pending.
 Mute, unmute, Not needed, its count and draft retention passed live GUI checks; live-client navigation remains
@@ -224,8 +225,9 @@ covered by live regression fixtures. The follow-up review found no remaining act
   the former DST calculation no longer controls admission.
 - **Done — blocking threads:** Codex deliveries have two dedicated workers and a bounded queue, with execution-time
   permission checks. Actual active/idle/finished-host delivery checks remain above.
-- **Done — batch answering and owner proposals:** live GUI/MCP fixtures verify edited batches, atomic answers,
-  proposal rejection/approval, preserved state and refusal of cross-owner claims.
+- **Implemented — batch answering and automatic agent access:** earlier live GUI/MCP fixtures cover edited
+  batches and atomic answers. Automatic access and immediate available names replaced the old approval flow;
+  source regression cases are updated but not run while testing is paused.
 - **Done — open-Desk upgrade:** the installer prepares every verified installed Desk before replacing
   files, waits for actual old processes and reopens visible windows in their original sessions. Live warm-Desk
   and cross-session tests preserve drafts and exchange MCP requests through an already-open old client.
@@ -238,14 +240,14 @@ covered by live regression fixtures. The follow-up review found no remaining act
   migration verify the account, executable, arguments and working folder; changed task snapshots are refused.
 
 ## Release work
-- **Current packaged review candidate — `0229139`:** Windows, Linux and Claude-plugin ZIPs are in
+- **Historical packaged review candidate — `0229139`:** Windows, Linux and Claude-plugin ZIPs are in
   `target/dist-0229139`, with checksums, source/binary manifests and complete current notices. Both
   extracted CLIs pass twelve-tool discovery under the 2025 and 2026 protocols without output schemas.
   Official winget/Scoop/MCP Registry schemas, `winget validate` and extracted-plugin strict validation
   pass. [Candidate hashes and scope](docs/CANDIDATE-0229139.json). The first expanded package attempt
   exposed an overlong Registry description; the generator is fixed and these archives replace it.
-  Application source is unchanged from the desktop build installed at Artem's request. These exact
-  archives now pass installed open-Desk/MCP upgrade, older-schema preservation and clean uninstall in
+  This predates the later UI, session/search and automatic-agent changes installed on the desktop. These exact
+  older archives pass installed open-Desk/MCP upgrade, older-schema preservation and clean uninstall in
   Anode on `insttest-186943b533b40` (8.87 seconds), final warm startup/idle checks and normal-session
   silent notification/body/button checks. Remaining live integrations and 72-hour evidence are unverified;
   testing is paused. Nothing was published.
@@ -267,7 +269,7 @@ covered by live regression fixtures. The follow-up review found no remaining act
   registration; it now reports 0.2.0 there too. All three program hashes still match the requested build,
   and supervisor, worker and Desk remain in Artem's normal session 1. This completed the requested
   real app update, independently of the synthetic test fixtures.
-- **Current implementation build — `d33c261`:** all three Windows release programs and the Linux CLI
+- **Historical implementation build — `d33c261`:** all three Windows release programs and the Linux CLI
   compile from the locked dependency graph. Both CLIs report version 0.2.0. Copies and checksums are preserved
   under `target/prepared-d33c261`; [the build record](docs/BUILD-d33c261.json) pins their source and scope.
   These are raw unsigned binaries, not new release ZIPs. The named feature implementation is present;
